@@ -54,6 +54,15 @@ class GraphModel: ObservableObject {
         timer = nil
     }
     
+    func boundingBox() -> CGRect {
+        guard !nodes.isEmpty else { return .zero }
+        let minX = nodes.map { $0.position.x }.min()!
+        let maxX = nodes.map { $0.position.x }.max()!
+        let minY = nodes.map { $0.position.y }.min()!
+        let maxY = nodes.map { $0.position.y }.max()!
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+    
     private func applyPhysics() {
         var forces: [UUID: CGPoint] = [:]
         let center = CGPoint(x: 150, y: 150)  // Approximate screen center
@@ -107,7 +116,7 @@ class GraphModel: ObservableObject {
     }
 }
 
-// Extensions for arithmetic (unchanged)
+// Extensions for arithmetic
 extension CGPoint {
     static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
         CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
