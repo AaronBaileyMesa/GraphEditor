@@ -14,10 +14,12 @@ struct ContentView: View {
     @State private var dragOffset: CGSize = .zero
     @State private var potentialEdgeTarget: Node? = nil
     @State private var ignoreNextCrownChange: Bool = false
+    @State private var selectedNodeID: UUID? = nil
     
     let numZoomLevels = 6
     let nodeModelRadius: CGFloat = 10.0
     let hitScreenRadius: CGFloat = 30.0  // For easier tapping
+    let tapThreshold: CGFloat = 5.0  // Pixels for distinguishing tap from drag
     
     var body: some View {
         GeometryReader { geo in
@@ -53,9 +55,14 @@ struct ContentView: View {
                     let pos = (draggedNode?.id == node.id ? node.position + dragOffset : node.position).applying(transform)
                     let scaledRadius = nodeModelRadius * zoomScale
                     context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
+                    if node.id == selectedNodeID {
+                        let borderWidth = 4 * zoomScale
+                        let borderRadius = scaledRadius + borderWidth / 2
+                        context.stroke(Path(ellipseIn: CGRect(x: pos.x - borderRadius, y: pos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
+                    }
                 }
             }
-            .gesture(DragGesture()
+            .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
                         .scaledBy(x: zoomScale, y: zoomScale)
@@ -76,29 +83,42 @@ struct ContentView: View {
                     }
                 }
                 .onEnded { value in
+                    let dragDistance = hypot(value.translation.width, value.translation.height)
                     if let node = draggedNode,
                        let index = graph.nodes.firstIndex(where: { $0.id == node.id }) {
-                        if let target = potentialEdgeTarget, target.id != node.id,
-                           !graph.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
-                            // Add edge instead of moving
-                            graph.edges.append(Edge(from: node.id, to: target.id))
-                            graph.startSimulation()  // Re-run sim after edit
+                        if dragDistance < tapThreshold {
+                            // Treat as tap: toggle selection and center if selected
+                            if selectedNodeID == node.id {
+                                selectedNodeID = nil
+                            } else {
+                                selectedNodeID = node.id
+                                // Center view on selected node
+                                let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                                let worldPoint = node.position
+                                offset = CGSize(width: viewCenter.x - worldPoint.x * zoomScale, height: viewCenter.y - worldPoint.y * zoomScale)
+                            }
                         } else {
-                            // Move node
-                            var updatedNode = graph.nodes[index]
-                            updatedNode.position += dragOffset
-                            graph.nodes[index] = updatedNode
+                            if let target = potentialEdgeTarget, target.id != node.id,
+                               !graph.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
+                                // Add edge
+                                graph.edges.append(Edge(from: node.id, to: target.id))
+                                graph.startSimulation()
+                            } else {
+                                // Move node
+                                var updatedNode = graph.nodes[index]
+                                updatedNode.position += dragOffset
+                                graph.nodes[index] = updatedNode
+                            }
                         }
                     } else {
-                        // Tap (short drag): add node
-                        if value.translation.width == 0 && value.translation.height == 0 {
-                            let touchPos = value.location.applying(
-                                CGAffineTransform(translationX: offset.width, y: offset.height)
-                                    .scaledBy(x: zoomScale, y: zoomScale)
-                                    .inverted()
-                            )
+                        if dragDistance < tapThreshold {
+                            // Tap on empty space: add node
+                            let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                                .scaledBy(x: zoomScale, y: zoomScale)
+                                .inverted()
+                            let touchPos = value.location.applying(inverseTransform)
                             graph.nodes.append(Node(position: touchPos))
-                            graph.startSimulation()  // Re-run sim after add
+                            graph.startSimulation()
                         }
                     }
                     updateZoomRanges()
@@ -124,7 +144,7 @@ struct ContentView: View {
                 viewSize = geo.size
                 updateZoomRanges()
             }
-            .onChange(of: geo.size) { oldSize, newSize in
+            .onChange(of: geo.size) { newSize in
                 viewSize = newSize
                 updateZoomRanges()
             }
