@@ -1,6 +1,7 @@
 import SwiftUI
 import Combine
 
+// Represents a node in the graph with position and velocity for physics simulation.
 struct Node: Identifiable, Equatable, Codable {
     let id: UUID
     var position: CGPoint
@@ -41,6 +42,7 @@ struct Node: Identifiable, Equatable, Codable {
     }
 }
 
+// Represents an edge connecting two nodes.
 struct Edge: Identifiable, Equatable, Codable {
     let id: UUID
     let from: UUID
@@ -53,6 +55,7 @@ struct Edge: Identifiable, Equatable, Codable {
     }
 }
 
+// Snapshot of the graph state for undo/redo.
 struct GraphState: Codable {
     let nodes: [Node]
     let edges: [Edge]
@@ -74,14 +77,17 @@ class GraphModel: ObservableObject {
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
     
+    // Indicates if undo is possible.
     var canUndo: Bool {
         !undoStack.isEmpty
     }
     
+    // Indicates if redo is possible.
     var canRedo: Bool {
         !redoStack.isEmpty
     }
     
+    // Initializes the graph model, loading from persistence if available.
     init() {
         load()
         if nodes.isEmpty && edges.isEmpty {
@@ -95,21 +101,25 @@ class GraphModel: ObservableObject {
                 Edge(from: nodes[1].id, to: nodes[2].id),
                 Edge(from: nodes[2].id, to: nodes[0].id)
             ]
+            save()  // Save default graph
         }
     }
     
+    // Starts the physics simulation timer.
     func startSimulation() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { [weak self] _ in  // Lower FPS for battery
+        timer = Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { [weak self] _ in
             self?.applyPhysics()
         }
     }
     
+    // Stops the physics simulation timer.
     func stopSimulation() {
         timer?.invalidate()
         timer = nil
     }
     
+    // Calculates the bounding box of all nodes.
     func boundingBox() -> CGRect {
         guard !nodes.isEmpty else { return .zero }
         let minX = nodes.map { $0.position.x }.min()!
@@ -119,6 +129,7 @@ class GraphModel: ObservableObject {
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
     
+    // Applies one step of physics simulation to the graph.
     private func applyPhysics() {
         print("Starting physics step. Nodes: \(nodes.count)")
         var forces: [UUID: CGPoint] = [:]
@@ -165,8 +176,8 @@ class GraphModel: ObservableObject {
             node.velocity += force * (1/60)
             node.velocity *= damping
             node.position += node.velocity * (1/60)
-            node.position.x = max(0, min(300, node.position.x))
-            node.position.y = max(0, min(300, node.position.y))
+            node.position.x = max(CGFloat(0), min(CGFloat(300), node.position.x))
+            node.position.y = max(CGFloat(0), min(CGFloat(300), node.position.y))
             nodes[i] = node
         }
         
@@ -179,6 +190,7 @@ class GraphModel: ObservableObject {
         print("Physics step complete. Total velocity: \(totalVelocity)")
     }
     
+    // Saves the current graph state to persistence.
     func save() {
         let encoder = JSONEncoder()
         if let nodeData = try? encoder.encode(nodes) {
@@ -189,6 +201,7 @@ class GraphModel: ObservableObject {
         }
     }
     
+    // Loads the graph state from persistence.
     func load() {
         let decoder = JSONDecoder()
         let loadedNodes = UserDefaults.standard.data(forKey: "graphNodes").flatMap { try? decoder.decode([Node].self, from: $0) } ?? []
@@ -197,6 +210,7 @@ class GraphModel: ObservableObject {
         edges = loadedEdges
     }
     
+    // Creates a snapshot of the current state for undo/redo and saves.
     func snapshot() {
         let state = GraphState(nodes: nodes, edges: edges)
         undoStack.append(state)
@@ -204,8 +218,10 @@ class GraphModel: ObservableObject {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
+        save()  // Ensure persistence on snapshot
     }
     
+    // Undoes the last action if possible, with haptic feedback.
     func undo() {
         if !undoStack.isEmpty {
             let current = GraphState(nodes: nodes, edges: edges)
@@ -218,8 +234,10 @@ class GraphModel: ObservableObject {
         } else {
             WKInterfaceDevice.current().play(.failure)
         }
+        save()  // Save after undo
     }
     
+    // Redoes the last undone action if possible, with haptic feedback.
     func redo() {
         if !redoStack.isEmpty {
             let current = GraphState(nodes: nodes, edges: edges)
@@ -232,8 +250,10 @@ class GraphModel: ObservableObject {
         } else {
             WKInterfaceDevice.current().play(.failure)
         }
+        save()  // Save after redo
     }
     
+    // Deletes a node and its connected edges, snapshotting first.
     func deleteNode(withID id: UUID) {
         snapshot()
         nodes.removeAll { $0.id == id }
@@ -241,6 +261,7 @@ class GraphModel: ObservableObject {
         startSimulation()
     }
     
+    // Deletes an edge, snapshotting first.
     func deleteEdge(withID id: UUID) {
         snapshot()
         edges.removeAll { $0.id == id }
@@ -248,16 +269,14 @@ class GraphModel: ObservableObject {
     }
 }
 
-// Extensions for arithmetic
-// Add this at the end of GraphModel.swift
-
+// Extensions for arithmetic operations on CGPoint and CGSize (moved here to ensure visibility).
 extension CGPoint {
-    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
-    }
-    
     static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
         CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
+    }
+    
+    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
     }
     
     static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
@@ -268,16 +287,24 @@ extension CGPoint {
         CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
     }
     
-    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
-        lhs = lhs - rhs
-    }
-    
     static func += (lhs: inout CGPoint, rhs: CGPoint) {
         lhs = lhs + rhs
     }
     
+    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
+        lhs = lhs - rhs
+    }
+    
     static func *= (lhs: inout CGPoint, rhs: CGFloat) {
         lhs = lhs * rhs
+    }
+    
+    static func + (lhs: CGPoint, rhs: CGSize) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.width, y: lhs.y + rhs.height)
+    }
+    
+    static func += (lhs: inout CGPoint, rhs: CGSize) {
+        lhs = lhs + rhs
     }
     
     var magnitude: CGFloat {

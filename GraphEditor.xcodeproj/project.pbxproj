@@ -47,9 +47,33 @@
 		4ED767952E3C7DFC00929FA8 /* GraphEditor Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GraphEditor Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4ED767A42E3C9C9200929FA8 /* Exceptions for "GraphEditor Watch App" folder in "GraphEditor Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Utilities.swift,
+			);
+			target = 4ED427712E3BF44700DEF801 /* GraphEditor Watch App */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+		4ED767A52E3C9C9200929FA8 /* Exceptions for "GraphEditor Watch App" folder in "Copy Bundle Resources" phase from "GraphEditor Watch App" target */ = {
+			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
+			buildPhase = 4ED427702E3BF44700DEF801 /* Resources */;
+			membershipExceptions = (
+				Utilities.swift,
+			);
+		};
+/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4ED427762E3BF44700DEF801 /* GraphEditor Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4ED767A42E3C9C9200929FA8 /* Exceptions for "GraphEditor Watch App" folder in "GraphEditor Watch App" target */,
+				4ED767A52E3C9C9200929FA8 /* Exceptions for "GraphEditor Watch App" folder in "Copy Bundle Resources" phase from "GraphEditor Watch App" target */,
+			);
 			path = "GraphEditor Watch App";
 			sourceTree = "<group>";
 		};

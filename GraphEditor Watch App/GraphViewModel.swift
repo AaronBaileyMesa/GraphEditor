@@ -5,11 +5,18 @@
 //  Created by handcart on 7/31/25.
 //
 
-
 import SwiftUI
 
 class GraphViewModel: ObservableObject {
     @ObservedObject var model: GraphModel
+    
+    var canUndo: Bool {
+        model.canUndo
+    }
+    
+    var canRedo: Bool {
+        model.canRedo
+    }
     
     init(model: GraphModel) {
         self.model = model
