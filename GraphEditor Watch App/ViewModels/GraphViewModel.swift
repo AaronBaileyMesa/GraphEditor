@@ -1,5 +1,14 @@
+//
+//  GraphViewModel.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/1/25.
+//
+
+
+// ViewModels/GraphViewModel.swift
 import SwiftUI
-import Combine  // Add this import for AnyCancellable
+import Combine
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
@@ -32,11 +41,11 @@ class GraphViewModel: ObservableObject {
         model.redo()
     }
     
-    func deleteNode(withID id: UUID) {
+    func deleteNode(withID id: NodeID) {
         model.deleteNode(withID: id)
     }
     
-    func deleteEdge(withID id: UUID) {
+    func deleteEdge(withID id: NodeID) {
         model.deleteEdge(withID: id)
     }
 }

@@ -51,7 +51,7 @@
 		4ED767A42E3C9C9200929FA8 /* Exceptions for "GraphEditor Watch App" folder in "GraphEditor Watch App" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Utilities.swift,
+				Utilities/Utilities.swift,
 			);
 			target = 4ED427712E3BF44700DEF801 /* GraphEditor Watch App */;
 		};
@@ -62,7 +62,7 @@
 			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
 			buildPhase = 4ED427702E3BF44700DEF801 /* Resources */;
 			membershipExceptions = (
-				Utilities.swift,
+				Utilities/Utilities.swift,
 			);
 		};
 /* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
