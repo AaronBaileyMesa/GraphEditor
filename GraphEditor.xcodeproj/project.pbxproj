@@ -18,6 +18,13 @@
 			remoteGlobalIDString = 4ED427712E3BF44700DEF801;
 			remoteInfo = "GraphEditor Watch App";
 		};
+		4ED767992E3C7DFC00929FA8 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4ED427662E3BF44700DEF801 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4ED427712E3BF44700DEF801;
+			remoteInfo = "GraphEditor Watch App";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -37,6 +44,7 @@
 /* Begin PBXFileReference section */
 		4ED4276C2E3BF44700DEF801 /* GraphEditor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GraphEditor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4ED427722E3BF44700DEF801 /* GraphEditor Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "GraphEditor Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		4ED767952E3C7DFC00929FA8 /* GraphEditor Watch AppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "GraphEditor Watch AppTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,10 +53,22 @@
 			path = "GraphEditor Watch App";
 			sourceTree = "<group>";
 		};
+		4ED767962E3C7DFC00929FA8 /* GraphEditor Watch AppTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "GraphEditor Watch AppTests";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		4ED4276F2E3BF44700DEF801 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4ED767922E3C7DFC00929FA8 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -62,6 +82,7 @@
 			isa = PBXGroup;
 			children = (
 				4ED427762E3BF44700DEF801 /* GraphEditor Watch App */,
+				4ED767962E3C7DFC00929FA8 /* GraphEditor Watch AppTests */,
 				4ED4276D2E3BF44700DEF801 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -71,6 +92,7 @@
 			children = (
 				4ED4276C2E3BF44700DEF801 /* GraphEditor.app */,
 				4ED427722E3BF44700DEF801 /* GraphEditor Watch App.app */,
+				4ED767952E3C7DFC00929FA8 /* GraphEditor Watch AppTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -119,6 +141,29 @@
 			productReference = 4ED427722E3BF44700DEF801 /* GraphEditor Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
+		4ED767942E3C7DFC00929FA8 /* GraphEditor Watch AppTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4ED7679B2E3C7DFC00929FA8 /* Build configuration list for PBXNativeTarget "GraphEditor Watch AppTests" */;
+			buildPhases = (
+				4ED767912E3C7DFC00929FA8 /* Sources */,
+				4ED767922E3C7DFC00929FA8 /* Frameworks */,
+				4ED767932E3C7DFC00929FA8 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				4ED7679A2E3C7DFC00929FA8 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				4ED767962E3C7DFC00929FA8 /* GraphEditor Watch AppTests */,
+			);
+			name = "GraphEditor Watch AppTests";
+			packageProductDependencies = (
+			);
+			productName = "GraphEditor Watch AppTests";
+			productReference = 4ED767952E3C7DFC00929FA8 /* GraphEditor Watch AppTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -134,6 +179,10 @@
 					};
 					4ED427712E3BF44700DEF801 = {
 						CreatedOnToolsVersion = 16.4;
+					};
+					4ED767942E3C7DFC00929FA8 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 4ED427712E3BF44700DEF801;
 					};
 				};
 			};
@@ -153,6 +202,7 @@
 			targets = (
 				4ED4276B2E3BF44700DEF801 /* GraphEditor */,
 				4ED427712E3BF44700DEF801 /* GraphEditor Watch App */,
+				4ED767942E3C7DFC00929FA8 /* GraphEditor Watch AppTests */,
 			);
 		};
 /* End PBXProject section */
@@ -172,10 +222,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		4ED767932E3C7DFC00929FA8 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		4ED4276E2E3BF44700DEF801 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4ED767912E3C7DFC00929FA8 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -189,6 +253,11 @@
 			isa = PBXTargetDependency;
 			target = 4ED427712E3BF44700DEF801 /* GraphEditor Watch App */;
 			targetProxy = 4ED427742E3BF44700DEF801 /* PBXContainerItemProxy */;
+		};
+		4ED7679A2E3C7DFC00929FA8 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4ED427712E3BF44700DEF801 /* GraphEditor Watch App */;
+			targetProxy = 4ED767992E3C7DFC00929FA8 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -399,6 +468,47 @@
 			};
 			name = Release;
 		};
+		4ED7679C2E3C7DFC00929FA8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = X2UG4373KC;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "io.handcart.GraphEditor-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GraphEditor Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GraphEditor Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 11.5;
+			};
+			name = Debug;
+		};
+		4ED7679D2E3C7DFC00929FA8 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = X2UG4373KC;
+				GENERATE_INFOPLIST_FILE = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "io.handcart.GraphEditor-Watch-AppTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GraphEditor Watch App.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GraphEditor Watch App";
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 11.5;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -425,6 +535,15 @@
 			buildConfigurations = (
 				4ED427842E3BF44800DEF801 /* Debug */,
 				4ED427852E3BF44800DEF801 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		4ED7679B2E3C7DFC00929FA8 /* Build configuration list for PBXNativeTarget "GraphEditor Watch AppTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4ED7679C2E3C7DFC00929FA8 /* Debug */,
+				4ED7679D2E3C7DFC00929FA8 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
