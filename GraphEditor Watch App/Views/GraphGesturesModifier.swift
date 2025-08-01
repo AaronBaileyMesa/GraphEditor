@@ -111,47 +111,56 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             )
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                .onEnded { value in
-                    switch value {
-                    case .second(true, let drag?):
-                        let location = drag.location
-                        let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                            .scaledBy(x: zoomScale, y: zoomScale)
-                            .inverted()
-                        let worldPos = location.applying(inverseTransform)
-                        
-                        // Check for node hit
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
-                            viewModel.deleteNode(withID: hitNode.id)
-                            WKInterfaceDevice.current().play(.success)
-                            viewModel.model.startSimulation()
-                            return
-                        }
-                        
-                        // Check for edge hit (near midpoint)
-                        for edge in viewModel.model.edges {
-                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                let midX = (from.position.x + to.position.x)/2
-                                let midY = (from.position.y + to.position.y)/2
-                                if hypot(midX - worldPos.x, midY - worldPos.y) < hitScreenRadius / zoomScale {
-                                    viewModel.deleteEdge(withID: edge.id)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                        .onEnded { value in
+                            switch value {
+                            case .second(true, let drag?):
+                                let location = drag.location
+                                let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                                    .scaledBy(x: zoomScale, y: zoomScale)
+                                    .inverted()
+                                let worldPos = location.applying(inverseTransform)
+                                
+                                // Check for node hit (unchanged)
+                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
+                                    viewModel.deleteNode(withID: hitNode.id)
                                     WKInterfaceDevice.current().play(.success)
                                     viewModel.model.startSimulation()
                                     return
                                 }
+                                
+                                // Check for edge hit (now using point-to-line distance)
+                                for edge in viewModel.model.edges {
+                                    if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < hitScreenRadius / zoomScale {
+                                            viewModel.deleteEdge(withID: edge.id)
+                                            WKInterfaceDevice.current().play(.success)
+                                            viewModel.model.startSimulation()
+                                            return
+                                        }
+                                    }
+                                }
+                            default:
+                                break
                             }
                         }
-                    default:
-                        break
-                    }
-                }
-            )
+                    )
             .simultaneousGesture(TapGesture(count: 2)
                 .onEnded {
                     showMenu = true
                 }
             )
+    }
+    
+    // New helper function for point-to-line distance
+    private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
+        let lineVec = to - from
+        let pointVec = point - from
+        let lineLen = lineVec.magnitude
+        if lineLen == 0 { return distance(point, from) }
+        let t = max(0, min(1, (pointVec.x * lineVec.x + pointVec.y * lineVec.y) / (lineLen * lineLen)))
+        let projection = from + lineVec * t
+        return distance(point, projection)
     }
 }

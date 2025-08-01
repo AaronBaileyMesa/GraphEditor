@@ -9,6 +9,7 @@
 // Views/ContentView.swift
 import SwiftUI
 import WatchKit
+import GraphEditorShared
 
 struct ContentView: View {
     @StateObject var viewModel = GraphViewModel(model: GraphModel())
@@ -63,26 +64,6 @@ struct ContentView: View {
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
         }
         .ignoresSafeArea()
-        .onChange(of: crownPosition) { oldValue, newValue in
-            if ignoreNextCrownChange {
-                ignoreNextCrownChange = false
-                updateZoomScale(oldCrown: oldValue, adjustOffset: false)
-                return
-            }
-            
-            let maxCrown = Double(numZoomLevels - 1)
-            let clampedValue = max(0, min(newValue, maxCrown))
-            if clampedValue != newValue {
-                ignoreNextCrownChange = true
-                crownPosition = clampedValue
-                return
-            }
-            
-            if floor(newValue) != floor(oldValue) {
-                WKInterfaceDevice.current().play(.click)
-            }
-            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
-        }
         .onChange(of: scenePhase) {
             if scenePhase == .active {
                 viewModel.model.startSimulation()
@@ -205,6 +186,7 @@ struct ContentView: View {
         } else {
             progress = 1.0
         }
+        progress = progress.clamped(to: 0...1)  // Explicit clamp to [0,1]
         let newCrown = Double(progress * CGFloat(numZoomLevels - 1))
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
