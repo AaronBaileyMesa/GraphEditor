@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: UUID? = nil
     @State private var showMenu = false
+    @Environment(\.scenePhase) private var scenePhase
     
     let numZoomLevels = 6
     let nodeModelRadius: CGFloat = 10.0
@@ -24,114 +25,15 @@ struct ContentView: View {
     
     var body: some View {
         GeometryReader { geo in
-            Canvas { context, size in
-                let transform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                    .scaledBy(x: zoomScale, y: zoomScale)
-                
-                // Draw edges and their labels
-                for edge in viewModel.model.edges {
-                    if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                        let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
-                        let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
-                        context.stroke(Path { path in
-                            path.move(to: fromPos)
-                            path.addLine(to: toPos)
-                        }, with: .color(.blue), lineWidth: 2 * zoomScale)
-                        
-                        let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
-                        let fromLabel = fromNode.label
-                        let toLabel = toNode.label
-                        let edgeLabel = "\(min(fromLabel, toLabel))-\(max(fromLabel, toLabel))"
-                        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                        let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                        let resolvedText = context.resolve(text)
-                        context.draw(resolvedText, at: midpoint, anchor: .center)
-                    }
-                }
-                
-                // Draw potential new edge during drag
-                if let dragged = draggedNode, let target = potentialEdgeTarget {
-                    let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y).applying(transform)
-                    let toPos = target.position.applying(transform)
-                    context.stroke(Path { path in
-                        path.move(to: fromPos)
-                        path.addLine(to: toPos)
-                    }, with: .color(.green), style: StrokeStyle(lineWidth: 2 * zoomScale, dash: [5 * zoomScale]))
-                }
-                
-                // Draw nodes
-                for node in viewModel.model.nodes {
-                    let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
-                    let scaledRadius = nodeModelRadius * zoomScale
-                    context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
-                    if node.id == selectedNodeID {
-                        let borderWidth = 4 * zoomScale
-                        let borderRadius = scaledRadius + borderWidth / 2
-                        context.stroke(Path(ellipseIn: CGRect(x: pos.x - borderRadius, y: pos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
-                    }
-                    let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                    let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
-                    let resolvedText = context.resolve(text)
-                    context.draw(resolvedText, at: pos, anchor: .center)
-                }
-            }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(graphDescription())
-            .accessibilityHint("Double-tap for menu. Long press to delete selected.")
-            .modifier(GraphGesturesModifier(
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
-                viewSize: viewSize,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                hitScreenRadius: hitScreenRadius,
-                tapThreshold: tapThreshold,
-                maxZoom: maxZoom,
-                numZoomLevels: numZoomLevels,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: updateZoomRanges
-            ))
-            .onAppear {
-                viewSize = geo.size
-                updateZoomRanges()
-            }
+            graphCanvasView(geo: geo)
         }
         .sheet(isPresented: $showMenu) {
-            VStack {
-                Button("New Graph") {
-                    viewModel.snapshot()
-                    viewModel.model.nodes = []
-                    viewModel.model.edges = []
-                    showMenu = false
-                }
-                if let selected = selectedNodeID {
-                    Button("Delete Selected") {
-                        viewModel.deleteNode(withID: selected)
-                        selectedNodeID = nil
-                        showMenu = false
-                    }
-                }
-                Button("Undo") {
-                    viewModel.undo()
-                    showMenu = false
-                }
-                .disabled(!viewModel.canUndo)
-                Button("Redo") {
-                    viewModel.redo()
-                    showMenu = false
-                }
-                .disabled(!viewModel.canRedo)
-            }
+            menuView
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { oldValue, newValue in
+        .onChange(of: crownPosition) { newValue in
+            let oldValue = crownPosition  // Capture current before change
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 updateZoomScale(oldCrown: oldValue, adjustOffset: false)
@@ -152,11 +54,94 @@ struct ContentView: View {
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
         }
         .ignoresSafeArea()
-        .onAppear {
-            viewModel.model.startSimulation()
+        .onChange(of: crownPosition) { oldValue, newValue in
+            if ignoreNextCrownChange {
+                ignoreNextCrownChange = false
+                updateZoomScale(oldCrown: oldValue, adjustOffset: false)
+                return
+            }
+            
+            let maxCrown = Double(numZoomLevels - 1)
+            let clampedValue = max(0, min(newValue, maxCrown))
+            if clampedValue != newValue {
+                ignoreNextCrownChange = true
+                crownPosition = clampedValue
+                return
+            }
+            
+            if floor(newValue) != floor(oldValue) {
+                WKInterfaceDevice.current().play(.click)
+            }
+            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
+        }
+        .onChange(of: scenePhase) {
+            if scenePhase == .active {
+                viewModel.model.startSimulation()
+            } else {
+                viewModel.model.stopSimulation()
+            }
         }
         .onDisappear {
             viewModel.model.stopSimulation()
+        }
+    }
+    
+    private func graphCanvasView(geo: GeometryProxy) -> some View {
+        GraphCanvasView(
+            viewModel: viewModel,
+            zoomScale: $zoomScale,
+            offset: $offset,
+            draggedNode: $draggedNode,
+            dragOffset: $dragOffset,
+            potentialEdgeTarget: $potentialEdgeTarget,
+            selectedNodeID: $selectedNodeID,
+            viewSize: geo.size,
+            panStartOffset: $panStartOffset,
+            showMenu: $showMenu,
+            hitScreenRadius: hitScreenRadius,
+            tapThreshold: tapThreshold,
+            maxZoom: maxZoom,
+            numZoomLevels: numZoomLevels,
+            crownPosition: $crownPosition,
+            onUpdateZoomRanges: updateZoomRanges,
+            nodeModelRadius: nodeModelRadius
+        )
+        .onAppear {
+            viewSize = geo.size
+            updateZoomRanges()
+            viewModel.model.startSimulation()
+        }
+    }
+    
+    private var menuView: some View {
+        VStack {
+            Button("New Graph") {
+                viewModel.snapshot()
+                viewModel.model.nodes = []
+                viewModel.model.edges = []
+                showMenu = false
+                viewModel.model.startSimulation()
+            }
+            if let selected = selectedNodeID {
+                Button("Delete Selected") {
+                    viewModel.deleteNode(withID: selected)
+                    selectedNodeID = nil
+                    showMenu = false
+                    viewModel.model.startSimulation()
+                }
+            }
+            Button("Undo") {
+                viewModel.undo()
+                showMenu = false
+                viewModel.model.startSimulation()
+            }
+            .disabled(!viewModel.canUndo)
+            Button("Redo") {
+                viewModel.redo()
+                showMenu = false
+                viewModel.model.startSimulation()
+            }
+            .disabled(!viewModel.canRedo)
         }
     }
     
@@ -238,7 +223,123 @@ struct ContentView: View {
     }
 }
 
-// Custom modifier for graph gestures
+struct GraphCanvasView: View {
+    let viewModel: GraphViewModel
+    @Binding var zoomScale: CGFloat
+    @Binding var offset: CGSize
+    @Binding var draggedNode: Node?
+    @Binding var dragOffset: CGPoint
+    @Binding var potentialEdgeTarget: Node?
+    @Binding var selectedNodeID: UUID?
+    let viewSize: CGSize
+    @Binding var panStartOffset: CGSize?
+    @Binding var showMenu: Bool
+    let hitScreenRadius: CGFloat
+    let tapThreshold: CGFloat
+    let maxZoom: CGFloat
+    let numZoomLevels: Int
+    @Binding var crownPosition: Double
+    let onUpdateZoomRanges: () -> Void
+    let nodeModelRadius: CGFloat
+    
+    var body: some View {
+        Canvas { context, size in
+            let transform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                .scaledBy(x: zoomScale, y: zoomScale)
+            
+            // Draw edges and their labels
+            for edge in viewModel.model.edges {
+                if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
+                    let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
+                    context.stroke(Path { path in
+                        path.move(to: fromPos)
+                        path.addLine(to: toPos)
+                    }, with: .color(.blue), lineWidth: 2 * zoomScale)
+                    
+                    let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
+                    let fromLabel = fromNode.label
+                    let toLabel = toNode.label
+                    let edgeLabel = "\(min(fromLabel, toLabel))-\(max(fromLabel, toLabel))"
+                    let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                    let resolvedText = context.resolve(text)
+                    context.draw(resolvedText, at: midpoint, anchor: .center)
+                }
+            }
+            
+            // Draw potential new edge during drag
+            if let dragged = draggedNode, let target = potentialEdgeTarget {
+                let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y).applying(transform)
+                let toPos = target.position.applying(transform)
+                context.stroke(Path { path in
+                    path.move(to: fromPos)
+                    path.addLine(to: toPos)
+                }, with: .color(.green), style: StrokeStyle(lineWidth: 2 * zoomScale, dash: [5 * zoomScale]))
+            }
+            
+            // Draw nodes
+            for node in viewModel.model.nodes {
+                let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
+                let scaledRadius = nodeModelRadius * zoomScale
+                context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
+                if node.id == selectedNodeID {
+                    let borderWidth = 4 * zoomScale
+                    let borderRadius = scaledRadius + borderWidth / 2
+                    context.stroke(Path(ellipseIn: CGRect(x: pos.x - borderRadius, y: pos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
+                }
+                let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
+                let resolvedText = context.resolve(text)
+                context.draw(resolvedText, at: pos, anchor: .center)
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(graphDescription())
+        .accessibilityHint("Double-tap for menu. Long press to delete selected.")
+        .accessibilityChildren {
+            ForEach(viewModel.model.nodes) { node in
+                Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
+                    .accessibilityAction(named: "Select") {
+                        selectedNodeID = node.id
+                        WKInterfaceDevice.current().play(.click)
+                    }
+            }
+        }
+        .modifier(GraphGesturesModifier(
+            viewModel: viewModel,
+            zoomScale: $zoomScale,
+            offset: $offset,
+            draggedNode: $draggedNode,
+            dragOffset: $dragOffset,
+            potentialEdgeTarget: $potentialEdgeTarget,
+            selectedNodeID: $selectedNodeID,
+            viewSize: viewSize,
+            panStartOffset: $panStartOffset,
+            showMenu: $showMenu,
+            hitScreenRadius: hitScreenRadius,
+            tapThreshold: tapThreshold,
+            maxZoom: maxZoom,
+            numZoomLevels: numZoomLevels,
+            crownPosition: $crownPosition,
+            onUpdateZoomRanges: onUpdateZoomRanges
+        ))
+    }
+    
+    private func graphDescription() -> String {
+        var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
+        if let selectedID = selectedNodeID,
+           let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+            let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
+            desc += " Node \(selectedNode.label) selected with \(connections) connections."
+        } else {
+            desc += " No node selected."
+        }
+        return desc
+    }
+}
+
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
@@ -305,6 +406,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 var updatedNode = viewModel.model.nodes[index]
                                 updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
                                 viewModel.model.nodes[index] = updatedNode
+                                viewModel.model.startSimulation()
                             }
                         }
                     } else {
@@ -315,7 +417,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 .scaledBy(x: zoomScale, y: zoomScale)
                                 .inverted()
                             let touchPos = value.location.applying(inverseTransform)
-                            viewModel.model.addNode(at: touchPos)  // Use new addNode method
+                            viewModel.model.addNode(at: touchPos)
                             viewModel.model.startSimulation()
                         }
                     }
@@ -331,7 +433,7 @@ struct GraphGesturesModifier: ViewModifier {
                         if panStartOffset == nil {
                             panStartOffset = offset
                         }
-                        offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)  // Removed / zoomScale to prevent jumps
+                        offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
                     }
                 }
                 .onEnded { _ in
@@ -353,6 +455,7 @@ struct GraphGesturesModifier: ViewModifier {
                         if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
                             viewModel.deleteNode(withID: hitNode.id)
                             WKInterfaceDevice.current().play(.success)
+                            viewModel.model.startSimulation()
                             return
                         }
                         
@@ -365,6 +468,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 if hypot(midX - worldPos.x, midY - worldPos.y) < hitScreenRadius / zoomScale {
                                     viewModel.deleteEdge(withID: edge.id)
                                     WKInterfaceDevice.current().play(.success)
+                                    viewModel.model.startSimulation()
                                     return
                                 }
                             }

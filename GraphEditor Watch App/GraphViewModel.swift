@@ -1,14 +1,9 @@
-//
-//  GraphViewModel.swift
-//  GraphEditor
-//
-//  Created by handcart on 7/31/25.
-//
-
 import SwiftUI
+import Combine  // Add this import for AnyCancellable
 
 class GraphViewModel: ObservableObject {
-    @ObservedObject var model: GraphModel
+    @Published var model: GraphModel
+    private var cancellable: AnyCancellable?
     
     var canUndo: Bool {
         model.canUndo
@@ -20,6 +15,9 @@ class GraphViewModel: ObservableObject {
     
     init(model: GraphModel) {
         self.model = model
+        cancellable = model.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
     }
     
     func snapshot() {

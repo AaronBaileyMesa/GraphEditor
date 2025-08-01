@@ -74,7 +74,6 @@ class GraphModel: ObservableObject {
     let idealLength: CGFloat = 100
     let centeringForce: CGFloat = 0.001  // Weak pull to center
     
-    private var timer: Timer?
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
@@ -82,6 +81,9 @@ class GraphModel: ObservableObject {
     
     // Configurable graph area for clamping and centering (e.g., approximate Watch screen)
     let graphArea: CGSize = CGSize(width: 300, height: 300)
+    
+    private var simulationSteps = 0
+    private let maxSimulationSteps = 200  // Limit to prevent long-running simulations
     
     // Indicates if undo is possible.
     var canUndo: Bool {
@@ -115,32 +117,20 @@ class GraphModel: ObservableObject {
         }
     }
     
-    // Starts the physics simulation timer at 60 FPS for smoothness.
-    func startSimulation() {
-        timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1/60, repeats: true) { [weak self] _ in
-            self?.applyPhysics()
+    // Resets simulation counter (called when starting simulation)
+    func resetSimulation() {
+        simulationSteps = 0
+    }
+    
+    // Applies one step of physics and returns true if simulation should continue
+    @discardableResult
+    func simulationStep() -> Bool {
+        objectWillChange.send()
+        if simulationSteps >= maxSimulationSteps {
+            return false
         }
-    }
-    
-    // Stops the physics simulation timer.
-    func stopSimulation() {
-        timer?.invalidate()
-        timer = nil
-    }
-    
-    // Calculates the bounding box of all nodes with padding.
-    func boundingBox() -> CGRect {
-        guard !nodes.isEmpty else { return .zero }
-        let minX = nodes.map { $0.position.x }.min()! - 20
-        let maxX = nodes.map { $0.position.x }.max()! + 20
-        let minY = nodes.map { $0.position.y }.min()! - 20
-        let maxY = nodes.map { $0.position.y }.max()! + 20
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-    
-    // Applies one step of physics simulation to the graph.
-    private func applyPhysics() {
+        simulationSteps += 1
+        
         var forces: [UUID: CGPoint] = [:]
         let center = CGPoint(x: graphArea.width / 2, y: graphArea.height / 2)
         
@@ -203,11 +193,9 @@ class GraphModel: ObservableObject {
             nodes[i] = node
         }
         
-        // Check if stable (lower threshold for quicker stop)
+        // Check if stable
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        if totalVelocity < 0.05 {
-            stopSimulation()
-        }
+        return totalVelocity >= 0.05
     }
     
     // Saves the current graph state to persistence.
@@ -256,7 +244,7 @@ class GraphModel: ObservableObject {
         let previous = undoStack.removeLast()
         nodes = previous.nodes
         edges = previous.edges
-        startSimulation()
+        resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
         save()
     }
@@ -272,7 +260,7 @@ class GraphModel: ObservableObject {
         let next = redoStack.removeLast()
         nodes = next.nodes
         edges = next.edges
-        startSimulation()
+        resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
         save()
     }
@@ -282,19 +270,49 @@ class GraphModel: ObservableObject {
         snapshot()
         nodes.removeAll { $0.id == id }
         edges.removeAll { $0.from == id || $0.to == id }
-        startSimulation()
+        resetSimulation()
     }
     
     // Deletes an edge, snapshotting first.
     func deleteEdge(withID id: UUID) {
         snapshot()
         edges.removeAll { $0.id == id }
-        startSimulation()
+        resetSimulation()
     }
     
     // Adds a new node with auto-incremented label.
     func addNode(at position: CGPoint) {
         nodes.append(Node(label: nextNodeLabel, position: position))
         nextNodeLabel += 1
+        resetSimulation()
+    }
+    
+    private var timer: Timer? = nil
+
+    func startSimulation() {
+        timer?.invalidate()
+        resetSimulation()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            if !self.simulationStep() {
+                self.stopSimulation()
+            }
+        }
+    }
+
+    func stopSimulation() {
+        timer?.invalidate()
+        timer = nil
+    }
+
+    func boundingBox() -> CGRect {
+        if nodes.isEmpty { return .zero }
+        let xs = nodes.map { $0.position.x }
+        let ys = nodes.map { $0.position.y }
+        let minX = xs.min() ?? 0
+        let maxX = xs.max() ?? 0
+        let minY = ys.min() ?? 0
+        let maxY = ys.max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
