@@ -1,13 +1,13 @@
-import Foundation  // Or import SwiftUI if needed
+import Foundation
 
 public extension Double {
-    public func clamped(to range: ClosedRange<Double>) -> Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
         max(range.lowerBound, min(self, range.upperBound))
     }
 }
 
 public extension CGFloat {
-    public func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
     }
 }
@@ -66,4 +66,9 @@ extension CGSize {
     static func += (lhs: inout CGSize, rhs: CGSize) {
         lhs = lhs + rhs
     }
+}
+
+// Shared utility functions
+func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
+    hypot(a.x - b.x, a.y - b.y)
 }

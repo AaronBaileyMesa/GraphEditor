@@ -1,22 +1,22 @@
 import SwiftUI
 import Combine
 
-// Represents a node in the graph with position and velocity for physics simulation.
+// Represents a node in the graph with position, velocity, and permanent label.
 struct Node: Identifiable, Equatable, Codable {
     let id: UUID
+    let label: Int  // Permanent label, assigned on creation
     var position: CGPoint
     var velocity: CGPoint = .zero
     
     enum CodingKeys: String, CodingKey {
-        case id
-        case positionX
-        case positionY
-        case velocityX
-        case velocityY
+        case id, label
+        case positionX, positionY
+        case velocityX, velocityY
     }
     
-    init(id: UUID = UUID(), position: CGPoint, velocity: CGPoint = .zero) {
+    init(id: UUID = UUID(), label: Int, position: CGPoint, velocity: CGPoint = .zero) {
         self.id = id
+        self.label = label
         self.position = position
         self.velocity = velocity
     }
@@ -24,6 +24,7 @@ struct Node: Identifiable, Equatable, Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(UUID.self, forKey: .id)
+        label = try container.decode(Int.self, forKey: .label)
         let posX = try container.decode(CGFloat.self, forKey: .positionX)
         let posY = try container.decode(CGFloat.self, forKey: .positionY)
         position = CGPoint(x: posX, y: posY)
@@ -35,6 +36,7 @@ struct Node: Identifiable, Equatable, Codable {
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
+        try container.encode(label, forKey: .label)
         try container.encode(position.x, forKey: .positionX)
         try container.encode(position.y, forKey: .positionY)
         try container.encode(velocity.x, forKey: .velocityX)
@@ -76,6 +78,10 @@ class GraphModel: ObservableObject {
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
+    private var nextNodeLabel = 1  // Auto-increment for node labels
+    
+    // Configurable graph area for clamping and centering (e.g., approximate Watch screen)
+    let graphArea: CGSize = CGSize(width: 300, height: 300)
     
     // Indicates if undo is possible.
     var canUndo: Bool {
@@ -92,23 +98,27 @@ class GraphModel: ObservableObject {
         load()
         if nodes.isEmpty && edges.isEmpty {
             nodes = [
-                Node(position: CGPoint(x: 100, y: 100)),
-                Node(position: CGPoint(x: 200, y: 200)),
-                Node(position: CGPoint(x: 150, y: 300))
+                Node(label: nextNodeLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: nextNodeLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: nextNodeLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
+            nextNodeLabel += 3
             edges = [
                 Edge(from: nodes[0].id, to: nodes[1].id),
                 Edge(from: nodes[1].id, to: nodes[2].id),
                 Edge(from: nodes[2].id, to: nodes[0].id)
             ]
             save()  // Save default graph
+        } else {
+            // Update nextLabel based on loaded nodes
+            nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
         }
     }
     
-    // Starts the physics simulation timer.
+    // Starts the physics simulation timer at 60 FPS for smoothness.
     func startSimulation() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 1/30, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1/60, repeats: true) { [weak self] _ in
             self?.applyPhysics()
         }
     }
@@ -119,32 +129,36 @@ class GraphModel: ObservableObject {
         timer = nil
     }
     
-    // Calculates the bounding box of all nodes.
+    // Calculates the bounding box of all nodes with padding.
     func boundingBox() -> CGRect {
         guard !nodes.isEmpty else { return .zero }
-        let minX = nodes.map { $0.position.x }.min()!
-        let maxX = nodes.map { $0.position.x }.max()!
-        let minY = nodes.map { $0.position.y }.min()!
-        let maxY = nodes.map { $0.position.y }.max()!
+        let minX = nodes.map { $0.position.x }.min()! - 20
+        let maxX = nodes.map { $0.position.x }.max()! + 20
+        let minY = nodes.map { $0.position.y }.min()! - 20
+        let maxY = nodes.map { $0.position.y }.max()! + 20
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
     
     // Applies one step of physics simulation to the graph.
     private func applyPhysics() {
-        print("Starting physics step. Nodes: \(nodes.count)")
         var forces: [UUID: CGPoint] = [:]
-        let center = CGPoint(x: 150, y: 150)  // Approximate screen center
+        let center = CGPoint(x: graphArea.width / 2, y: graphArea.height / 2)
         
         // Repulsion between all pairs
         for i in 0..<nodes.count {
             for j in i+1..<nodes.count {
-                let delta = nodes[j].position - nodes[i].position
-                let dist = max(delta.magnitude, 1e-3)
+                let deltaX = nodes[j].position.x - nodes[i].position.x
+                let deltaY = nodes[j].position.y - nodes[i].position.y
+                let dist = max(hypot(deltaX, deltaY), 1e-3)
                 let forceMagnitude = repulsion / (dist * dist)
-                let forceDirection = delta / dist
-                let force = forceDirection * forceMagnitude
-                forces[nodes[i].id, default: .zero] -= force  // Push away
-                forces[nodes[j].id, default: .zero] += force  // Push away
+                let forceDirectionX = deltaX / dist
+                let forceDirectionY = deltaY / dist
+                let forceX = forceDirectionX * forceMagnitude
+                let forceY = forceDirectionY * forceMagnitude
+                let currentForceI = forces[nodes[i].id] ?? .zero
+                forces[nodes[i].id] = CGPoint(x: currentForceI.x - forceX, y: currentForceI.y - forceY)
+                let currentForceJ = forces[nodes[j].id] ?? .zero
+                forces[nodes[j].id] = CGPoint(x: currentForceJ.x + forceX, y: currentForceJ.y + forceY)
             }
         }
         
@@ -152,20 +166,28 @@ class GraphModel: ObservableObject {
         for edge in edges {
             guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
                   let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
-            let delta = nodes[toIdx].position - nodes[fromIdx].position
-            let dist = max(delta.magnitude, 1e-3)
+            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
+            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
+            let dist = max(hypot(deltaX, deltaY), 1e-3)
             let forceMagnitude = stiffness * (dist - idealLength)
-            let forceDirection = delta / dist
-            let force = forceDirection * forceMagnitude
-            forces[nodes[fromIdx].id, default: .zero] += force
-            forces[nodes[toIdx].id, default: .zero] -= force
+            let forceDirectionX = deltaX / dist
+            let forceDirectionY = deltaY / dist
+            let forceX = forceDirectionX * forceMagnitude
+            let forceY = forceDirectionY * forceMagnitude
+            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
+            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
         }
         
         // Weak centering force
         for i in 0..<nodes.count {
-            let delta = center - nodes[i].position
-            let force = delta * centeringForce
-            forces[nodes[i].id, default: .zero] += force
+            let deltaX = center.x - nodes[i].position.x
+            let deltaY = center.y - nodes[i].position.y
+            let forceX = deltaX * centeringForce
+            let forceY = deltaY * centeringForce
+            let currentForce = forces[nodes[i].id] ?? .zero
+            forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
         }
         
         // Apply forces
@@ -173,21 +195,19 @@ class GraphModel: ObservableObject {
             let id = nodes[i].id
             var node = nodes[i]
             let force = forces[id] ?? .zero
-            node.velocity += force * (1/60)
-            node.velocity *= damping
-            node.position += node.velocity * (1/60)
-            node.position.x = max(CGFloat(0), min(CGFloat(300), node.position.x))
-            node.position.y = max(CGFloat(0), min(CGFloat(300), node.position.y))
+            node.velocity = CGPoint(x: node.velocity.x + force.x * (1/60), y: node.velocity.y + force.y * (1/60))
+            node.velocity = CGPoint(x: node.velocity.x * damping, y: node.velocity.y * damping)
+            node.position = CGPoint(x: node.position.x + node.velocity.x * (1/60), y: node.position.y + node.velocity.y * (1/60))
+            node.position.x = max(0, min(graphArea.width, node.position.x))
+            node.position.y = max(0, min(graphArea.height, node.position.y))
             nodes[i] = node
         }
         
-        // Check if stable
-        let totalVelocity = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
-        if totalVelocity < 0.1 {
+        // Check if stable (lower threshold for quicker stop)
+        let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+        if totalVelocity < 0.05 {
             stopSimulation()
         }
-        
-        print("Physics step complete. Total velocity: \(totalVelocity)")
     }
     
     // Saves the current graph state to persistence.
@@ -204,10 +224,14 @@ class GraphModel: ObservableObject {
     // Loads the graph state from persistence.
     func load() {
         let decoder = JSONDecoder()
-        let loadedNodes = UserDefaults.standard.data(forKey: "graphNodes").flatMap { try? decoder.decode([Node].self, from: $0) } ?? []
-        nodes = loadedNodes
-        let loadedEdges = UserDefaults.standard.data(forKey: "graphEdges").flatMap { try? decoder.decode([Edge].self, from: $0) } ?? []
-        edges = loadedEdges
+        if let nodeData = UserDefaults.standard.data(forKey: "graphNodes"),
+           let loadedNodes = try? decoder.decode([Node].self, from: nodeData) {
+            nodes = loadedNodes
+        }
+        if let edgeData = UserDefaults.standard.data(forKey: "graphEdges"),
+           let loadedEdges = try? decoder.decode([Edge].self, from: edgeData) {
+            edges = loadedEdges
+        }
     }
     
     // Creates a snapshot of the current state for undo/redo and saves.
@@ -218,39 +242,39 @@ class GraphModel: ObservableObject {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
-        save()  // Ensure persistence on snapshot
+        save()
     }
     
     // Undoes the last action if possible, with haptic feedback.
     func undo() {
-        if !undoStack.isEmpty {
-            let current = GraphState(nodes: nodes, edges: edges)
-            redoStack.append(current)
-            let previous = undoStack.removeLast()
-            nodes = previous.nodes
-            edges = previous.edges
-            startSimulation()
-            WKInterfaceDevice.current().play(.success)
-        } else {
+        guard !undoStack.isEmpty else {
             WKInterfaceDevice.current().play(.failure)
+            return
         }
-        save()  // Save after undo
+        let current = GraphState(nodes: nodes, edges: edges)
+        redoStack.append(current)
+        let previous = undoStack.removeLast()
+        nodes = previous.nodes
+        edges = previous.edges
+        startSimulation()
+        WKInterfaceDevice.current().play(.success)
+        save()
     }
     
     // Redoes the last undone action if possible, with haptic feedback.
     func redo() {
-        if !redoStack.isEmpty {
-            let current = GraphState(nodes: nodes, edges: edges)
-            undoStack.append(current)
-            let next = redoStack.removeLast()
-            nodes = next.nodes
-            edges = next.edges
-            startSimulation()
-            WKInterfaceDevice.current().play(.success)
-        } else {
+        guard !redoStack.isEmpty else {
             WKInterfaceDevice.current().play(.failure)
+            return
         }
-        save()  // Save after redo
+        let current = GraphState(nodes: nodes, edges: edges)
+        undoStack.append(current)
+        let next = redoStack.removeLast()
+        nodes = next.nodes
+        edges = next.edges
+        startSimulation()
+        WKInterfaceDevice.current().play(.success)
+        save()
     }
     
     // Deletes a node and its connected edges, snapshotting first.
@@ -267,61 +291,10 @@ class GraphModel: ObservableObject {
         edges.removeAll { $0.id == id }
         startSimulation()
     }
-}
-
-// Extensions for arithmetic operations on CGPoint and CGSize (moved here to ensure visibility).
-extension CGPoint {
-    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
-    }
     
-    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
-    }
-    
-    static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        CGPoint(x: lhs.x * rhs, y: lhs.y * rhs)
-    }
-    
-    static func / (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
-    }
-    
-    static func += (lhs: inout CGPoint, rhs: CGPoint) {
-        lhs = lhs + rhs
-    }
-    
-    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
-        lhs = lhs - rhs
-    }
-    
-    static func *= (lhs: inout CGPoint, rhs: CGFloat) {
-        lhs = lhs * rhs
-    }
-    
-    static func + (lhs: CGPoint, rhs: CGSize) -> CGPoint {
-        CGPoint(x: lhs.x + rhs.width, y: lhs.y + rhs.height)
-    }
-    
-    static func += (lhs: inout CGPoint, rhs: CGSize) {
-        lhs = lhs + rhs
-    }
-    
-    var magnitude: CGFloat {
-        hypot(x, y)
-    }
-}
-
-extension CGSize {
-    static func / (lhs: CGSize, rhs: CGFloat) -> CGSize {
-        CGSize(width: lhs.width / rhs, height: lhs.height / rhs)
-    }
-    
-    static func + (lhs: CGSize, rhs: CGSize) -> CGSize {
-        CGSize(width: lhs.width + rhs.width, height: lhs.height + rhs.height)
-    }
-    
-    static func += (lhs: inout CGSize, rhs: CGSize) {
-        lhs = lhs + rhs
+    // Adds a new node with auto-incremented label.
+    func addNode(at position: CGPoint) {
+        nodes.append(Node(label: nextNodeLabel, position: position))
+        nextNodeLabel += 1
     }
 }

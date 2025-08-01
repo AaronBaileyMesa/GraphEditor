@@ -25,28 +25,23 @@ struct ContentView: View {
     var body: some View {
         GeometryReader { geo in
             Canvas { context, size in
-                #if DEBUG
-                print("Rendering Canvas. Size: \(size), Scale: \(zoomScale), Offset: \(offset)")
-                #endif
                 let transform = CGAffineTransform(translationX: offset.width, y: offset.height)
                     .scaledBy(x: zoomScale, y: zoomScale)
                 
                 // Draw edges and their labels
                 for edge in viewModel.model.edges {
                     if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                       let fromIndex = viewModel.model.nodes.firstIndex(where: { $0.id == edge.from }),
-                       let toIndex = viewModel.model.nodes.firstIndex(where: { $0.id == edge.to }) {
-                        let fromPos = (draggedNode?.id == fromNode.id ? fromNode.position + dragOffset : fromNode.position).applying(transform)
-                        let toPos = (draggedNode?.id == toNode.id ? toNode.position + dragOffset : toNode.position).applying(transform)
+                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                        let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
+                        let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
                         context.stroke(Path { path in
                             path.move(to: fromPos)
                             path.addLine(to: toPos)
                         }, with: .color(.blue), lineWidth: 2 * zoomScale)
                         
                         let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
-                        let fromLabel = fromIndex + 1
-                        let toLabel = toIndex + 1
+                        let fromLabel = fromNode.label
+                        let toLabel = toNode.label
                         let edgeLabel = "\(min(fromLabel, toLabel))-\(max(fromLabel, toLabel))"
                         let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
                         let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
@@ -57,7 +52,7 @@ struct ContentView: View {
                 
                 // Draw potential new edge during drag
                 if let dragged = draggedNode, let target = potentialEdgeTarget {
-                    let fromPos = (dragged.position + dragOffset).applying(transform)
+                    let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y).applying(transform)
                     let toPos = target.position.applying(transform)
                     context.stroke(Path { path in
                         path.move(to: fromPos)
@@ -66,8 +61,8 @@ struct ContentView: View {
                 }
                 
                 // Draw nodes
-                for (index, node) in viewModel.model.nodes.enumerated() {
-                    let pos = (draggedNode?.id == node.id ? node.position + dragOffset : node.position).applying(transform)
+                for node in viewModel.model.nodes {
+                    let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
                     let scaledRadius = nodeModelRadius * zoomScale
                     context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
                     if node.id == selectedNodeID {
@@ -76,7 +71,7 @@ struct ContentView: View {
                         context.stroke(Path(ellipseIn: CGRect(x: pos.x - borderRadius, y: pos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
                     }
                     let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                    let text = Text("\(index + 1)").foregroundColor(.white).font(.system(size: fontSize))
+                    let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
                     let resolvedText = context.resolve(text)
                     context.draw(resolvedText, at: pos, anchor: .center)
                 }
@@ -105,9 +100,6 @@ struct ContentView: View {
             .onAppear {
                 viewSize = geo.size
                 updateZoomRanges()
-                #if DEBUG
-                print("GeometryReader onAppear. View size: \(viewSize)")
-                #endif
             }
         }
         .sheet(isPresented: $showMenu) {
@@ -147,7 +139,7 @@ struct ContentView: View {
             }
             
             let maxCrown = Double(numZoomLevels - 1)
-            let clampedValue = newValue.clamped(to: 0...maxCrown)
+            let clampedValue = max(0, min(newValue, maxCrown))
             if clampedValue != newValue {
                 ignoreNextCrownChange = true
                 crownPosition = clampedValue
@@ -162,15 +154,9 @@ struct ContentView: View {
         .ignoresSafeArea()
         .onAppear {
             viewModel.model.startSimulation()
-            #if DEBUG
-            print("ContentView onAppear. Nodes: \(viewModel.model.nodes.count), Scale: \(zoomScale), Offset: \(offset)")
-            #endif
         }
         .onDisappear {
             viewModel.model.stopSimulation()
-            #if DEBUG
-            print("ContentView onDisappear")
-            #endif
         }
     }
     
@@ -178,9 +164,9 @@ struct ContentView: View {
     private func graphDescription() -> String {
         var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
         if let selectedID = selectedNodeID,
-           let selectedIndex = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
+           let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
             let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
-            desc += " Node \(selectedIndex + 1) selected with \(connections) connections."
+            desc += " Node \(selectedNode.label) selected with \(connections) connections."
         } else {
             desc += " No node selected."
         }
@@ -190,9 +176,6 @@ struct ContentView: View {
     // Updates the zoom range based on current graph and view size.
     private func updateZoomRanges() {
         guard viewSize != .zero else { return }
-        #if DEBUG
-        print("Updating zoom ranges. View size: \(viewSize)")
-        #endif
         
         if viewModel.model.nodes.isEmpty {
             minZoom = 0.5
@@ -252,9 +235,6 @@ struct ContentView: View {
         withAnimation(.easeInOut) {
             zoomScale = newScale
         }
-        #if DEBUG
-        print("Zoom updated. New scale: \(zoomScale), Offset: \(offset)")
-        #endif
     }
 }
 
@@ -281,15 +261,12 @@ struct GraphGesturesModifier: ViewModifier {
         content
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    #if DEBUG
-                    print("Drag changed. Translation: \(value.translation)")
-                    #endif
                     let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
                         .scaledBy(x: zoomScale, y: zoomScale)
                         .inverted()
                     if draggedNode == nil {
                         let touchPos = value.startLocation.applying(inverseTransform)
-                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < hitScreenRadius / zoomScale }) {
                             draggedNode = hitNode
                         }
                     }
@@ -297,14 +274,11 @@ struct GraphGesturesModifier: ViewModifier {
                         dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
                         let currentPos = value.location.applying(inverseTransform)
                         potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && distance($0.position, currentPos) < hitScreenRadius / zoomScale
+                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < hitScreenRadius / zoomScale
                         }
                     }
                 }
                 .onEnded { value in
-                    #if DEBUG
-                    print("Drag ended. Translation: \(value.translation)")
-                    #endif
                     let dragDistance = hypot(value.translation.width, value.translation.height)
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
@@ -329,7 +303,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 viewModel.model.startSimulation()
                             } else {
                                 var updatedNode = viewModel.model.nodes[index]
-                                updatedNode.position = updatedNode.position + dragOffset
+                                updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
                                 viewModel.model.nodes[index] = updatedNode
                             }
                         }
@@ -341,7 +315,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 .scaledBy(x: zoomScale, y: zoomScale)
                                 .inverted()
                             let touchPos = value.location.applying(inverseTransform)
-                            viewModel.model.nodes.append(Node(position: touchPos))
+                            viewModel.model.addNode(at: touchPos)  // Use new addNode method
                             viewModel.model.startSimulation()
                         }
                     }
@@ -357,7 +331,7 @@ struct GraphGesturesModifier: ViewModifier {
                         if panStartOffset == nil {
                             panStartOffset = offset
                         }
-                        offset = panStartOffset! + CGSize(width: value.translation.width / zoomScale, height: value.translation.height / zoomScale)
+                        offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)  // Removed / zoomScale to prevent jumps
                     }
                 }
                 .onEnded { _ in
@@ -376,7 +350,7 @@ struct GraphGesturesModifier: ViewModifier {
                         let worldPos = location.applying(inverseTransform)
                         
                         // Check for node hit
-                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, worldPos) < hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
                             viewModel.deleteNode(withID: hitNode.id)
                             WKInterfaceDevice.current().play(.success)
                             return
@@ -386,8 +360,9 @@ struct GraphGesturesModifier: ViewModifier {
                         for edge in viewModel.model.edges {
                             if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                                let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                let mid = CGPoint(x: (from.position.x + to.position.x)/2, y: (from.position.y + to.position.y)/2)
-                                if distance(mid, worldPos) < hitScreenRadius / zoomScale {
+                                let midX = (from.position.x + to.position.x)/2
+                                let midY = (from.position.y + to.position.y)/2
+                                if hypot(midX - worldPos.x, midY - worldPos.y) < hitScreenRadius / zoomScale {
                                     viewModel.deleteEdge(withID: edge.id)
                                     WKInterfaceDevice.current().play(.success)
                                     return
@@ -404,22 +379,6 @@ struct GraphGesturesModifier: ViewModifier {
                     showMenu = true
                 }
             )
-    }
-    
-    private func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-        hypot(a.x - b.x, a.y - b.y)
-    }
-}
-
-extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        max(range.lowerBound, min(self, range.upperBound))
-    }
-}
-
-extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
     }
 }
 
