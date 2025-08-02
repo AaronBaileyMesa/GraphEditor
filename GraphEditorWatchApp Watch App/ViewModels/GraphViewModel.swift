@@ -9,6 +9,7 @@
 // ViewModels/GraphViewModel.swift
 import SwiftUI
 import Combine
+import GraphEditorShared
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
