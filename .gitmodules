@@ -1,0 +1,3 @@
+[submodule "GraphEditorShared"]
+	path = GraphEditorShared
+	url = https://github.com/AaronBaileyMesa/GraphEditorShared.git
