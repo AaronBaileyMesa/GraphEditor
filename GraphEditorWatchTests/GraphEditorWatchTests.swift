@@ -1,13 +1,13 @@
 //
-//  GraphEditor_Watch_AppTests.swift
-//  GraphEditor Watch AppTests
+//  GraphEditorWatchTests.swift
+//  GraphEditorWatchTests
 //
-//  Created by handcart on 7/31/25.
+//  Created by handcart on 8/2/25.
 //
 
 import Testing
 
-struct GraphEditor_Watch_AppTests {
+struct GraphEditorWatchTests {
 
     @Test func example() async throws {
         // Write your test here and use APIs like `#expect(...)` to check expected conditions.
