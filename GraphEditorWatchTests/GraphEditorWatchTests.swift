@@ -269,8 +269,21 @@ struct PhysicsEngineTests {
 
 struct PersistenceManagerTests {
     
-    @Test func testSaveLoadWithInvalidData() {
+    @Test func testSaveLoadWithInvalidData() throws {
         let manager = PersistenceManager()
+        
+        // Delete files if they exist to simulate no prior save
+        let fm = FileManager.default
+        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let nodesURL = docs.appendingPathComponent("graphNodes.json")
+        let edgesURL = docs.appendingPathComponent("graphEdges.json")
+        if fm.fileExists(atPath: nodesURL.path) {
+            try fm.removeItem(at: nodesURL)
+        }
+        if fm.fileExists(atPath: edgesURL.path) {
+            try fm.removeItem(at: edgesURL)
+        }
+        
         // Simulate invalid load by not saving first
         let loaded = manager.load()
         #expect(loaded.nodes.isEmpty, "Empty nodes on invalid load")
@@ -283,13 +296,8 @@ struct PersistenceManagerTests {
         #expect(reloaded.nodes == nodes, "Saves and loads valid data")
     }
     
-/*
-    @Test func testLoadPartialData() {
-        let manager = PersistenceManager()
-        // Simulate saving only nodes (manual intervention might be needed; or override for test)
-        // ... (add test for missing edges/nodes)
-    }
 
+/*
     @Test func testUndoRedoThroughViewModel() {
         let model = GraphEditorWatch.GraphModel()
         let viewModel = GraphViewModel(model: model)
