@@ -29,6 +29,19 @@
 		4E3A08C42E3DC9B0008CC9C7 /* GraphEditorWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GraphEditorWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E3A08E42E3DCA9D008CC9C7 /* GraphEditorShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = GraphEditorShared; sourceTree = "<group>"; };
 		4E3A090A2E3DD84D008CC9C7 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Package.swift; path = GraphEditorShared/Package.swift; sourceTree = "<group>"; };
+		4E6221582E3F298D00DDECBE /* GraphModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphModel.swift; sourceTree = "<group>"; };
+		4E6221592E3F298D00DDECBE /* PersistenceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersistenceManager.swift; sourceTree = "<group>"; };
+		4E62215A2E3F298D00DDECBE /* PhysicsEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhysicsEngine.swift; sourceTree = "<group>"; };
+		4E62215C2E3F298D00DDECBE /* GraphViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphViewModel.swift; sourceTree = "<group>"; };
+		4E62215E2E3F298D00DDECBE /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		4E62215F2E3F298D00DDECBE /* GraphCanvasView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphCanvasView.swift; sourceTree = "<group>"; };
+		4E6221602E3F298D00DDECBE /* GraphGesturesModifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphGesturesModifier.swift; sourceTree = "<group>"; };
+		4E6221622E3F298D00DDECBE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		4E6221632E3F298D00DDECBE /* Assets 2.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Assets 2.xcassets"; sourceTree = "<group>"; };
+		4E6221642E3F298D00DDECBE /* graph_icon.svg */ = {isa = PBXFileReference; lastKnownFileType = text; path = graph_icon.svg; sourceTree = "<group>"; };
+		4E6221652E3F298D00DDECBE /* graph_icon_1024.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = graph_icon_1024.png; sourceTree = "<group>"; };
+		4E6221662E3F298D00DDECBE /* GraphEditorWatch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GraphEditorWatch.swift; sourceTree = "<group>"; };
+		4E6221672E3F298D00DDECBE /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		4E7D70372E3EA4AC00814DFF /* GraphEditorSharedTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = GraphEditorSharedTests.xctestplan; path = GraphEditorShared/Tests/GraphEditorSharedTests.xctestplan; sourceTree = "<group>"; };
 		4EB112722E3EE09D001A8E1A /* GraphEditorWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphEditorWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EB1127D2E3EEF2E001A8E1A /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/WatchOS.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
@@ -68,11 +81,6 @@
 			path = GraphEditorWatch;
 			sourceTree = "<group>";
 		};
-		4E3A09422E3E8C8D008CC9C7 /* GraphEditorWatchTests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = GraphEditorWatchTests;
-			sourceTree = "<group>";
-		};
 		4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = GraphEditorWatchTests;
@@ -103,12 +111,48 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		4E3A09502E3E8F17008CC9C7 /* Tests */ = {
+		4E62215B2E3F298D00DDECBE /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				4E3A09422E3E8C8D008CC9C7 /* GraphEditorWatchTests */,
+				4E6221582E3F298D00DDECBE /* GraphModel.swift */,
+				4E6221592E3F298D00DDECBE /* PersistenceManager.swift */,
+				4E62215A2E3F298D00DDECBE /* PhysicsEngine.swift */,
 			);
-			path = Tests;
+			path = Models;
+			sourceTree = "<group>";
+		};
+		4E62215D2E3F298D00DDECBE /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				4E62215C2E3F298D00DDECBE /* GraphViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		4E6221612E3F298D00DDECBE /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				4E62215E2E3F298D00DDECBE /* ContentView.swift */,
+				4E62215F2E3F298D00DDECBE /* GraphCanvasView.swift */,
+				4E6221602E3F298D00DDECBE /* GraphGesturesModifier.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		4E6221682E3F298D00DDECBE /* GraphEditorWatch */ = {
+			isa = PBXGroup;
+			children = (
+				4E62215B2E3F298D00DDECBE /* Models */,
+				4E62215D2E3F298D00DDECBE /* ViewModels */,
+				4E6221612E3F298D00DDECBE /* Views */,
+				4E6221622E3F298D00DDECBE /* Assets.xcassets */,
+				4E6221632E3F298D00DDECBE /* Assets 2.xcassets */,
+				4E6221642E3F298D00DDECBE /* graph_icon.svg */,
+				4E6221652E3F298D00DDECBE /* graph_icon_1024.png */,
+				4E6221662E3F298D00DDECBE /* GraphEditorWatch.swift */,
+				4E6221672E3F298D00DDECBE /* README.md */,
+			);
+			path = GraphEditorWatch;
 			sourceTree = "<group>";
 		};
 		4ED427652E3BF44700DEF801 = {
@@ -121,7 +165,6 @@
 				4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */,
 				4ED767F52E3D506900929FA8 /* Frameworks */,
 				4ED4276D2E3BF44700DEF801 /* Products */,
-				4E3A09502E3E8F17008CC9C7 /* Tests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -137,6 +180,7 @@
 		4ED767F52E3D506900929FA8 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				4E6221682E3F298D00DDECBE /* GraphEditorWatch */,
 				4EB112812E3EEF44001A8E1A /* CoreGraphics.framework */,
 				4EB1127F2E3EEF39001A8E1A /* Foundation.framework */,
 				4EB1127D2E3EEF2E001A8E1A /* XCTest.framework */,
@@ -211,6 +255,7 @@
 					};
 					4EB112712E3EE09D001A8E1A = {
 						CreatedOnToolsVersion = 16.4;
+						TestTargetID = 4E3A08C32E3DC9B0008CC9C7;
 					};
 				};
 			};
@@ -358,6 +403,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GraphEditorWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GraphEditorWatch";
 				WATCHOS_DEPLOYMENT_TARGET = 11.5;
 			};
 			name = Debug;
@@ -377,6 +423,7 @@
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/GraphEditorWatch.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/GraphEditorWatch";
 				VALIDATE_PRODUCT = YES;
 				WATCHOS_DEPLOYMENT_TARGET = 11.5;
 			};

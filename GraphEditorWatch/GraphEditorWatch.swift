@@ -8,7 +8,7 @@
 import SwiftUI
 
 @main
-struct GraphEditorWatch: App {
+struct GraphEditorWatchApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
