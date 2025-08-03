@@ -111,6 +111,7 @@ struct Quadtree {
 }
 
 public class PhysicsEngine {
+    public init() {}
     let simulationBounds: CGSize = CGSize(width: 300, height: 300)
     
     private var simulationSteps = 0

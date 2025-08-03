@@ -1,11 +1,3 @@
-//
-//  PersistenceManager.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
-//
-
-
 // Models/PersistenceManager.swift
 //
 //  PersistenceManager.swift
@@ -17,7 +9,8 @@
 import Foundation
 import GraphEditorShared
 
-class PersistenceManager: GraphStorage {
+public class PersistenceManager: GraphStorage {
+    
     private let nodesFileName = "graphNodes.json"
     private let edgesFileName = "graphEdges.json"
     
@@ -25,7 +18,9 @@ class PersistenceManager: GraphStorage {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
     
-    func save(nodes: [Node], edges: [GraphEdge]) {
+    public init() {}
+    
+    public func save(nodes: [Node], edges: [GraphEdge]) {
         let encoder = JSONEncoder()
         do {
             let nodeData = try encoder.encode(nodes)
@@ -40,7 +35,7 @@ class PersistenceManager: GraphStorage {
         }
     }
     
-    func load() -> (nodes: [Node], edges: [GraphEdge]) {
+    public func load() -> (nodes: [Node], edges: [GraphEdge]) {
         let decoder = JSONDecoder()
         var loadedNodes: [Node] = []
         var loadedEdges: [GraphEdge] = []

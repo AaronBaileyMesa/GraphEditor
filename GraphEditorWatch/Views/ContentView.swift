@@ -42,8 +42,7 @@ struct ContentView: View {
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { newValue in
-            let oldValue = crownPosition  // Capture current before change
+        .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 updateZoomScale(oldCrown: oldValue, adjustOffset: false)

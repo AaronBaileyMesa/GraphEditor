@@ -53,12 +53,11 @@ struct GraphModelTests {
     }
     
     @Test func testSimulationStep() {
-        let model = GraphModel()
-        var nodes = model.nodes
-        let edges = model.edges
-        // Assuming PhysicsEngine is accessible; if private, expose or mock
-        let engine = PhysicsEngine()
-        let isRunning = engine.simulationStep(nodes: &nodes, edges: edges)
-        #expect(isRunning, "Simulation should run if not stable")
-    }
+            let storage = MockGraphStorage()
+            let model = GraphModel(storage: storage)
+            var nodes = model.nodes
+            let edges = model.edges
+            let isRunning = model.physicsEngine.simulationStep(nodes: &nodes, edges: edges)
+            #expect(isRunning, "Simulation should run if not stable")
+        }
 }
