@@ -38,22 +38,21 @@ struct Quadtree {
         if let _ = children {
             updateCenterOfMass(with: node)
             let quadrant = getQuadrant(for: node.position)
-            children?[quadrant].insert(node)
+            children?[quadrant].insert(node)  // Note: This line stays as-is; the fix is in the else branch
         } else {
             if let existingNode = self.node {
                 subdivide()
-                let existingQuadrant = getQuadrant(for: existingNode.position)
-                children?[existingQuadrant].insert(existingNode)
-                let newQuadrant = getQuadrant(for: node.position)
-                children?[newQuadrant].insert(node)
                 self.node = nil
+                self.centerOfMass = .zero
+                self.totalMass = 0
+                self.insert(existingNode)  // Recursive: updates self (now internal) and recurses to child
+                self.insert(node)          // Same for new node
             } else {
                 self.node = node
                 updateCenterOfMass(with: node)
             }
         }
     }
-    
     private mutating func subdivide() {
         let halfWidth = bounds.width / 2
         let halfHeight = bounds.height / 2

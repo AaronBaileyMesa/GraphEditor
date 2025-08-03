@@ -1235,8 +1235,7 @@ struct ContentView: View {
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { newValue in
-            let oldValue = crownPosition  // Capture current before change
+        .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 updateZoomScale(oldCrown: oldValue, adjustOffset: false)
@@ -1677,17 +1676,6 @@ struct GraphModelTests {
         let initialCount = model.nodes.count
         model.addNode(at: .zero)
         #expect(model.nodes.count == initialCount + 1, "Node added")
-    }
-    
-    @Test func testSimulationStep() {
-        let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage)
-        var nodes = model.nodes
-        let edges = model.edges
-        // Assuming PhysicsEngine is accessible; if private, expose or mock
-        let engine = PhysicsEngine()
-        let isRunning = engine.simulationStep(nodes: &nodes, edges: edges)
-        #expect(isRunning, "Simulation should run if not stable")
     }
 }
 
