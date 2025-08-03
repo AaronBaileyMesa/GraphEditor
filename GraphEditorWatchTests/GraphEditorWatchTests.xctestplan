@@ -1,0 +1,25 @@
+{
+  "configurations" : [
+    {
+      "id" : "86DA666B-A579-4E4D-A11F-5E64BBA8BA77",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:GraphEditor.xcodeproj",
+        "identifier" : "4EB112712E3EE09D001A8E1A",
+        "name" : "GraphEditorWatchTests"
+      }
+    }
+  ],
+  "version" : 1
+}

@@ -35,7 +35,7 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "4E3A09402E3E8C8D008CC9C7"
+               BlueprintIdentifier = "4EB112712E3EE09D001A8E1A"
                BuildableName = "GraphEditorWatchTests.xctest"
                BlueprintName = "GraphEditorWatchTests"
                ReferencedContainer = "container:GraphEditor.xcodeproj">

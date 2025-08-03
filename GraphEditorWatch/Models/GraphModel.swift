@@ -4,7 +4,7 @@ import Combine
 import Foundation
 import GraphEditorShared
 
-class GraphModel: ObservableObject {
+public class GraphModel: ObservableObject {
     @Published var nodes: [Node] = []
     @Published var edges: [GraphEdge] = []
     
@@ -28,7 +28,7 @@ class GraphModel: ObservableObject {
     }
     
     // Initializes the graph model, loading from persistence if available.
-    init() {
+    public init() {
         let loaded = storage.load()
         nodes = loaded.nodes
         edges = loaded.edges

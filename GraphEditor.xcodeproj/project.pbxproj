@@ -7,25 +7,34 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		4EB1127C2E3EE0CE001A8E1A /* GraphEditorShared in Frameworks */ = {isa = PBXBuildFile; productRef = 4EB1127B2E3EE0CE001A8E1A /* GraphEditorShared */; };
+		4EB1127E2E3EEF2E001A8E1A /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4EB1127D2E3EEF2E001A8E1A /* XCTest.framework */; };
+		4EB112802E3EEF39001A8E1A /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4EB1127F2E3EEF39001A8E1A /* Foundation.framework */; };
+		4EB112822E3EEF44001A8E1A /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 4EB112812E3EEF44001A8E1A /* CoreGraphics.framework */; };
 		4EE1B4962E3ED555001C9E0A /* GraphEditorShared in Frameworks */ = {isa = PBXBuildFile; productRef = 4EE1B4952E3ED555001C9E0A /* GraphEditorShared */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		4EB3CDE52E3ED3E4003FB06C /* PBXContainerItemProxy */ = {
+		4EB112762E3EE09D001A8E1A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4ED427662E3BF44700DEF801 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 4E3A08C32E3DC9B0008CC9C7;
-			remoteInfo = "GraphEditorWatchApp Watch App";
+			remoteInfo = GraphEditorWatch;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		4E21B7DF2E3F01B00007BB7F /* GraphEditorWatchTestsPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = GraphEditorWatchTestsPlan.xctestplan; path = GraphEditorWatchTests/GraphEditorWatchTestsPlan.xctestplan; sourceTree = "<group>"; };
 		4E3A08C42E3DC9B0008CC9C7 /* GraphEditorWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GraphEditorWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E3A08E42E3DCA9D008CC9C7 /* GraphEditorShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = GraphEditorShared; sourceTree = "<group>"; };
 		4E3A090A2E3DD84D008CC9C7 /* Package.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Package.swift; path = GraphEditorShared/Package.swift; sourceTree = "<group>"; };
-		4E3A09412E3E8C8D008CC9C7 /* GraphEditorWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphEditorWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E7D70372E3EA4AC00814DFF /* GraphEditorSharedTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = GraphEditorSharedTests.xctestplan; path = GraphEditorShared/Tests/GraphEditorSharedTests.xctestplan; sourceTree = "<group>"; };
+		4EB112722E3EE09D001A8E1A /* GraphEditorWatchTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphEditorWatchTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4EB1127D2E3EEF2E001A8E1A /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = Platforms/WatchOS.platform/Developer/Library/Frameworks/XCTest.framework; sourceTree = DEVELOPER_DIR; };
+		4EB1127F2E3EEF39001A8E1A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.5.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		4EB112812E3EEF44001A8E1A /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = Platforms/WatchOS.platform/Developer/SDKs/WatchOS11.5.sdk/System/Library/Frameworks/CoreGraphics.framework; sourceTree = DEVELOPER_DIR; };
+		4EB112AA2E3F0035001A8E1A /* GraphEditorWatchTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = GraphEditorWatchTests.xctestplan; path = GraphEditorWatchTests/GraphEditorWatchTests.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -38,6 +47,15 @@
 			);
 			target = 4E3A08C32E3DC9B0008CC9C7 /* GraphEditorWatch */;
 		};
+		4EB112A92E3EFFA9001A8E1A /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatchTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Models/GraphModel.swift,
+				Models/PersistenceManager.swift,
+				Models/PhysicsEngine.swift,
+			);
+			target = 4EB112712E3EE09D001A8E1A /* GraphEditorWatchTests */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -45,11 +63,17 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				4E3A08D72E3DC9E0008CC9C7 /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatch" target */,
+				4EB112A92E3EFFA9001A8E1A /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatchTests" target */,
 			);
 			path = GraphEditorWatch;
 			sourceTree = "<group>";
 		};
 		4E3A09422E3E8C8D008CC9C7 /* GraphEditorWatchTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = GraphEditorWatchTests;
+			sourceTree = "<group>";
+		};
+		4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = GraphEditorWatchTests;
 			sourceTree = "<group>";
@@ -65,10 +89,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		4E3A093E2E3E8C8D008CC9C7 /* Frameworks */ = {
+		4EB1126F2E3EE09D001A8E1A /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				4EB112822E3EEF44001A8E1A /* CoreGraphics.framework in Frameworks */,
+				4EB112802E3EEF39001A8E1A /* Foundation.framework in Frameworks */,
+				4EB1127E2E3EEF2E001A8E1A /* XCTest.framework in Frameworks */,
+				4EB1127C2E3EE0CE001A8E1A /* GraphEditorShared in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -86,8 +114,11 @@
 		4ED427652E3BF44700DEF801 = {
 			isa = PBXGroup;
 			children = (
+				4E21B7DF2E3F01B00007BB7F /* GraphEditorWatchTestsPlan.xctestplan */,
+				4EB112AA2E3F0035001A8E1A /* GraphEditorWatchTests.xctestplan */,
 				4E7D70372E3EA4AC00814DFF /* GraphEditorSharedTests.xctestplan */,
 				4E3A08C82E3DC9B0008CC9C7 /* GraphEditorWatch */,
+				4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */,
 				4ED767F52E3D506900929FA8 /* Frameworks */,
 				4ED4276D2E3BF44700DEF801 /* Products */,
 				4E3A09502E3E8F17008CC9C7 /* Tests */,
@@ -98,7 +129,7 @@
 			isa = PBXGroup;
 			children = (
 				4E3A08C42E3DC9B0008CC9C7 /* GraphEditorWatch.app */,
-				4E3A09412E3E8C8D008CC9C7 /* GraphEditorWatchTests.xctest */,
+				4EB112722E3EE09D001A8E1A /* GraphEditorWatchTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -106,6 +137,9 @@
 		4ED767F52E3D506900929FA8 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				4EB112812E3EEF44001A8E1A /* CoreGraphics.framework */,
+				4EB1127F2E3EEF39001A8E1A /* Foundation.framework */,
+				4EB1127D2E3EEF2E001A8E1A /* XCTest.framework */,
 				4E3A090A2E3DD84D008CC9C7 /* Package.swift */,
 				4E3A08E42E3DCA9D008CC9C7 /* GraphEditorShared */,
 			);
@@ -138,27 +172,28 @@
 			productReference = 4E3A08C42E3DC9B0008CC9C7 /* GraphEditorWatch.app */;
 			productType = "com.apple.product-type.application";
 		};
-		4E3A09402E3E8C8D008CC9C7 /* GraphEditorWatchTests */ = {
+		4EB112712E3EE09D001A8E1A /* GraphEditorWatchTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 4E3A09472E3E8C8D008CC9C7 /* Build configuration list for PBXNativeTarget "GraphEditorWatchTests" */;
+			buildConfigurationList = 4EB112782E3EE09D001A8E1A /* Build configuration list for PBXNativeTarget "GraphEditorWatchTests" */;
 			buildPhases = (
-				4E3A093D2E3E8C8D008CC9C7 /* Sources */,
-				4E3A093E2E3E8C8D008CC9C7 /* Frameworks */,
-				4E3A093F2E3E8C8D008CC9C7 /* Resources */,
+				4EB1126E2E3EE09D001A8E1A /* Sources */,
+				4EB1126F2E3EE09D001A8E1A /* Frameworks */,
+				4EB112702E3EE09D001A8E1A /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				4EB3CDE62E3ED3E4003FB06C /* PBXTargetDependency */,
+				4EB112772E3EE09D001A8E1A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				4E3A09422E3E8C8D008CC9C7 /* GraphEditorWatchTests */,
+				4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */,
 			);
 			name = GraphEditorWatchTests;
 			packageProductDependencies = (
+				4EB1127B2E3EE0CE001A8E1A /* GraphEditorShared */,
 			);
 			productName = GraphEditorWatchTests;
-			productReference = 4E3A09412E3E8C8D008CC9C7 /* GraphEditorWatchTests.xctest */;
+			productReference = 4EB112722E3EE09D001A8E1A /* GraphEditorWatchTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -174,7 +209,7 @@
 					4E3A08C32E3DC9B0008CC9C7 = {
 						CreatedOnToolsVersion = 16.4;
 					};
-					4E3A09402E3E8C8D008CC9C7 = {
+					4EB112712E3EE09D001A8E1A = {
 						CreatedOnToolsVersion = 16.4;
 					};
 				};
@@ -196,7 +231,7 @@
 			projectRoot = "";
 			targets = (
 				4E3A08C32E3DC9B0008CC9C7 /* GraphEditorWatch */,
-				4E3A09402E3E8C8D008CC9C7 /* GraphEditorWatchTests */,
+				4EB112712E3EE09D001A8E1A /* GraphEditorWatchTests */,
 			);
 		};
 /* End PBXProject section */
@@ -209,7 +244,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		4E3A093F2E3E8C8D008CC9C7 /* Resources */ = {
+		4EB112702E3EE09D001A8E1A /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -226,7 +261,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		4E3A093D2E3E8C8D008CC9C7 /* Sources */ = {
+		4EB1126E2E3EE09D001A8E1A /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -236,10 +271,10 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		4EB3CDE62E3ED3E4003FB06C /* PBXTargetDependency */ = {
+		4EB112772E3EE09D001A8E1A /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 4E3A08C32E3DC9B0008CC9C7 /* GraphEditorWatch */;
-			targetProxy = 4EB3CDE52E3ED3E4003FB06C /* PBXContainerItemProxy */;
+			targetProxy = 4EB112762E3EE09D001A8E1A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -253,6 +288,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_TESTING_SEARCH_PATHS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -283,6 +319,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_TESTING_SEARCH_PATHS = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -305,7 +343,7 @@
 			};
 			name = Release;
 		};
-		4E3A09482E3E8C8D008CC9C7 /* Debug */ = {
+		4EB112792E3EE09D001A8E1A /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -313,6 +351,7 @@
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = "-v";
 				PRODUCT_BUNDLE_IDENTIFIER = io.handcart.GraphEditorWatchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -323,7 +362,7 @@
 			};
 			name = Debug;
 		};
-		4E3A09492E3E8C8D008CC9C7 /* Release */ = {
+		4EB1127A2E3EE09D001A8E1A /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -331,6 +370,7 @@
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = "";
 				PRODUCT_BUNDLE_IDENTIFIER = io.handcart.GraphEditorWatchTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
@@ -470,11 +510,11 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		4E3A09472E3E8C8D008CC9C7 /* Build configuration list for PBXNativeTarget "GraphEditorWatchTests" */ = {
+		4EB112782E3EE09D001A8E1A /* Build configuration list for PBXNativeTarget "GraphEditorWatchTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				4E3A09482E3E8C8D008CC9C7 /* Debug */,
-				4E3A09492E3E8C8D008CC9C7 /* Release */,
+				4EB112792E3EE09D001A8E1A /* Debug */,
+				4EB1127A2E3EE09D001A8E1A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
@@ -491,6 +531,10 @@
 /* End XCConfigurationList section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		4EB1127B2E3EE0CE001A8E1A /* GraphEditorShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = GraphEditorShared;
+		};
 		4EE1B4952E3ED555001C9E0A /* GraphEditorShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = GraphEditorShared;

@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "0A25518A-B296-4EC5-B92E-30887918052C",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:GraphEditor.xcodeproj",
+        "identifier" : "4EB112712E3EE09D001A8E1A",
+        "name" : "GraphEditorWatchTests"
+      }
+    }
+  ],
+  "version" : 1
+}
