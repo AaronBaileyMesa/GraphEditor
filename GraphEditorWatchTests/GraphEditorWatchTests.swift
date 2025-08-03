@@ -225,7 +225,7 @@ struct PhysicsEngineTests {
         #expect(emptyBbox == .zero, "Zero for empty nodes")
     }
     
-    /*
+  
     @Test func testQuadtreeMultiLevelSubdivision() {
         var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         // Insert nodes all in NW quadrant to force multi-level
@@ -238,7 +238,7 @@ struct PhysicsEngineTests {
         #expect(quadtree.children?[0].children != nil, "Multi-level subdivision occurred")
         #expect(quadtree.totalMass == 3.0, "Total mass correct after multi-insert")
     }
-
+  
     @Test func testAttractionForceInSimulation() {
         let engine = PhysicsEngine()
         var nodes: [Node] = [
@@ -251,7 +251,7 @@ struct PhysicsEngineTests {
         let newDistance = distance(nodes[0].position, nodes[1].position)
         #expect(newDistance < initialDistance, "Attraction force pulls nodes closer")
     }
-
+    
     @Test func testSimulationMaxSteps() {
         let engine = PhysicsEngine()
         var nodes: [Node] = [Node(label: 1, position: .zero, velocity: CGPoint(x: 1.0, y: 1.0))]
@@ -262,13 +262,13 @@ struct PhysicsEngineTests {
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)
         #expect(!exceeded, "Simulation stops after max steps")
     }
-     */
+     
 }
 
 // New struct in GraphEditorWatchTests.swift
 
 struct PersistenceManagerTests {
-    /*
+    
     @Test func testSaveLoadWithInvalidData() {
         let manager = PersistenceManager()
         // Simulate invalid load by not saving first
@@ -283,7 +283,7 @@ struct PersistenceManagerTests {
         #expect(reloaded.nodes == nodes, "Saves and loads valid data")
     }
     
-
+/*
     @Test func testLoadPartialData() {
         let manager = PersistenceManager()
         // Simulate saving only nodes (manual intervention might be needed; or override for test)
