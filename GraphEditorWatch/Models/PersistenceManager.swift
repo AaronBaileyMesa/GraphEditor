@@ -14,21 +14,25 @@ public class PersistenceManager: GraphStorage {
     private let nodesFileName = "graphNodes.json"
     private let edgesFileName = "graphEdges.json"
     
-    private var documentsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
+    private let baseURL: URL
     
-    public init() {}
+    public init(baseURL: URL? = nil) {
+        if let baseURL = baseURL {
+            self.baseURL = baseURL
+        } else {
+            self.baseURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        }
+    }
     
     public func save(nodes: [Node], edges: [GraphEdge]) {
         let encoder = JSONEncoder()
         do {
             let nodeData = try encoder.encode(nodes)
-            let nodeURL = documentsDirectory.appendingPathComponent(nodesFileName)
+            let nodeURL = baseURL.appendingPathComponent(nodesFileName)
             try nodeData.write(to: nodeURL)
             
             let edgeData = try encoder.encode(edges)
-            let edgeURL = documentsDirectory.appendingPathComponent(edgesFileName)
+            let edgeURL = baseURL.appendingPathComponent(edgesFileName)
             try edgeData.write(to: edgeURL)
         } catch {
             print("Error saving graph: \(error)")
@@ -40,13 +44,13 @@ public class PersistenceManager: GraphStorage {
         var loadedNodes: [Node] = []
         var loadedEdges: [GraphEdge] = []
         
-        let nodeURL = documentsDirectory.appendingPathComponent(nodesFileName)
+        let nodeURL = baseURL.appendingPathComponent(nodesFileName)
         if let nodeData = try? Data(contentsOf: nodeURL),
            let decodedNodes = try? decoder.decode([Node].self, from: nodeData) {
             loadedNodes = decodedNodes
         }
         
-        let edgeURL = documentsDirectory.appendingPathComponent(edgesFileName)
+        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
         if let edgeData = try? Data(contentsOf: edgeURL),
            let decodedEdges = try? decoder.decode([GraphEdge].self, from: edgeData) {
             loadedEdges = decodedEdges
