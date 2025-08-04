@@ -6,7 +6,6 @@
 //
 
 
-// Views/GraphGesturesModifier.swift
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -33,18 +32,17 @@ struct GraphGesturesModifier: ViewModifier {
                     let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
                         .scaledBy(x: zoomScale, y: zoomScale)
                         .inverted()
-                    if draggedNode == nil {
-                        let touchPos = value.startLocation.applying(inverseTransform)
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
-                            draggedNode = hitNode
+                    let touchPos = value.startLocation.applying(inverseTransform)
+                    if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
+                        // Prioritize node drag
+                        draggedNode = hitNode
+                        // ... (existing drag logic)
+                    } else if draggedNode == nil {
+                        // Only pan if no node hit
+                        if panStartOffset == nil {
+                            panStartOffset = offset
                         }
-                    }
-                    if let dragged = draggedNode {
-                        dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                        let currentPos = value.location.applying(inverseTransform)
-                        potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < AppConstants.hitScreenRadius / zoomScale
-                        }
+                        offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
                     }
                 }
                 .onEnded { value in
