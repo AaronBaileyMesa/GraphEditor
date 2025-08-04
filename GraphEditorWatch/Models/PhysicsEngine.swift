@@ -149,8 +149,13 @@ class Quadtree {
     private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
         let deltaX = to.x - from.x
         let deltaY = to.y - from.y
-        let dist = max(hypot(deltaX, deltaY), Constants.distanceEpsilon)
-        let forceMagnitude = Constants.repulsion * mass / (dist * dist)
+        let distSquared = deltaX * deltaX + deltaY * deltaY
+        if distSquared < Constants.distanceEpsilon * Constants.distanceEpsilon {
+            // Jitter slightly to avoid zero
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * Constants.repulsion
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = Constants.repulsion * mass / distSquared
         return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
     }
 }
