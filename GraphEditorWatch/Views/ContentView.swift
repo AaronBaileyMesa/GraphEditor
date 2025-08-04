@@ -12,7 +12,7 @@ import WatchKit
 import GraphEditorShared
 
 struct ContentView: View {
-    @StateObject var viewModel = GraphViewModel(model: GraphModel())
+    @StateObject var viewModel = GraphViewModel(model: GraphModel(physicsEngine: PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)))
     @State private var zoomScale: CGFloat = 1.0
     @State private var minZoom: CGFloat = 0.2
     @State private var maxZoom: CGFloat = 5.0

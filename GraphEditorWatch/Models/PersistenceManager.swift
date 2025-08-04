@@ -23,19 +23,15 @@ public class PersistenceManager: GraphStorage {
         self.baseURL = baseURL
     }
     
-    public func save(nodes: [Node], edges: [GraphEdge]) {
+    public func save(nodes: [Node], edges: [GraphEdge]) throws {
         let encoder = JSONEncoder()
-        do {
-            let nodeData = try encoder.encode(nodes)
-            let nodeURL = baseURL.appendingPathComponent(nodesFileName)
-            try nodeData.write(to: nodeURL)
-            
-            let edgeData = try encoder.encode(edges)
-            let edgeURL = baseURL.appendingPathComponent(edgesFileName)
-            try edgeData.write(to: edgeURL)
-        } catch {
-            print("Error saving graph: \(error.localizedDescription)")
-        }
+        let nodeData = try encoder.encode(nodes)
+        let nodeURL = baseURL.appendingPathComponent(nodesFileName)
+        try nodeData.write(to: nodeURL)
+        
+        let edgeData = try encoder.encode(edges)
+        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
+        try edgeData.write(to: edgeURL)
     }
     
     public func load() -> (nodes: [Node], edges: [GraphEdge]) {

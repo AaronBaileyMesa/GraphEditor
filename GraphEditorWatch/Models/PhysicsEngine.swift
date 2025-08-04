@@ -46,7 +46,7 @@ class Quadtree {
         if let children = children {
             let quadrant = getQuadrant(for: node.position)
             children[quadrant].insert(node, depth: depth + 1)
-            aggregateFromChildren()  // Aggregate after child change
+            aggregateFromChildren()  // Already there, good
         } else {
             if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
                 nodes.append(node)
@@ -57,7 +57,6 @@ class Quadtree {
             if !nodes.isEmpty {
                 subdivide()
                 if let children = children {
-                    // No reset needed; aggregate will handle
                     for existing in nodes {
                         let quadrant = getQuadrant(for: existing.position)
                         children[quadrant].insert(existing, depth: depth + 1)
@@ -65,7 +64,7 @@ class Quadtree {
                     nodes = []
                     let quadrant = getQuadrant(for: node.position)
                     children[quadrant].insert(node, depth: depth + 1)
-                    aggregateFromChildren()  // Aggregate after all inserts
+                    aggregateFromChildren()  // ADD THIS HERE to propagate after subdivision inserts
                 } else {
                     nodes.append(node)
                     updateCenterOfMass(with: node)
@@ -157,8 +156,11 @@ class Quadtree {
 }
 
 public class PhysicsEngine {
-    public init() {}
-    let simulationBounds: CGSize = CGSize(width: 300, height: 300)
+    let simulationBounds: CGSize  // Remove hardcoded value
+
+        public init(simulationBounds: CGSize) {  // Allow injection
+            self.simulationBounds = simulationBounds
+        }
     
     private var simulationSteps = 0
     
