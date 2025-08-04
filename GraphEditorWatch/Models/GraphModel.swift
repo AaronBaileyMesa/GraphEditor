@@ -19,6 +19,10 @@ public class GraphModel: ObservableObject {
     
     private var timer: Timer? = nil
     
+    private var recentVelocities: [CGFloat] = []  // Track last 5 total velocities for early stopping
+    private let velocityChangeThreshold: CGFloat = 0.01  // Relative change threshold (1%)
+    private let velocityHistoryCount = 5  // Number of frames to check
+    
     // Indicates if undo is possible.
     var canUndo: Bool {
         !undoStack.isEmpty
@@ -122,12 +126,40 @@ public class GraphModel: ObservableObject {
     func startSimulation() {
         timer?.invalidate()
         self.physicsEngine.resetSimulation()
+        recentVelocities.removeAll()  // Reset velocity history on start
         if nodes.count < 5 { return }  // Skip for small graphs
+        
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.objectWillChange.send()
-            for _ in 0..<10 {  // 10 sub-steps per frame for faster real-time convergence
+            
+            let subSteps = nodes.count < 10 ? 5 : 10  // Dynamic: fewer sub-steps for small graphs
+            var shouldContinue = true
+            for _ in 0..<subSteps {
                 if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
+                    shouldContinue = false
+                    break
+                }
+            }
+            
+            if !shouldContinue {
+                self.stopSimulation()
+                return
+            }
+            
+            // Compute total velocity after sub-steps for early stopping
+            let totalVelocity = self.nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+            recentVelocities.append(totalVelocity)
+            if recentVelocities.count > velocityHistoryCount {
+                recentVelocities.removeFirst()
+            }
+            
+            // Check if velocity is stabilizing (relative change over history < threshold)
+            if recentVelocities.count == velocityHistoryCount {
+                let maxVel = recentVelocities.max() ?? 1.0  // Avoid div by zero
+                let minVel = recentVelocities.min() ?? 0.0
+                let relativeChange = (maxVel - minVel) / maxVel
+                if relativeChange < velocityChangeThreshold {
                     self.stopSimulation()
                     return
                 }
