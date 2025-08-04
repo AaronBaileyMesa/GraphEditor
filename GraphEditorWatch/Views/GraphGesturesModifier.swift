@@ -56,16 +56,20 @@ struct GraphGesturesModifier: ViewModifier {
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
-                                selectedNodeID = node.id
-                                WKInterfaceDevice.current().play(.click)
-                                if zoomScale < maxZoom * 0.8 {
-                                    crownPosition = Double(AppConstants.numZoomLevels - 1)
-                                }
-                                let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                                let worldPoint = node.position
-                                offset = CGSize(width: viewCenter.x - worldPoint.x * zoomScale, height: viewCenter.y - worldPoint.y * zoomScale)
-                            }
-                        } else {
+                                        if let target = potentialEdgeTarget, target.id != node.id,
+                                           !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
+                                            viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
+                                            viewModel.model.startSimulation()
+                                            WKInterfaceDevice.current().play(.success)  // Add this: Haptic for new edge
+                                        } else {
+                                            var updatedNode = viewModel.model.nodes[index]
+                                            updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
+                                            viewModel.model.nodes[index] = updatedNode
+                                            viewModel.model.startSimulation()
+                                            WKInterfaceDevice.current().play(.click)  // Optional: Lighter haptic for node move
+                                        }
+                                    }
+                                } else {
                             if let target = potentialEdgeTarget, target.id != node.id,
                                !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
                                 viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
