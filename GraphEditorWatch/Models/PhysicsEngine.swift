@@ -21,41 +21,79 @@ struct Constants {
     static let timeStep: CGFloat = 1 / 60
     static let velocityThreshold: CGFloat = 0.05
     static let maxSimulationSteps = 200
+    static let minQuadSize: CGFloat = 1e-6
+    static let maxQuadtreeDepth = 64
 }
 
-struct Quadtree {
+class Quadtree {
     let bounds: CGRect
     var centerOfMass: CGPoint = .zero
     var totalMass: CGFloat = 0
     var children: [Quadtree]? = nil
-    var node: Node? = nil
+    var nodes: [Node] = []  // Replaces old single 'node'; allows multiple in leaves
     
     init(bounds: CGRect) {
         self.bounds = bounds
     }
     
-    mutating func insert(_ node: Node) {
-        if let _ = children {
+    func insert(_ node: Node, depth: Int = 0) {
+        if depth > Constants.maxQuadtreeDepth {
+            // Max depth: Add to leaf array
+            nodes.append(node)
+            updateCenterOfMass(with: node)
+            return
+        }
+        
+        if let children = children {
+            // Internal node: Update COM and recurse to child
             updateCenterOfMass(with: node)
             let quadrant = getQuadrant(for: node.position)
-            children?[quadrant].insert(node)  // Note: This line stays as-is; the fix is in the else branch
+            children[quadrant].insert(node, depth: depth + 1)
         } else {
-            if let existingNode = self.node {
+            // Leaf node
+            if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
+                // All coincident: Add to array, no subdivide
+                nodes.append(node)
+                updateCenterOfMass(with: node)
+                return
+            }
+            
+            if !nodes.isEmpty {
                 subdivide()
-                self.node = nil
-                self.centerOfMass = .zero
-                self.totalMass = 0
-                self.insert(existingNode)  // Recursive: updates self (now internal) and recurses to child
-                self.insert(node)          // Same for new node
+                if let children = children {
+                    // Reset for internal node
+                    centerOfMass = .zero
+                    totalMass = 0
+                    
+                    // Re-insert existing nodes
+                    for existing in nodes {
+                        let quadrant = getQuadrant(for: existing.position)
+                        children[quadrant].insert(existing, depth: depth + 1)
+                    }
+                    nodes = []  // Clear leaf array
+                    
+                    // Insert new node
+                    let quadrant = getQuadrant(for: node.position)
+                    children[quadrant].insert(node, depth: depth + 1)
+                } else {
+                    // Subdivide failed: Add to leaf array
+                    nodes.append(node)
+                    updateCenterOfMass(with: node)
+                }
             } else {
-                self.node = node
+                // Empty leaf: Start array
+                nodes.append(node)
                 updateCenterOfMass(with: node)
             }
         }
     }
-    private mutating func subdivide() {
+    
+    private func subdivide() {
         let halfWidth = bounds.width / 2
         let halfHeight = bounds.height / 2
+        if halfWidth < Constants.distanceEpsilon || halfHeight < Constants.distanceEpsilon {
+            return  // Too small
+        }
         children = [
             Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),
             Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)),
@@ -76,25 +114,33 @@ struct Quadtree {
         }
     }
     
-    private mutating func updateCenterOfMass(with node: Node) {
-        // Assuming mass = 1 for each node
+    private func updateCenterOfMass(with node: Node) {
+        // Incremental update (works for both leaves and internals)
         centerOfMass = (centerOfMass * totalMass + node.position) / (totalMass + 1)
         totalMass += 1
     }
     
-    func computeForce(on node: Node, theta: CGFloat = 0.5) -> CGPoint {
+    func computeForce(on queryNode: Node, theta: CGFloat = 0.5) -> CGPoint {
         guard totalMass > 0 else { return .zero }
-        if let existingNode = self.node, existingNode.id != node.id {
-            return repulsionForce(from: existingNode.position, to: node.position)
+        if !nodes.isEmpty {
+            // Leaf: Exact repulsion for each node in array
+            var force: CGPoint = .zero
+            for leafNode in nodes where leafNode.id != queryNode.id {
+                force += repulsionForce(from: leafNode.position, to: queryNode.position)
+            }
+            return force
         }
-        let delta = centerOfMass - node.position
+        // Internal: Approximation
+        let delta = centerOfMass - queryNode.position
         let dist = max(delta.magnitude, Constants.distanceEpsilon)
         if bounds.width / dist < theta || children == nil {
-            return repulsionForce(from: centerOfMass, to: node.position, mass: totalMass)
+            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
         } else {
             var force: CGPoint = .zero
-            for child in children ?? [] {
-                force += child.computeForce(on: node, theta: theta)
+            if let children = children {
+                for child in children {
+                    force += child.computeForce(on: queryNode, theta: theta)
+                }
             }
             return force
         }
@@ -130,9 +176,9 @@ public class PhysicsEngine {
             let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
             
             // Build Quadtree for repulsion (Barnes-Hut)
-            var quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
+            let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
             for node in nodes {
-                quadtree.insert(node)
+                quadtree.insert(node, depth: 0)
             }
             
             // Repulsion using Quadtree
@@ -179,7 +225,19 @@ public class PhysicsEngine {
             node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
             node.position.x = max(0, min(simulationBounds.width, node.position.x))
             node.position.y = max(0, min(simulationBounds.height, node.position.y))
+            
+            // Inside the for loop after updating position:
+            node.position.x = max(0, min(simulationBounds.width, node.position.x))
+            node.position.y = max(0, min(simulationBounds.height, node.position.y))
+            if node.position.x == 0 || node.position.x == simulationBounds.width {
+                node.velocity.x = 0  // Reset velocity on bound hit
+            }
+            if node.position.y == 0 || node.position.y == simulationBounds.height {
+                node.velocity.y = 0
+            }
+            
             nodes[i] = node
+
         }
         
         // Check if stable

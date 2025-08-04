@@ -726,21 +726,25 @@ public class PersistenceManager: GraphStorage {
     private let nodesFileName = "graphNodes.json"
     private let edgesFileName = "graphEdges.json"
     
-    private var documentsDirectory: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
+    private let baseURL: URL
     
-    public init() {}
+    public init(baseURL: URL? = nil) {
+        if let baseURL = baseURL {
+            self.baseURL = baseURL
+        } else {
+            self.baseURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        }
+    }
     
     public func save(nodes: [Node], edges: [GraphEdge]) {
         let encoder = JSONEncoder()
         do {
             let nodeData = try encoder.encode(nodes)
-            let nodeURL = documentsDirectory.appendingPathComponent(nodesFileName)
+            let nodeURL = baseURL.appendingPathComponent(nodesFileName)
             try nodeData.write(to: nodeURL)
             
             let edgeData = try encoder.encode(edges)
-            let edgeURL = documentsDirectory.appendingPathComponent(edgesFileName)
+            let edgeURL = baseURL.appendingPathComponent(edgesFileName)
             try edgeData.write(to: edgeURL)
         } catch {
             print("Error saving graph: \(error)")
@@ -752,13 +756,13 @@ public class PersistenceManager: GraphStorage {
         var loadedNodes: [Node] = []
         var loadedEdges: [GraphEdge] = []
         
-        let nodeURL = documentsDirectory.appendingPathComponent(nodesFileName)
+        let nodeURL = baseURL.appendingPathComponent(nodesFileName)
         if let nodeData = try? Data(contentsOf: nodeURL),
            let decodedNodes = try? decoder.decode([Node].self, from: nodeData) {
             loadedNodes = decodedNodes
         }
         
-        let edgeURL = documentsDirectory.appendingPathComponent(edgesFileName)
+        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
         if let edgeData = try? Data(contentsOf: edgeURL),
            let decodedEdges = try? decoder.decode([GraphEdge].self, from: edgeData) {
             loadedEdges = decodedEdges
@@ -1732,34 +1736,40 @@ struct PhysicsEngineTests {
 struct PersistenceManagerTests {
     
     @Test func testSaveLoadWithInvalidData() throws {
-        let manager = PersistenceManager()
-        
-        // Delete files if they exist to simulate no prior save
+        // Create a unique temporary directory for this test
         let fm = FileManager.default
-        let docs = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let nodesURL = docs.appendingPathComponent("graphNodes.json")
-        let edgesURL = docs.appendingPathComponent("graphEdges.json")
-        if fm.fileExists(atPath: nodesURL.path) {
-            try fm.removeItem(at: nodesURL)
-        }
-        if fm.fileExists(atPath: edgesURL.path) {
-            try fm.removeItem(at: edgesURL)
+        let tempDir = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: tempDir, withIntermediateDirectories: true, attributes: nil)
+        
+        // Clean up after test (defer to ensure it runs)
+        defer {
+            try? fm.removeItem(at: tempDir)
         }
         
-        // Simulate invalid load by not saving first
+        let manager = PersistenceManager(baseURL: tempDir)
+        
+        // No files yet, so load should be empty
         let loaded = manager.load()
-        #expect(loaded.nodes.isEmpty, "Empty nodes on invalid load")
-        #expect(loaded.edges.isEmpty, "Empty edges on invalid load")
+        #expect(loaded.nodes.isEmpty, "Empty nodes on initial load")
+        #expect(loaded.edges.isEmpty, "Empty edges on initial load")
         
         let nodes = [Node(label: 1, position: .zero)]
         let edges = [GraphEdge(from: nodes[0].id, to: nodes[0].id)]  // Self-loop edge
         manager.save(nodes: nodes, edges: edges)
+        
+        // Optional: Verify files were written (for debugging)
+        let nodesURL = tempDir.appendingPathComponent("graphNodes.json")
+        let edgesURL = tempDir.appendingPathComponent("graphEdges.json")
+        #expect(fm.fileExists(atPath: nodesURL.path), "Nodes file should exist after save")
+        #expect(fm.fileExists(atPath: edgesURL.path), "Edges file should exist after save")
+        
         let reloaded = manager.load()
-        #expect(reloaded.nodes == nodes, "Saves and loads valid data")
+        #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
+        #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
     
 
-/*
+
     @Test func testUndoRedoThroughViewModel() {
         let model = GraphEditorWatch.GraphModel()
         let viewModel = GraphViewModel(model: model)
@@ -1768,7 +1778,7 @@ struct PersistenceManagerTests {
         #expect(viewModel.canUndo, "ViewModel reflects canUndo")
         viewModel.undo()
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
-    }*/
+    }
     
 
 }
