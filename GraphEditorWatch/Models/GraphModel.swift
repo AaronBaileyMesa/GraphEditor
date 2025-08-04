@@ -16,7 +16,7 @@ public class GraphModel: ObservableObject {
     
     private let storage: GraphStorage
     internal let physicsEngine: PhysicsEngine
-
+    
     private var timer: Timer? = nil
     
     // Indicates if undo is possible.
@@ -83,7 +83,7 @@ public class GraphModel: ObservableObject {
         try? storage.save(nodes: nodes, edges: edges)
         // REMOVE any redoStack.removeAll() here if present
     }
-
+    
     func redo() {
         guard !redoStack.isEmpty else {
             WKInterfaceDevice.current().play(.failure)
@@ -118,26 +118,29 @@ public class GraphModel: ObservableObject {
         nextNodeLabel += 1
         self.physicsEngine.resetSimulation()
     }
-
+    
     func startSimulation() {
         timer?.invalidate()
         self.physicsEngine.resetSimulation()
         if nodes.count < 5 { return }  // Skip for small graphs
-        timer = Timer.scheduledTimer(withTimeInterval: Constants.timeStep * 2, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.objectWillChange.send()
-            if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
-                self.stopSimulation()
+            for _ in 0..<10 {  // 10 sub-steps per frame for faster real-time convergence
+                if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
+                    self.stopSimulation()
+                    return
+                }
             }
         }
     }
-
-        func stopSimulation() {
-            timer?.invalidate()
-            timer = nil
-        }
-
-        func boundingBox() -> CGRect {
-            self.physicsEngine.boundingBox(nodes: nodes)
-        }
+    
+    func stopSimulation() {
+        timer?.invalidate()
+        timer = nil
     }
+    
+    func boundingBox() -> CGRect {
+        self.physicsEngine.boundingBox(nodes: nodes)
+    }
+}
