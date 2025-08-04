@@ -12,7 +12,7 @@ import WatchKit
 import GraphEditorShared
 
 struct ContentView: View {
-    @StateObject var viewModel = GraphViewModel(model: GraphModel(physicsEngine: PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)))
+    @StateObject var viewModel: GraphViewModel
     @State private var zoomScale: CGFloat = 1.0
     @State private var minZoom: CGFloat = 0.2
     @State private var maxZoom: CGFloat = 5.0
@@ -28,7 +28,12 @@ struct ContentView: View {
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
     
-  
+    init(storage: GraphStorage = PersistenceManager(),
+         physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        _viewModel = StateObject(wrappedValue: GraphViewModel(model: model))
+    }
+    
     var body: some View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
