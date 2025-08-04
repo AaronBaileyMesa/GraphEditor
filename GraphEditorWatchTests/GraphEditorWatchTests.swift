@@ -235,7 +235,7 @@ struct PhysicsEngineTests {
         }
         #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
         #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
-        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 42, "Nodes approach ideal edge length")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - PhysicsConstants.idealLength) < 42, "Nodes approach ideal edge length")
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
@@ -308,7 +308,7 @@ struct PhysicsEngineTests {
         let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
-        for _ in 0..<Constants.maxSimulationSteps {
+        for _ in 0..<PhysicsConstants.maxSimulationSteps {
             _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)

@@ -11,159 +11,13 @@ import SwiftUI
 import Foundation
 import GraphEditorShared
 
-struct Constants {
-    static let stiffness: CGFloat = 0.5  // Reduced from 1.0 to prevent overshoot
-    static let repulsion: CGFloat = 5000  // Same as your change
-    static let damping: CGFloat = 0.85  // Same
-    static let idealLength: CGFloat = 100  // Same (fine for watch screen)
-    static let centeringForce: CGFloat = 0.005  // Slightly increased for better centering on small bounds
-    static let distanceEpsilon: CGFloat = 1e-3  // Same
-    static let timeStep: CGFloat = 0.05  // Reduced from 1.0 for stable integration
-    static let velocityThreshold: CGFloat = 0.2  // Increased slightly; we'll scale it by node count below
-    static let maxSimulationSteps = 500  // Increased from 200 to allow more steps (with sub-stepping, still fast)
-    static let minQuadSize: CGFloat = 1e-6  // Same
-    static let maxQuadtreeDepth = 64  // Same
-}
-
-class Quadtree {
-    let bounds: CGRect
-    var centerOfMass: CGPoint = .zero
-    var totalMass: CGFloat = 0
-    var children: [Quadtree]? = nil
-    var nodes: [Node] = []  // Replaces old single 'node'; allows multiple in leaves
-    
-    init(bounds: CGRect) {
-        self.bounds = bounds
-    }
-    
-    func insert(_ node: Node, depth: Int = 0) {
-        if depth > Constants.maxQuadtreeDepth {
-            nodes.append(node)
-            updateCenterOfMass(with: node)
-            return
-        }
-        
-        if let children = children {
-            let quadrant = getQuadrant(for: node.position)
-            children[quadrant].insert(node, depth: depth + 1)
-            aggregateFromChildren()  // Already there, good
-        } else {
-            if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
-                nodes.append(node)
-                updateCenterOfMass(with: node)
-                return
-            }
-            
-            if !nodes.isEmpty {
-                subdivide()
-                if let children = children {
-                    for existing in nodes {
-                        let quadrant = getQuadrant(for: existing.position)
-                        children[quadrant].insert(existing, depth: depth + 1)
-                    }
-                    nodes = []
-                    let quadrant = getQuadrant(for: node.position)
-                    children[quadrant].insert(node, depth: depth + 1)
-                    aggregateFromChildren()  // ADD THIS HERE to propagate after subdivision inserts
-                } else {
-                    nodes.append(node)
-                    updateCenterOfMass(with: node)
-                }
-            } else {
-                nodes.append(node)
-                updateCenterOfMass(with: node)
-            }
-        }
-    }
-    
-    private func aggregateFromChildren() {
-        centerOfMass = .zero
-        totalMass = 0
-        guard let children = children else { return }
-        for child in children {
-            if child.totalMass > 0 {
-                centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / (totalMass + child.totalMass)
-                totalMass += child.totalMass
-            }
-        }
-    }
-    
-    private func subdivide() {
-        let halfWidth = bounds.width / 2
-        let halfHeight = bounds.height / 2
-        if halfWidth < Constants.distanceEpsilon || halfHeight < Constants.distanceEpsilon {
-            return  // Too small
-        }
-        children = [
-            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight))
-        ]
-    }
-    
-    private func getQuadrant(for point: CGPoint) -> Int {
-        let midX = bounds.midX
-        let midY = bounds.midY
-        if point.x < midX {
-            if point.y < midY { return 0 }
-            else { return 2 }
-        } else {
-            if point.y < midY { return 1 }
-            else { return 3 }
-        }
-    }
-    
-    private func updateCenterOfMass(with node: Node) {
-        // Incremental update (works for both leaves and internals)
-        centerOfMass = (centerOfMass * totalMass + node.position) / (totalMass + 1)
-        totalMass += 1
-    }
-    
-    func computeForce(on queryNode: Node, theta: CGFloat = 0.5) -> CGPoint {
-        guard totalMass > 0 else { return .zero }
-        if !nodes.isEmpty {
-            // Leaf: Exact repulsion for each node in array
-            var force: CGPoint = .zero
-            for leafNode in nodes where leafNode.id != queryNode.id {
-                force += repulsionForce(from: leafNode.position, to: queryNode.position)
-            }
-            return force
-        }
-        // Internal: Approximation
-        let delta = centerOfMass - queryNode.position
-        let dist = max(delta.magnitude, Constants.distanceEpsilon)
-        if bounds.width / dist < theta || children == nil {
-            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
-        } else {
-            var force: CGPoint = .zero
-            if let children = children {
-                for child in children {
-                    force += child.computeForce(on: queryNode, theta: theta)
-                }
-            }
-            return force
-        }
-    }
-    
-    private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
-        let deltaX = to.x - from.x
-        let deltaY = to.y - from.y
-        let distSquared = deltaX * deltaX + deltaY * deltaY
-        if distSquared < Constants.distanceEpsilon * Constants.distanceEpsilon {
-            // Jitter slightly to avoid zero
-            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * Constants.repulsion
-        }
-        let dist = sqrt(distSquared)
-        let forceMagnitude = Constants.repulsion * mass / distSquared
-        return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
-    }
-}
+// ... (existing imports)
+import GraphEditorShared
 
 public class PhysicsEngine {
-    let simulationBounds: CGSize  // Remove hardcoded value
+    let simulationBounds: CGSize
     
-    public init(simulationBounds: CGSize) {  // Allow injection
+    public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
     }
     
@@ -175,7 +29,7 @@ public class PhysicsEngine {
     
     @discardableResult
     func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
-        if simulationSteps >= Constants.maxSimulationSteps {
+        if simulationSteps >= PhysicsConstants.maxSimulationSteps {
             return false
         }
         simulationSteps += 1
@@ -191,7 +45,7 @@ public class PhysicsEngine {
         
         // Repulsion using Quadtree
         for i in 0..<nodes.count {
-            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5  // Adjust based on node count
+            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5
             let repulsion = quadtree.computeForce(on: nodes[i], theta: dynamicTheta)
             forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
         }
@@ -202,8 +56,8 @@ public class PhysicsEngine {
                   let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
             let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
             let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
-            let dist = max(hypot(deltaX, deltaY), Constants.distanceEpsilon)
-            let forceMagnitude = Constants.stiffness * (dist - Constants.idealLength)
+            let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
+            let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
             let forceDirectionX = deltaX / dist
             let forceDirectionY = deltaY / dist
             let forceX = forceDirectionX * forceMagnitude
@@ -218,8 +72,8 @@ public class PhysicsEngine {
         for i in 0..<nodes.count {
             let deltaX = center.x - nodes[i].position.x
             let deltaY = center.y - nodes[i].position.y
-            let forceX = deltaX * Constants.centeringForce
-            let forceY = deltaY * Constants.centeringForce
+            let forceX = deltaX * PhysicsConstants.centeringForce
+            let forceY = deltaY * PhysicsConstants.centeringForce
             let currentForce = forces[nodes[i].id] ?? .zero
             forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
         }
@@ -229,29 +83,27 @@ public class PhysicsEngine {
             let id = nodes[i].id
             var node = nodes[i]
             let force = forces[id] ?? .zero
-            node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
-            node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
-            node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
+            node.velocity = CGPoint(x: node.velocity.x + force.x * PhysicsConstants.timeStep, y: node.velocity.y + force.y * PhysicsConstants.timeStep)
+            node.velocity = CGPoint(x: node.velocity.x * PhysicsConstants.damping, y: node.velocity.y * PhysicsConstants.damping)
+            node.position = CGPoint(x: node.position.x + node.velocity.x * PhysicsConstants.timeStep, y: node.position.y + node.velocity.y * PhysicsConstants.timeStep)
             
-            // Clamp position and reset velocity on bounds hit
+            // Clamp position and reset velocity on bounds hit (with bounce from earlier fix)
             let oldPosition = node.position
-            node.position.x = node.position.x.clamped(to: 0...simulationBounds.width)
-            node.position.y = node.position.y.clamped(to: 0...simulationBounds.height)
+            node.position.x = max(0, min(simulationBounds.width, node.position.x))
+            node.position.y = max(0, min(simulationBounds.height, node.position.y))
             if node.position.x != oldPosition.x {
-                node.velocity.x = -node.velocity.x * Constants.damping  // Bounce with damping
+                node.velocity.x = -node.velocity.x * PhysicsConstants.damping  // Bounce
             }
             if node.position.y != oldPosition.y {
-                node.velocity.y = -node.velocity.y * Constants.damping
+                node.velocity.y = -node.velocity.y * PhysicsConstants.damping
             }
             
             nodes[i] = node
         }
         
-        
-        
         // Check if stable
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        return totalVelocity >= Constants.velocityThreshold * CGFloat(nodes.count)
+        return totalVelocity >= PhysicsConstants.velocityThreshold * CGFloat(nodes.count)
     }
     
     func boundingBox(nodes: [Node]) -> CGRect {
