@@ -191,7 +191,8 @@ public class PhysicsEngine {
         
         // Repulsion using Quadtree
         for i in 0..<nodes.count {
-            let repulsion = quadtree.computeForce(on: nodes[i])
+            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5  // Adjust based on node count
+            let repulsion = quadtree.computeForce(on: nodes[i], theta: dynamicTheta)
             forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
         }
         
