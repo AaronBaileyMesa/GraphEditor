@@ -233,18 +233,20 @@ public class PhysicsEngine {
             node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
             
             // Clamp position and reset velocity on bounds hit
-            let oldPosition = node.position  // For checking if clamped
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
+            let oldPosition = node.position
+            node.position.x = node.position.x.clamped(to: 0...simulationBounds.width)
+            node.position.y = node.position.y.clamped(to: 0...simulationBounds.height)
             if node.position.x != oldPosition.x {
-                node.velocity.x = 0
+                node.velocity.x = -node.velocity.x * Constants.damping  // Bounce with damping
             }
             if node.position.y != oldPosition.y {
-                node.velocity.y = 0
+                node.velocity.y = -node.velocity.y * Constants.damping
             }
             
             nodes[i] = node
         }
+        
+        
         
         // Check if stable
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
