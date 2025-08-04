@@ -457,7 +457,6 @@ public struct GraphState: Codable {
 //  Created by handcart on 8/1/25.
 //
 
-
 // ViewModels/GraphViewModel.swift
 import SwiftUI
 import Combine
@@ -505,6 +504,33 @@ class GraphViewModel: ObservableObject {
 
 
 
+// File: GraphEditorWatch/Models/PhysicsConstants.swift
+//
+//  PhysicConstants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/4/25.
+//
+
+
+import CoreGraphics
+
+public struct PhysicsConstants {
+    public static let stiffness: CGFloat = 0.5
+    public static let repulsion: CGFloat = 5000
+    public static let damping: CGFloat = 0.85
+    public static let idealLength: CGFloat = 100
+    public static let centeringForce: CGFloat = 0.005
+    public static let distanceEpsilon: CGFloat = 1e-3
+    public static let timeStep: CGFloat = 0.05
+    public static let velocityThreshold: CGFloat = 0.2
+    public static let maxSimulationSteps = 500
+    public static let minQuadSize: CGFloat = 1e-6
+    public static let maxQuadtreeDepth = 64
+}
+
+
+
 // File: GraphEditorWatch/Models/PhysicsEngine.swift
 //
 //  Constants.swift
@@ -519,21 +545,129 @@ import SwiftUI
 import Foundation
 import GraphEditorShared
 
-struct Constants {
-    static let stiffness: CGFloat = 0.5  // Reduced from 1.0 to prevent overshoot
-    static let repulsion: CGFloat = 5000  // Same as your change
-    static let damping: CGFloat = 0.85  // Same
-    static let idealLength: CGFloat = 100  // Same (fine for watch screen)
-    static let centeringForce: CGFloat = 0.005  // Slightly increased for better centering on small bounds
-    static let distanceEpsilon: CGFloat = 1e-3  // Same
-    static let timeStep: CGFloat = 0.05  // Reduced from 1.0 for stable integration
-    static let velocityThreshold: CGFloat = 0.2  // Increased slightly; we'll scale it by node count below
-    static let maxSimulationSteps = 500  // Increased from 200 to allow more steps (with sub-stepping, still fast)
-    static let minQuadSize: CGFloat = 1e-6  // Same
-    static let maxQuadtreeDepth = 64  // Same
+// ... (existing imports)
+import GraphEditorShared
+
+public class PhysicsEngine {
+    let simulationBounds: CGSize
+    
+    public init(simulationBounds: CGSize) {
+        self.simulationBounds = simulationBounds
+    }
+    
+    private var simulationSteps = 0
+    
+    func resetSimulation() {
+        simulationSteps = 0
+    }
+    
+    @discardableResult
+    func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
+        if simulationSteps >= PhysicsConstants.maxSimulationSteps {
+            return false
+        }
+        simulationSteps += 1
+        
+        var forces: [NodeID: CGPoint] = [:]
+        let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
+        
+        // Build Quadtree for repulsion (Barnes-Hut)
+        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
+        for node in nodes {
+            quadtree.insert(node, depth: 0)
+        }
+        
+        // Repulsion using Quadtree
+        for i in 0..<nodes.count {
+            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5
+            let repulsion = quadtree.computeForce(on: nodes[i], theta: dynamicTheta)
+            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
+        }
+        
+        // Attraction on edges
+        for edge in edges {
+            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
+                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
+            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
+            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
+            let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
+            let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
+            let forceDirectionX = deltaX / dist
+            let forceDirectionY = deltaY / dist
+            let forceX = forceDirectionX * forceMagnitude
+            let forceY = forceDirectionY * forceMagnitude
+            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
+            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+        }
+        
+        // Weak centering force
+        for i in 0..<nodes.count {
+            let deltaX = center.x - nodes[i].position.x
+            let deltaY = center.y - nodes[i].position.y
+            let forceX = deltaX * PhysicsConstants.centeringForce
+            let forceY = deltaY * PhysicsConstants.centeringForce
+            let currentForce = forces[nodes[i].id] ?? .zero
+            forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
+        }
+        
+        // Apply forces
+        for i in 0..<nodes.count {
+            let id = nodes[i].id
+            var node = nodes[i]
+            let force = forces[id] ?? .zero
+            node.velocity = CGPoint(x: node.velocity.x + force.x * PhysicsConstants.timeStep, y: node.velocity.y + force.y * PhysicsConstants.timeStep)
+            node.velocity = CGPoint(x: node.velocity.x * PhysicsConstants.damping, y: node.velocity.y * PhysicsConstants.damping)
+            node.position = CGPoint(x: node.position.x + node.velocity.x * PhysicsConstants.timeStep, y: node.position.y + node.velocity.y * PhysicsConstants.timeStep)
+            
+            // Clamp position and reset velocity on bounds hit (with bounce from earlier fix)
+            let oldPosition = node.position
+            node.position.x = max(0, min(simulationBounds.width, node.position.x))
+            node.position.y = max(0, min(simulationBounds.height, node.position.y))
+            if node.position.x != oldPosition.x {
+                node.velocity.x = -node.velocity.x * PhysicsConstants.damping  // Bounce
+            }
+            if node.position.y != oldPosition.y {
+                node.velocity.y = -node.velocity.y * PhysicsConstants.damping
+            }
+            
+            nodes[i] = node
+        }
+        
+        // Check if stable
+        let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+        return totalVelocity >= PhysicsConstants.velocityThreshold * CGFloat(nodes.count)
+    }
+    
+    func boundingBox(nodes: [Node]) -> CGRect {
+        if nodes.isEmpty { return .zero }
+        let xs = nodes.map { $0.position.x }
+        let ys = nodes.map { $0.position.y }
+        let minX = xs.min() ?? 0
+        let maxX = xs.max() ?? 0
+        let minY = ys.min() ?? 0
+        let maxY = ys.max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
 }
 
-class Quadtree {
+
+
+// File: GraphEditorWatch/Models/Quadtree.swift
+//
+//  Quadtree.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/4/25.
+//
+
+
+import Foundation
+import CoreGraphics
+import GraphEditorShared  // For Node
+
+public class Quadtree {  // Made public for consistency/test access
     let bounds: CGRect
     var centerOfMass: CGPoint = .zero
     var totalMass: CGFloat = 0
@@ -545,7 +679,7 @@ class Quadtree {
     }
     
     func insert(_ node: Node, depth: Int = 0) {
-        if depth > Constants.maxQuadtreeDepth {
+        if depth > PhysicsConstants.maxQuadtreeDepth {  // Updated reference (line ~26)
             nodes.append(node)
             updateCenterOfMass(with: node)
             return
@@ -554,7 +688,7 @@ class Quadtree {
         if let children = children {
             let quadrant = getQuadrant(for: node.position)
             children[quadrant].insert(node, depth: depth + 1)
-            aggregateFromChildren()  // Already there, good
+            aggregateFromChildren()
         } else {
             if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
                 nodes.append(node)
@@ -572,7 +706,7 @@ class Quadtree {
                     nodes = []
                     let quadrant = getQuadrant(for: node.position)
                     children[quadrant].insert(node, depth: depth + 1)
-                    aggregateFromChildren()  // ADD THIS HERE to propagate after subdivision inserts
+                    aggregateFromChildren()
                 } else {
                     nodes.append(node)
                     updateCenterOfMass(with: node)
@@ -599,7 +733,7 @@ class Quadtree {
     private func subdivide() {
         let halfWidth = bounds.width / 2
         let halfHeight = bounds.height / 2
-        if halfWidth < Constants.distanceEpsilon || halfHeight < Constants.distanceEpsilon {
+        if halfWidth < PhysicsConstants.distanceEpsilon || halfHeight < PhysicsConstants.distanceEpsilon {  // Updated (line ~80)
             return  // Too small
         }
         children = [
@@ -640,7 +774,7 @@ class Quadtree {
         }
         // Internal: Approximation
         let delta = centerOfMass - queryNode.position
-        let dist = max(delta.magnitude, Constants.distanceEpsilon)
+        let dist = max(delta.magnitude, PhysicsConstants.distanceEpsilon)  // Updated (line ~121)
         if bounds.width / dist < theta || children == nil {
             return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
         } else {
@@ -657,112 +791,14 @@ class Quadtree {
     private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
         let deltaX = to.x - from.x
         let deltaY = to.y - from.y
-        let dist = max(hypot(deltaX, deltaY), Constants.distanceEpsilon)
-        let forceMagnitude = Constants.repulsion * mass / (dist * dist)
+        let distSquared = deltaX * deltaX + deltaY * deltaY
+        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {  // Updated (line ~139)
+            // Jitter slightly to avoid zero
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion  // Updated (line ~141)
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = PhysicsConstants.repulsion * mass / distSquared  // Updated (line ~144)
         return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
-    }
-}
-
-public class PhysicsEngine {
-    let simulationBounds: CGSize  // Remove hardcoded value
-    
-    public init(simulationBounds: CGSize) {  // Allow injection
-        self.simulationBounds = simulationBounds
-    }
-    
-    private var simulationSteps = 0
-    
-    func resetSimulation() {
-        simulationSteps = 0
-    }
-    
-    @discardableResult
-    func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
-        if simulationSteps >= Constants.maxSimulationSteps {
-            return false
-        }
-        simulationSteps += 1
-        
-        var forces: [NodeID: CGPoint] = [:]
-        let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-        
-        // Build Quadtree for repulsion (Barnes-Hut)
-        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
-        for node in nodes {
-            quadtree.insert(node, depth: 0)
-        }
-        
-        // Repulsion using Quadtree
-        for i in 0..<nodes.count {
-            let repulsion = quadtree.computeForce(on: nodes[i])
-            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
-        }
-        
-        // Attraction on edges
-        for edge in edges {
-            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
-                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
-            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
-            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
-            let dist = max(hypot(deltaX, deltaY), Constants.distanceEpsilon)
-            let forceMagnitude = Constants.stiffness * (dist - Constants.idealLength)
-            let forceDirectionX = deltaX / dist
-            let forceDirectionY = deltaY / dist
-            let forceX = forceDirectionX * forceMagnitude
-            let forceY = forceDirectionY * forceMagnitude
-            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
-            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
-            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
-            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
-        }
-        
-        // Weak centering force
-        for i in 0..<nodes.count {
-            let deltaX = center.x - nodes[i].position.x
-            let deltaY = center.y - nodes[i].position.y
-            let forceX = deltaX * Constants.centeringForce
-            let forceY = deltaY * Constants.centeringForce
-            let currentForce = forces[nodes[i].id] ?? .zero
-            forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
-        }
-        
-        // Apply forces
-        for i in 0..<nodes.count {
-            let id = nodes[i].id
-            var node = nodes[i]
-            let force = forces[id] ?? .zero
-            node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
-            node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
-            node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
-            
-            // Clamp position and reset velocity on bounds hit
-            let oldPosition = node.position  // For checking if clamped
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
-            if node.position.x != oldPosition.x {
-                node.velocity.x = 0
-            }
-            if node.position.y != oldPosition.y {
-                node.velocity.y = 0
-            }
-            
-            nodes[i] = node
-        }
-        
-        // Check if stable
-        let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        return totalVelocity >= Constants.velocityThreshold * CGFloat(nodes.count)
-    }
-    
-    func boundingBox(nodes: [Node]) -> CGRect {
-        if nodes.isEmpty { return .zero }
-        let xs = nodes.map { $0.position.x }
-        let ys = nodes.map { $0.position.y }
-        let minX = xs.min() ?? 0
-        let maxX = xs.max() ?? 0
-        let minY = ys.min() ?? 0
-        let maxY = ys.max() ?? 0
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 
@@ -776,9 +812,18 @@ public class PhysicsEngine {
 //
 //  Created by handcart on 8/1/25.
 //
+import os.log
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
 import Foundation
 import GraphEditorShared
+
+enum GraphStorageError: Error {
+    case encodingFailed(Error)
+    case writingFailed(Error)
+    case loadingFailed(Error)
+    case decodingFailed(Error)
+}
 
 public class PersistenceManager: GraphStorage {
     private let nodesFileName = "graphNodes.json"
@@ -796,13 +841,21 @@ public class PersistenceManager: GraphStorage {
     
     public func save(nodes: [Node], edges: [GraphEdge]) throws {
         let encoder = JSONEncoder()
-        let nodeData = try encoder.encode(nodes)
-        let nodeURL = baseURL.appendingPathComponent(nodesFileName)
-        try nodeData.write(to: nodeURL)
-        
-        let edgeData = try encoder.encode(edges)
-        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
-        try edgeData.write(to: edgeURL)
+        do {
+            let nodeData = try encoder.encode(nodes)
+            let nodeURL = baseURL.appendingPathComponent(nodesFileName)
+            try nodeData.write(to: nodeURL)
+            
+            let edgeData = try encoder.encode(edges)
+            let edgeURL = baseURL.appendingPathComponent(edgesFileName)
+            try edgeData.write(to: edgeURL)
+        } catch let encodingError as EncodingError {
+            throw GraphStorageError.encodingFailed(encodingError)
+        } catch let writingError as NSError {
+            throw GraphStorageError.writingFailed(writingError)
+        } catch {
+            throw GraphStorageError.encodingFailed(error)
+        }
     }
     
     public func load() -> (nodes: [Node], edges: [GraphEdge]) {
@@ -811,15 +864,22 @@ public class PersistenceManager: GraphStorage {
         var loadedEdges: [GraphEdge] = []
         
         let nodeURL = baseURL.appendingPathComponent(nodesFileName)
-        if let nodeData = try? Data(contentsOf: nodeURL),
-           let decodedNodes = try? decoder.decode([Node].self, from: nodeData) {
-            loadedNodes = decodedNodes
+        if let nodeData = try? Data(contentsOf: nodeURL) {
+            do {
+                loadedNodes = try decoder.decode([Node].self, from: nodeData)
+            } catch {
+                // Log and use defaults
+                logger.error("Failed to decode nodes: \(error.localizedDescription)")
+            }
         }
         
         let edgeURL = baseURL.appendingPathComponent(edgesFileName)
-        if let edgeData = try? Data(contentsOf: edgeURL),
-           let decodedEdges = try? decoder.decode([GraphEdge].self, from: edgeData) {
-            loadedEdges = decodedEdges
+        if let edgeData = try? Data(contentsOf: edgeURL) {
+            do {
+                loadedEdges = try decoder.decode([GraphEdge].self, from: edgeData)
+            } catch {
+                logger.error("Failed to decode edges: \(error.localizedDescription)")
+            }
         }
         
         return (loadedNodes, loadedEdges)
@@ -829,6 +889,10 @@ public class PersistenceManager: GraphStorage {
 
 
 // File: GraphEditorWatch/Models/GraphModel.swift
+// At top of GraphModel.swift
+import os.log
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
+
 // Models/GraphModel.swift
 import SwiftUI
 import Combine
@@ -849,6 +913,10 @@ public class GraphModel: ObservableObject {
     internal let physicsEngine: PhysicsEngine
     
     private var timer: Timer? = nil
+    
+    private var recentVelocities: [CGFloat] = []  // Track last 5 total velocities for early stopping
+    private let velocityChangeThreshold: CGFloat = 0.01  // Relative change threshold (1%)
+    private let velocityHistoryCount = 5  // Number of frames to check
     
     // Indicates if undo is possible.
     var canUndo: Bool {
@@ -879,7 +947,11 @@ public class GraphModel: ObservableObject {
                 GraphEdge(from: nodes[1].id, to: nodes[2].id),
                 GraphEdge(from: nodes[2].id, to: nodes[0].id)
             ]
-            try? storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+            do {
+                try storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+            } catch {
+                logger.error("Failed to save default graph: \(error.localizedDescription)")
+            }
         } else {
             // Update nextLabel based on loaded nodes
             nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
@@ -895,7 +967,11 @@ public class GraphModel: ObservableObject {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save snapshot: \(error.localizedDescription)")
+        }
     }
     
     // Undoes the last action if possible, with haptic feedback.
@@ -911,7 +987,11 @@ public class GraphModel: ObservableObject {
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save after undo: \(error.localizedDescription)")
+        }
         // REMOVE any redoStack.removeAll() here if present
     }
     
@@ -927,7 +1007,11 @@ public class GraphModel: ObservableObject {
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save after redo: \(error.localizedDescription)")
+        }
         // Optionally add redoStack.removeAll() here if you want to prevent redo chains, but standard is not to
     }
     
@@ -953,12 +1037,40 @@ public class GraphModel: ObservableObject {
     func startSimulation() {
         timer?.invalidate()
         self.physicsEngine.resetSimulation()
+        recentVelocities.removeAll()  // Reset velocity history on start
         if nodes.count < 5 { return }  // Skip for small graphs
+        
         timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             self.objectWillChange.send()
-            for _ in 0..<10 {  // 10 sub-steps per frame for faster real-time convergence
+            
+            let subSteps = nodes.count < 10 ? 5 : 10  // Dynamic: fewer sub-steps for small graphs
+            var shouldContinue = true
+            for _ in 0..<subSteps {
                 if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
+                    shouldContinue = false
+                    break
+                }
+            }
+            
+            if !shouldContinue {
+                self.stopSimulation()
+                return
+            }
+            
+            // Compute total velocity after sub-steps for early stopping
+            let totalVelocity = self.nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+            recentVelocities.append(totalVelocity)
+            if recentVelocities.count > velocityHistoryCount {
+                recentVelocities.removeFirst()
+            }
+            
+            // Check if velocity is stabilizing (relative change over history < threshold)
+            if recentVelocities.count == velocityHistoryCount {
+                let maxVel = recentVelocities.max() ?? 1.0  // Avoid div by zero
+                let minVel = recentVelocities.min() ?? 0.0
+                let relativeChange = (maxVel - minVel) / maxVel
+                if relativeChange < velocityChangeThreshold {
                     self.stopSimulation()
                     return
                 }
@@ -973,6 +1085,27 @@ public class GraphModel: ObservableObject {
     
     func boundingBox() -> CGRect {
         self.physicsEngine.boundingBox(nodes: nodes)
+    }
+}
+
+extension GraphModel {
+    func graphDescription(selectedID: NodeID?) -> String {
+        var desc = "Graph with \(nodes.count) nodes and \(edges.count) edges."
+        if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
+            let connectedLabels = edges
+                .filter { $0.from == selectedID || $0.to == selectedID }
+                .compactMap { edge in
+                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
+                    return nodes.first { $0.id == otherID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
+        } else {
+            desc += " No node selected."
+        }
+        return desc
     }
 }
 
@@ -1084,10 +1217,10 @@ struct GraphCanvasView: View {
                 context.draw(resolvedText, at: pos, anchor: .center)
             }
         }
+        .drawingGroup()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(graphDescription())
-        .accessibilityHint("Double-tap for menu. Long press to delete selected.")
-        .accessibilityChildren {
+            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID))
+            .accessibilityHint("Double-tap for menu. Long press to delete selected.")        .accessibilityChildren {
             ForEach(viewModel.model.nodes) { node in
                 Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
                     .accessibilityAction(named: "Select") {
@@ -1151,7 +1284,7 @@ import WatchKit
 import GraphEditorShared
 
 struct ContentView: View {
-    @StateObject var viewModel = GraphViewModel(model: GraphModel(physicsEngine: PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)))
+    @StateObject var viewModel: GraphViewModel
     @State private var zoomScale: CGFloat = 1.0
     @State private var minZoom: CGFloat = 0.2
     @State private var maxZoom: CGFloat = 5.0
@@ -1166,8 +1299,14 @@ struct ContentView: View {
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
+    @State private var storageError: String? = nil
     
-  
+    init(storage: GraphStorage = PersistenceManager(),
+         physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        _viewModel = StateObject(wrappedValue: GraphViewModel(model: model))
+    }
+    
     var body: some View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
@@ -1207,6 +1346,12 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.model.stopSimulation()
+        }
+        // In body, add:
+        .alert("Storage Error", isPresented: Binding(get: { storageError != nil }, set: { _ in storageError = nil })) {
+            Button("OK") {}
+        } message: {
+            Text(storageError ?? "Unknown error")
         }
     }
     
@@ -1266,19 +1411,7 @@ struct ContentView: View {
         }
     }
     
-    // Provides a textual description of the graph for accessibility.
-    private func graphDescription() -> String {
-        var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
-        if let selectedID = selectedNodeID,
-           let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
-            desc += " Node \(selectedNode.label) selected with \(connections) connections."
-        } else {
-            desc += " No node selected."
-        }
-        return desc
-    }
-    
+      
     // Updates the zoom range based on current graph and view size.
     private func updateZoomRanges() {
         guard viewSize != .zero else { return }
@@ -1361,7 +1494,6 @@ struct ContentView: View {
 //
 
 
-// Views/GraphGesturesModifier.swift
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -1388,13 +1520,17 @@ struct GraphGesturesModifier: ViewModifier {
                     let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
                         .scaledBy(x: zoomScale, y: zoomScale)
                         .inverted()
+                    let touchPos = value.startLocation.applying(inverseTransform)
+                    
                     if draggedNode == nil {
-                        let touchPos = value.startLocation.applying(inverseTransform)
+                        // Check for node hit to prioritize drag/selection
                         if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
                             draggedNode = hitNode
                         }
                     }
+                    
                     if let dragged = draggedNode {
+                        // Handle ongoing drag (for potential edge or move)
                         dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
                         let currentPos = value.location.applying(inverseTransform)
                         potentialEdgeTarget = viewModel.model.nodes.first {
@@ -1404,31 +1540,29 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 .onEnded { value in
                     let dragDistance = hypot(value.translation.width, value.translation.height)
+                    let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                        .scaledBy(x: zoomScale, y: zoomScale)
+                        .inverted()
+                    let touchPos = value.location.applying(inverseTransform)
+                    
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         viewModel.snapshot()
                         if dragDistance < AppConstants.tapThreshold {
+                            // Handle tap on node: Toggle selection
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
-                                        if let target = potentialEdgeTarget, target.id != node.id,
-                                           !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
-                                            viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
-                                            viewModel.model.startSimulation()
-                                            WKInterfaceDevice.current().play(.success)  // Add this: Haptic for new edge
-                                        } else {
-                                            var updatedNode = viewModel.model.nodes[index]
-                                            updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
-                                            viewModel.model.nodes[index] = updatedNode
-                                            viewModel.model.startSimulation()
-                                            WKInterfaceDevice.current().play(.click)  // Optional: Lighter haptic for node move
-                                        }
-                                    }
-                                } else {
+                                selectedNodeID = node.id
+                            }
+                            WKInterfaceDevice.current().play(.click)  // Haptic feedback for selection
+                        } else {
+                            // Handle actual drag: Move node or create edge
                             if let target = potentialEdgeTarget, target.id != node.id,
                                !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
                                 viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
                                 viewModel.model.startSimulation()
+                                WKInterfaceDevice.current().play(.success)
                             } else {
                                 var updatedNode = viewModel.model.nodes[index]
                                 updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
@@ -1437,21 +1571,20 @@ struct GraphGesturesModifier: ViewModifier {
                             }
                         }
                     } else {
+                        // No node dragged: Handle tap to add new node or pan (but pan is in simultaneous gesture)
                         if dragDistance < AppConstants.tapThreshold {
-                            selectedNodeID = nil
+                            selectedNodeID = nil  // Deselect on background tap
                             viewModel.snapshot()
-                            let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                                .scaledBy(x: zoomScale, y: zoomScale)
-                                .inverted()
-                            let touchPos = value.location.applying(inverseTransform)
                             viewModel.model.addNode(at: touchPos)
                             viewModel.model.startSimulation()
                         }
                     }
-                    onUpdateZoomRanges()
+                    
+                    // Reset drag state
                     draggedNode = nil
                     dragOffset = .zero
                     potentialEdgeTarget = nil
+                    onUpdateZoomRanges()
                 }
             )
             .simultaneousGesture(DragGesture(minimumDistance: 0)
@@ -1783,7 +1916,7 @@ struct PhysicsEngineTests {
         }
         #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
         #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
-        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 42, "Nodes approach ideal edge length")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - PhysicsConstants.idealLength) < 42, "Nodes approach ideal edge length")
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
@@ -1856,27 +1989,34 @@ struct PhysicsEngineTests {
         let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
-        for _ in 0..<Constants.maxSimulationSteps {
+        for _ in 0..<PhysicsConstants.maxSimulationSteps {
             _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)
         #expect(!exceeded, "Simulation stops after max steps")
     }
+    
+    @Test func testQuadtreeCoincidentNodes() {
+        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: CGSize(width: 100, height: 100)))
+        let pos = CGPoint(x: 50, y: 50)
+        let node1 = Node(label: 1, position: pos)
+        let node2 = Node(label: 2, position: pos)
+        quadtree.insert(node1)
+        quadtree.insert(node2)
+        let force = quadtree.computeForce(on: node1)
+        #expect(force.magnitude > 0, "Force non-zero on coincident nodes")
+    }
 }
 
 struct PersistenceManagerTests {
     private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
-    
-    private func mockPhysicsEngine() -> PhysicsEngine {
-        PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-    }
-    
+
     private func mockStorage() -> MockGraphStorage {
         MockGraphStorage()
     }
-    
+
     @Test func testSaveLoadWithInvalidData() throws {
         // Create a unique temporary directory for this test
         let fm = FileManager.default
@@ -1903,13 +2043,13 @@ struct PersistenceManagerTests {
         #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
-    
+
     @Test func testUndoRedoThroughViewModel() {
         let storage = mockStorage()
-        let model: GraphEditorWatch.GraphModel = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())  // Qualify with module to resolve shadowing
+        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let viewModel = GraphViewModel(model: model)
         viewModel.snapshot()
-        model.addNode(at: CGPoint.zero) // Explicit for inference safety
+        model.addNode(at: CGPoint.zero)
         #expect(viewModel.canUndo, "ViewModel reflects canUndo")
         viewModel.undo()
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
@@ -1925,16 +2065,71 @@ class GraphGesturesModifierTests: XCTestCase {
         MockGraphStorage()
     }
     
-    func testDragCreatesEdge() {
-        let storage = mockStorage()
-        let model: GraphEditorWatch.GraphModel = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())  // Qualify with module to resolve shadowing
-        let viewModel = GraphViewModel(model: model)
-        // Setup: Add two nodes
-        model.addNode(at: CGPoint.zero)
-        model.addNode(at: CGPoint(x: 50, y: 50))
-        let node1 = model.nodes[0]
-        let node2 = model.nodes[1]
-        // ... (rest of the function unchanged)
+    struct GestureTests {
+        @Test func testDragCreatesEdge() {
+            let storage = MockGraphStorage()
+            let physicsEngine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+            let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: physicsEngine)
+            
+            // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
+            // Note: GraphModel init adds defaults if empty, so to match test intent, we'll clear them here for the test.
+            model.nodes = []
+            model.edges = []
+            model.addNode(at: CGPoint(x: 0, y: 0))
+            model.addNode(at: CGPoint(x: 50, y: 50))
+            #expect(model.edges.isEmpty, "No edges initially")
+            
+            let viewModel = GraphViewModel(model: model)
+            let node1 = model.nodes[0]
+            let node2 = model.nodes[1]
+            
+            // Mock gesture properties instead of creating Value
+            let mockTranslation = CGSize(width: 50, height: 50)
+            
+            // Simulate onEnded logic
+            let draggedNode: Node? = node1
+            let potentialEdgeTarget: Node? = node2
+            let dragOffset: CGPoint = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)  // Assume zoomScale=1
+            
+            let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+            if let node = draggedNode,
+               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                viewModel.snapshot()
+                if dragDistance < AppConstants.tapThreshold {
+                    // Tap logic (skipped)
+                } else {
+                    // Drag logic
+                    if let target = potentialEdgeTarget, target.id != node.id {
+                        // Break up complex predicate
+                        let fromID = node.id
+                        let toID = target.id
+                        let edgeExists = viewModel.model.edges.contains { edge in
+                            (edge.from == fromID && edge.to == toID) ||
+                            (edge.from == toID && edge.to == fromID)
+                        }
+                        if !edgeExists {
+                            viewModel.model.edges.append(GraphEdge(from: fromID, to: toID))
+                            viewModel.model.startSimulation()
+                        } else {
+                            // Move logic (skipped, but update to use vars)
+                            var updatedNode = viewModel.model.nodes[index]
+                            updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
+                            viewModel.model.nodes[index] = updatedNode
+                            viewModel.model.startSimulation()
+                        }
+                    }
+                }
+            }
+            
+            // Assert: Break up the expectation
+            #expect(viewModel.model.edges.count == 1, "Edge created after simulated drag")
+            let newEdge = viewModel.model.edges.first
+            #expect(newEdge != nil, "New edge exists")
+            if let newEdge = newEdge {
+                #expect(newEdge.from == node1.id, "Edge from correct node")
+                #expect(newEdge.to == node2.id, "Edge to correct node")
+            }
+        }
     }
 }
 
