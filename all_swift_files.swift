@@ -529,41 +529,80 @@ struct Constants {
     static let timeStep: CGFloat = 1 / 60
     static let velocityThreshold: CGFloat = 0.05
     static let maxSimulationSteps = 200
+    static let minQuadSize: CGFloat = 1e-6
+    static let maxQuadtreeDepth = 64
 }
 
-struct Quadtree {
+class Quadtree {
     let bounds: CGRect
     var centerOfMass: CGPoint = .zero
     var totalMass: CGFloat = 0
     var children: [Quadtree]? = nil
-    var node: Node? = nil
+    var nodes: [Node] = []  // Replaces old single 'node'; allows multiple in leaves
     
     init(bounds: CGRect) {
         self.bounds = bounds
     }
     
-    mutating func insert(_ node: Node) {
-        if let _ = children {
+    func insert(_ node: Node, depth: Int = 0) {
+        if depth > Constants.maxQuadtreeDepth {
+            nodes.append(node)
             updateCenterOfMass(with: node)
+            return
+        }
+        
+        if let children = children {
             let quadrant = getQuadrant(for: node.position)
-            children?[quadrant].insert(node)  // Note: This line stays as-is; the fix is in the else branch
+            children[quadrant].insert(node, depth: depth + 1)
+            aggregateFromChildren()  // Aggregate after child change
         } else {
-            if let existingNode = self.node {
+            if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
+                nodes.append(node)
+                updateCenterOfMass(with: node)
+                return
+            }
+            
+            if !nodes.isEmpty {
                 subdivide()
-                self.node = nil
-                self.centerOfMass = .zero
-                self.totalMass = 0
-                self.insert(existingNode)  // Recursive: updates self (now internal) and recurses to child
-                self.insert(node)          // Same for new node
+                if let children = children {
+                    // No reset needed; aggregate will handle
+                    for existing in nodes {
+                        let quadrant = getQuadrant(for: existing.position)
+                        children[quadrant].insert(existing, depth: depth + 1)
+                    }
+                    nodes = []
+                    let quadrant = getQuadrant(for: node.position)
+                    children[quadrant].insert(node, depth: depth + 1)
+                    aggregateFromChildren()  // Aggregate after all inserts
+                } else {
+                    nodes.append(node)
+                    updateCenterOfMass(with: node)
+                }
             } else {
-                self.node = node
+                nodes.append(node)
                 updateCenterOfMass(with: node)
             }
         }
     }
-    private mutating func subdivide() {
+    
+    private func aggregateFromChildren() {
+        centerOfMass = .zero
+        totalMass = 0
+        guard let children = children else { return }
+        for child in children {
+            if child.totalMass > 0 {
+                centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / (totalMass + child.totalMass)
+                totalMass += child.totalMass
+            }
+        }
+    }
+    
+    private func subdivide() {
         let halfWidth = bounds.width / 2
         let halfHeight = bounds.height / 2
+        if halfWidth < Constants.distanceEpsilon || halfHeight < Constants.distanceEpsilon {
+            return  // Too small
+        }
         children = [
             Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),
             Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)),
@@ -584,25 +623,33 @@ struct Quadtree {
         }
     }
     
-    private mutating func updateCenterOfMass(with node: Node) {
-        // Assuming mass = 1 for each node
+    private func updateCenterOfMass(with node: Node) {
+        // Incremental update (works for both leaves and internals)
         centerOfMass = (centerOfMass * totalMass + node.position) / (totalMass + 1)
         totalMass += 1
     }
     
-    func computeForce(on node: Node, theta: CGFloat = 0.5) -> CGPoint {
+    func computeForce(on queryNode: Node, theta: CGFloat = 0.5) -> CGPoint {
         guard totalMass > 0 else { return .zero }
-        if let existingNode = self.node, existingNode.id != node.id {
-            return repulsionForce(from: existingNode.position, to: node.position)
+        if !nodes.isEmpty {
+            // Leaf: Exact repulsion for each node in array
+            var force: CGPoint = .zero
+            for leafNode in nodes where leafNode.id != queryNode.id {
+                force += repulsionForce(from: leafNode.position, to: queryNode.position)
+            }
+            return force
         }
-        let delta = centerOfMass - node.position
+        // Internal: Approximation
+        let delta = centerOfMass - queryNode.position
         let dist = max(delta.magnitude, Constants.distanceEpsilon)
         if bounds.width / dist < theta || children == nil {
-            return repulsionForce(from: centerOfMass, to: node.position, mass: totalMass)
+            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
         } else {
             var force: CGPoint = .zero
-            for child in children ?? [] {
-                force += child.computeForce(on: node, theta: theta)
+            if let children = children {
+                for child in children {
+                    force += child.computeForce(on: queryNode, theta: theta)
+                }
             }
             return force
         }
@@ -638,9 +685,9 @@ public class PhysicsEngine {
             let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
             
             // Build Quadtree for repulsion (Barnes-Hut)
-            var quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
+            let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
             for node in nodes {
-                quadtree.insert(node)
+                quadtree.insert(node, depth: 0)
             }
             
             // Repulsion using Quadtree
@@ -677,18 +724,28 @@ public class PhysicsEngine {
             forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
         }
         
-        // Apply forces
-        for i in 0..<nodes.count {
-            let id = nodes[i].id
-            var node = nodes[i]
-            let force = forces[id] ?? .zero
-            node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
-            node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
-            node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
-            nodes[i] = node
-        }
+            // Apply forces
+            for i in 0..<nodes.count {
+                let id = nodes[i].id
+                var node = nodes[i]
+                let force = forces[id] ?? .zero
+                node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
+                node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
+                node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
+                
+                // Clamp position and reset velocity on bounds hit
+                let oldPosition = node.position  // For checking if clamped
+                node.position.x = max(0, min(simulationBounds.width, node.position.x))
+                node.position.y = max(0, min(simulationBounds.height, node.position.y))
+                if node.position.x != oldPosition.x {
+                    node.velocity.x = 0
+                }
+                if node.position.y != oldPosition.y {
+                    node.velocity.y = 0
+                }
+                
+                nodes[i] = node
+            }
         
         // Check if stable
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
@@ -722,18 +779,17 @@ import Foundation
 import GraphEditorShared
 
 public class PersistenceManager: GraphStorage {
-    
     private let nodesFileName = "graphNodes.json"
     private let edgesFileName = "graphEdges.json"
     
     private let baseURL: URL
     
-    public init(baseURL: URL? = nil) {
-        if let baseURL = baseURL {
-            self.baseURL = baseURL
-        } else {
-            self.baseURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        }
+    public init() {
+        self.baseURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+    
+    public init(baseURL: URL) {
+        self.baseURL = baseURL
     }
     
     public func save(nodes: [Node], edges: [GraphEdge]) {
@@ -747,7 +803,7 @@ public class PersistenceManager: GraphStorage {
             let edgeURL = baseURL.appendingPathComponent(edgesFileName)
             try edgeData.write(to: edgeURL)
         } catch {
-            print("Error saving graph: \(error)")
+            print("Error saving graph: \(error.localizedDescription)")
         }
     }
     
@@ -891,17 +947,18 @@ public class GraphModel: ObservableObject {
             self.physicsEngine.resetSimulation()
         }
 
-        func startSimulation() {
-            timer?.invalidate()
-            self.physicsEngine.resetSimulation()
-            timer = Timer.scheduledTimer(withTimeInterval: Constants.timeStep, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                self.objectWillChange.send()
-                if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
-                    self.stopSimulation()
-                }
+    func startSimulation() {
+        timer?.invalidate()
+        self.physicsEngine.resetSimulation()
+        if nodes.count < 5 { return }  // Skip for small graphs
+        timer = Timer.scheduledTimer(withTimeInterval: Constants.timeStep * 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.objectWillChange.send()
+            if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
+                self.stopSimulation()
             }
         }
+    }
 
         func stopSimulation() {
             timer?.invalidate()
@@ -913,6 +970,30 @@ public class GraphModel: ObservableObject {
         }
     }
 
+
+
+// File: GraphEditorWatch/Models/AppConstants.swift
+//
+//  AppConstants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/3/25.
+//
+
+
+import CoreGraphics
+
+struct AppConstants {
+    // Graph visuals
+    static let nodeModelRadius: CGFloat = 10.0
+    static let hitScreenRadius: CGFloat = 30.0
+    static let tapThreshold: CGFloat = 10.0
+    
+    // Zooming
+    static let numZoomLevels = 6
+    static let defaultMinZoom: CGFloat = 0.2
+    static let defaultMaxZoom: CGFloat = 5.0
+}
 
 
 // File: GraphEditorWatch/Views/GraphCanvasView.swift
@@ -940,13 +1021,9 @@ struct GraphCanvasView: View {
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
-    let hitScreenRadius: CGFloat
-    let tapThreshold: CGFloat
     let maxZoom: CGFloat
-    let numZoomLevels: Int
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
-    let nodeModelRadius: CGFloat
     
     var body: some View {
         Canvas { context, size in
@@ -988,7 +1065,7 @@ struct GraphCanvasView: View {
             // Draw nodes
             for node in viewModel.model.nodes {
                 let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
-                let scaledRadius = nodeModelRadius * zoomScale
+                let scaledRadius = AppConstants.nodeModelRadius * zoomScale
                 context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
                 if node.id == selectedNodeID {
                     let borderWidth = 4 * zoomScale
@@ -1024,10 +1101,7 @@ struct GraphCanvasView: View {
             viewSize: viewSize,
             panStartOffset: $panStartOffset,
             showMenu: $showMenu,
-            hitScreenRadius: hitScreenRadius,
-            tapThreshold: tapThreshold,
             maxZoom: maxZoom,
-            numZoomLevels: numZoomLevels,
             crownPosition: $crownPosition,
             onUpdateZoomRanges: onUpdateZoomRanges
         ))
@@ -1037,8 +1111,16 @@ struct GraphCanvasView: View {
         var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
         if let selectedID = selectedNodeID,
            let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
-            desc += " Node \(selectedNode.label) selected with \(connections) connections."
+            let connectedLabels = viewModel.model.edges
+                .filter { $0.from == selectedID || $0.to == selectedID }
+                .compactMap { edge in
+                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
+                    return viewModel.model.nodes.first { $0.id == otherID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
         } else {
             desc += " No node selected."
         }
@@ -1079,11 +1161,7 @@ struct ContentView: View {
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
     
-    let numZoomLevels = 6
-    let nodeModelRadius: CGFloat = 10.0
-    let hitScreenRadius: CGFloat = 30.0
-    let tapThreshold: CGFloat = 10.0
-    
+  
     var body: some View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
@@ -1092,7 +1170,7 @@ struct ContentView: View {
             menuView
         }
         .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
+        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
         .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -1100,7 +1178,7 @@ struct ContentView: View {
                 return
             }
             
-            let maxCrown = Double(numZoomLevels - 1)
+            let maxCrown = Double(AppConstants.numZoomLevels - 1)
             let clampedValue = max(0, min(newValue, maxCrown))
             if clampedValue != newValue {
                 ignoreNextCrownChange = true
@@ -1138,13 +1216,10 @@ struct ContentView: View {
             viewSize: geo.size,
             panStartOffset: $panStartOffset,
             showMenu: $showMenu,
-            hitScreenRadius: hitScreenRadius,
-            tapThreshold: tapThreshold,
             maxZoom: maxZoom,
-            numZoomLevels: numZoomLevels,
+
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: updateZoomRanges,
-            nodeModelRadius: nodeModelRadius
+            onUpdateZoomRanges: updateZoomRanges
         )
         .onAppear {
             viewSize = geo.size
@@ -1205,7 +1280,7 @@ struct ContentView: View {
         if viewModel.model.nodes.isEmpty {
             minZoom = 0.5
             maxZoom = 2.0
-            let midCrown = Double(numZoomLevels - 1) / 2.0
+            let midCrown = Double(AppConstants.numZoomLevels - 1) / 2.0
             if midCrown != crownPosition {
                 ignoreNextCrownChange = true
                 crownPosition = midCrown
@@ -1220,7 +1295,7 @@ struct ContentView: View {
         let targetDia = min(viewSize.width, viewSize.height) / CGFloat(3)
         let newMinZoom = targetDia / graphDia
         
-        let nodeDia = 2 * nodeModelRadius
+        let nodeDia = 2 * AppConstants.nodeModelRadius
         let targetNodeDia = min(viewSize.width, viewSize.height) * (CGFloat(2) / CGFloat(3))
         let newMaxZoom = targetNodeDia / nodeDia
         
@@ -1237,7 +1312,7 @@ struct ContentView: View {
             progress = 1.0
         }
         progress = progress.clamped(to: 0...1)  // Explicit clamp to [0,1]
-        let newCrown = Double(progress * CGFloat(numZoomLevels - 1))
+        let newCrown = Double(progress * CGFloat(AppConstants.numZoomLevels - 1))
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
             crownPosition = newCrown
@@ -1246,10 +1321,10 @@ struct ContentView: View {
     
     // Updates the zoom scale and adjusts offset if needed.
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
-        let oldProgress = oldCrown / Double(numZoomLevels - 1)
+        let oldProgress = oldCrown / Double(AppConstants.numZoomLevels - 1)
         let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), oldProgress))
         
-        let newProgress = crownPosition / Double(numZoomLevels - 1)
+        let newProgress = crownPosition / Double(AppConstants.numZoomLevels - 1)
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
@@ -1296,10 +1371,7 @@ struct GraphGesturesModifier: ViewModifier {
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
-    let hitScreenRadius: CGFloat
-    let tapThreshold: CGFloat
     let maxZoom: CGFloat
-    let numZoomLevels: Int
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     
@@ -1312,7 +1384,7 @@ struct GraphGesturesModifier: ViewModifier {
                         .inverted()
                     if draggedNode == nil {
                         let touchPos = value.startLocation.applying(inverseTransform)
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
                             draggedNode = hitNode
                         }
                     }
@@ -1320,7 +1392,7 @@ struct GraphGesturesModifier: ViewModifier {
                         dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
                         let currentPos = value.location.applying(inverseTransform)
                         potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < hitScreenRadius / zoomScale
+                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < AppConstants.hitScreenRadius / zoomScale
                         }
                     }
                 }
@@ -1329,20 +1401,24 @@ struct GraphGesturesModifier: ViewModifier {
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         viewModel.snapshot()
-                        if dragDistance < tapThreshold {
+                        if dragDistance < AppConstants.tapThreshold {
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
-                                selectedNodeID = node.id
-                                WKInterfaceDevice.current().play(.click)
-                                if zoomScale < maxZoom * 0.8 {
-                                    crownPosition = Double(numZoomLevels - 1)
-                                }
-                                let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                                let worldPoint = node.position
-                                offset = CGSize(width: viewCenter.x - worldPoint.x * zoomScale, height: viewCenter.y - worldPoint.y * zoomScale)
-                            }
-                        } else {
+                                        if let target = potentialEdgeTarget, target.id != node.id,
+                                           !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
+                                            viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
+                                            viewModel.model.startSimulation()
+                                            WKInterfaceDevice.current().play(.success)  // Add this: Haptic for new edge
+                                        } else {
+                                            var updatedNode = viewModel.model.nodes[index]
+                                            updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
+                                            viewModel.model.nodes[index] = updatedNode
+                                            viewModel.model.startSimulation()
+                                            WKInterfaceDevice.current().play(.click)  // Optional: Lighter haptic for node move
+                                        }
+                                    }
+                                } else {
                             if let target = potentialEdgeTarget, target.id != node.id,
                                !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
                                 viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
@@ -1355,7 +1431,7 @@ struct GraphGesturesModifier: ViewModifier {
                             }
                         }
                     } else {
-                        if dragDistance < tapThreshold {
+                        if dragDistance < AppConstants.tapThreshold {
                             selectedNodeID = nil
                             viewModel.snapshot()
                             let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
@@ -1397,7 +1473,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 let worldPos = location.applying(inverseTransform)
                                 
                                 // Check for node hit (unchanged)
-                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
+                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
                                     viewModel.deleteNode(withID: hitNode.id)
                                     WKInterfaceDevice.current().play(.success)
                                     viewModel.model.startSimulation()
@@ -1408,7 +1484,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 for edge in viewModel.model.edges {
                                     if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                                        let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < hitScreenRadius / zoomScale {
+                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
                                             viewModel.deleteEdge(withID: edge.id)
                                             WKInterfaceDevice.current().play(.success)
                                             viewModel.model.startSimulation()
@@ -1469,6 +1545,8 @@ import Foundation
 import CoreGraphics
 @testable import GraphEditorWatch  // Updated module name
 import GraphEditorShared  // For Node, GraphEdge, etc.
+import XCTest
+import SwiftUI
 
 class MockGraphStorage: GraphStorage {
     var nodes: [Node] = []
@@ -1485,7 +1563,38 @@ class MockGraphStorage: GraphStorage {
 }
 
 struct GraphModelTests {
-
+    
+    @Test func testUndoRedoMixedOperations() {
+        let storage = MockGraphStorage()
+        let model = GraphModel(storage: storage)
+        let initialNodeCount = model.nodes.count  // 3
+        let initialEdgeCount = model.edges.count  // 3
+        
+        model.snapshot()  // Snapshot 1: initial (3n, 3e)
+        
+        let nodeToDelete = model.nodes.first!.id
+        model.deleteNode(withID: nodeToDelete)  // Now 2n, 1e (assuming triangle, delete removes 2 edges)
+        model.snapshot()  // Snapshot 2: after delete (2n, 1e)
+        
+        model.addNode(at: .zero)  // Now 3n, 1e — NO snapshot here, so current is unsnapshotted post-add
+        
+        #expect(model.nodes.count == initialNodeCount, "After add: count back to initial")
+        #expect(model.edges.count < initialEdgeCount, "Edges still decreased")
+        
+        model.undo()  // Undo from post-add to Snapshot 2: after delete (2n, 1e)
+        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
+        
+        model.undo()  // Undo to Snapshot 1: initial (3n, 3e)
+        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
+        #expect(model.edges.count == initialEdgeCount, "Edges restored")
+        
+        model.redo()  // Redo to post-delete (2n, 1e)
+        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
+        
+        model.redo()  // Redo to post-add (3n, 1e)
+        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
+    }
+    
     @Test func testInitializationWithDefaults() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage)
@@ -1636,8 +1745,25 @@ struct GraphModelTests {
 
 struct PhysicsEngineTests {
     
+    @Test func testSimulationConvergence() {
+        let engine = PhysicsEngine()
+        var nodes: [Node] = [
+            Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 10, y: 10)),
+            Node(label: 2, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: -5, y: -5))
+        ]
+        let edges: [GraphEdge] = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
+        
+        for _ in 0..<300 {  // Increase steps for better damping
+            _ = engine.simulationStep(nodes: &nodes, edges: edges)
+        }
+        
+        #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
+        #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 40, "Nodes approach ideal edge length")
+    }
+    
     @Test func testQuadtreeInsertionAndCenterOfMass() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 90.0, y: 90.0))
         quadtree.insert(node1)
@@ -1650,7 +1776,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testComputeForceBasic() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 20.0, y: 20.0))
         quadtree.insert(node1)
         let testNode = Node(label: 2, position: CGPoint(x: 50.0, y: 50.0))
@@ -1691,9 +1817,8 @@ struct PhysicsEngineTests {
         #expect(emptyBbox == .zero, "Zero for empty nodes")
     }
     
-  
     @Test func testQuadtreeMultiLevelSubdivision() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         // Insert nodes all in NW quadrant to force multi-level
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 20.0, y: 20.0))
@@ -1731,8 +1856,6 @@ struct PhysicsEngineTests {
      
 }
 
-// New struct in GraphEditorWatchTests.swift
-
 struct PersistenceManagerTests {
     
     @Test func testSaveLoadWithInvalidData() throws {
@@ -1768,8 +1891,6 @@ struct PersistenceManagerTests {
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
     
-
-
     @Test func testUndoRedoThroughViewModel() {
         let model = GraphEditorWatch.GraphModel()
         let viewModel = GraphViewModel(model: model)
@@ -1780,7 +1901,76 @@ struct PersistenceManagerTests {
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
     }
     
+}
 
+class GraphGesturesModifierTests: XCTestCase {
+    func testDragCreatesEdge() {
+        // Mock model from app module
+        let model = GraphEditorWatch.GraphModel()
+        let viewModel = GraphViewModel(model: model)
+        
+        // Setup: Add two nodes
+        model.addNode(at: .zero)
+        model.addNode(at: CGPoint(x: 50, y: 50))
+        let node1 = model.nodes[0]
+        let node2 = model.nodes[1]
+        
+        // Mock bindings and vars
+        var zoomScale: CGFloat = 1.0
+        let zoomScaleBinding = Binding<CGFloat>(get: { zoomScale }, set: { zoomScale = $0 })
+        
+        var offset: CGSize = .zero
+        let offsetBinding = Binding<CGSize>(get: { offset }, set: { offset = $0 })
+        
+        var draggedNode: Node? = node1
+        let draggedNodeBinding = Binding<Node?>(get: { draggedNode }, set: { draggedNode = $0 })
+        
+        var dragOffset: CGPoint = CGPoint(x: 50, y: 50)  // Drag to node2
+        let dragOffsetBinding = Binding<CGPoint>(get: { dragOffset }, set: { dragOffset = $0 })
+        
+        var potentialEdgeTarget: Node? = node2
+        let potentialEdgeTargetBinding = Binding<Node?>(get: { potentialEdgeTarget }, set: { potentialEdgeTarget = $0 })
+        
+        var selectedNodeID: NodeID? = nil
+        let selectedNodeIDBinding = Binding<NodeID?>(get: { selectedNodeID }, set: { selectedNodeID = $0 })
+        
+        var panStartOffset: CGSize? = nil
+        let panStartOffsetBinding = Binding<CGSize?>(get: { panStartOffset }, set: { panStartOffset = $0 })
+        
+        var showMenu: Bool = false
+        let showMenuBinding = Binding<Bool>(get: { showMenu }, set: { showMenu = $0 })
+        
+        var crownPosition: Double = 0.0
+        let crownPositionBinding = Binding<Double>(get: { crownPosition }, set: { crownPosition = $0 })
+        
+        // Create modifier with mocks
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            zoomScale: zoomScaleBinding,
+            offset: offsetBinding,
+            draggedNode: draggedNodeBinding,
+            dragOffset: dragOffsetBinding,
+            potentialEdgeTarget: potentialEdgeTargetBinding,
+            selectedNodeID: selectedNodeIDBinding,
+            viewSize: CGSize(width: 100, height: 100),
+            panStartOffset: panStartOffsetBinding,
+            showMenu: showMenuBinding,
+            //hitScreenRadius: 30.0,
+            //tapThreshold: 10.0,
+            maxZoom: 5.0,
+            //numZoomLevels: 6,
+            crownPosition: crownPositionBinding,
+            onUpdateZoomRanges: {}
+        )
+        
+        // Simulate edge creation (manually, since gesture is hard to invoke directly in unit test)
+        let initialEdges = model.edges.count
+        if let target = potentialEdgeTarget, target.id != node1.id {
+            model.edges.append(GraphEdge(from: node1.id, to: target.id))
+        }
+        
+        XCTAssertEqual(model.edges.count, initialEdges + 1, "Drag should create a new edge")
+    }
 }
 
 

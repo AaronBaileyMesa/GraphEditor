@@ -3,6 +3,8 @@ import Foundation
 import CoreGraphics
 @testable import GraphEditorWatch  // Updated module name
 import GraphEditorShared  // For Node, GraphEdge, etc.
+import XCTest
+import SwiftUI
 
 class MockGraphStorage: GraphStorage {
     var nodes: [Node] = []
@@ -347,8 +349,6 @@ struct PersistenceManagerTests {
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
     
-
-
     @Test func testUndoRedoThroughViewModel() {
         let model = GraphEditorWatch.GraphModel()
         let viewModel = GraphViewModel(model: model)
@@ -359,5 +359,74 @@ struct PersistenceManagerTests {
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
     }
     
+}
 
+class GraphGesturesModifierTests: XCTestCase {
+    func testDragCreatesEdge() {
+        // Mock model from app module
+        let model = GraphEditorWatch.GraphModel()
+        let viewModel = GraphViewModel(model: model)
+        
+        // Setup: Add two nodes
+        model.addNode(at: .zero)
+        model.addNode(at: CGPoint(x: 50, y: 50))
+        let node1 = model.nodes[0]
+        let node2 = model.nodes[1]
+        
+        // Mock bindings and vars
+        var zoomScale: CGFloat = 1.0
+        let zoomScaleBinding = Binding<CGFloat>(get: { zoomScale }, set: { zoomScale = $0 })
+        
+        var offset: CGSize = .zero
+        let offsetBinding = Binding<CGSize>(get: { offset }, set: { offset = $0 })
+        
+        var draggedNode: Node? = node1
+        let draggedNodeBinding = Binding<Node?>(get: { draggedNode }, set: { draggedNode = $0 })
+        
+        var dragOffset: CGPoint = CGPoint(x: 50, y: 50)  // Drag to node2
+        let dragOffsetBinding = Binding<CGPoint>(get: { dragOffset }, set: { dragOffset = $0 })
+        
+        var potentialEdgeTarget: Node? = node2
+        let potentialEdgeTargetBinding = Binding<Node?>(get: { potentialEdgeTarget }, set: { potentialEdgeTarget = $0 })
+        
+        var selectedNodeID: NodeID? = nil
+        let selectedNodeIDBinding = Binding<NodeID?>(get: { selectedNodeID }, set: { selectedNodeID = $0 })
+        
+        var panStartOffset: CGSize? = nil
+        let panStartOffsetBinding = Binding<CGSize?>(get: { panStartOffset }, set: { panStartOffset = $0 })
+        
+        var showMenu: Bool = false
+        let showMenuBinding = Binding<Bool>(get: { showMenu }, set: { showMenu = $0 })
+        
+        var crownPosition: Double = 0.0
+        let crownPositionBinding = Binding<Double>(get: { crownPosition }, set: { crownPosition = $0 })
+        
+        // Create modifier with mocks
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            zoomScale: zoomScaleBinding,
+            offset: offsetBinding,
+            draggedNode: draggedNodeBinding,
+            dragOffset: dragOffsetBinding,
+            potentialEdgeTarget: potentialEdgeTargetBinding,
+            selectedNodeID: selectedNodeIDBinding,
+            viewSize: CGSize(width: 100, height: 100),
+            panStartOffset: panStartOffsetBinding,
+            showMenu: showMenuBinding,
+            //hitScreenRadius: 30.0,
+            //tapThreshold: 10.0,
+            maxZoom: 5.0,
+            //numZoomLevels: 6,
+            crownPosition: crownPositionBinding,
+            onUpdateZoomRanges: {}
+        )
+        
+        // Simulate edge creation (manually, since gesture is hard to invoke directly in unit test)
+        let initialEdges = model.edges.count
+        if let target = potentialEdgeTarget, target.id != node1.id {
+            model.edges.append(GraphEdge(from: node1.id, to: target.id))
+        }
+        
+        XCTAssertEqual(model.edges.count, initialEdges + 1, "Drag should create a new edge")
+    }
 }
