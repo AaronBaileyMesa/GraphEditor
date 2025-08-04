@@ -22,13 +22,9 @@ struct GraphCanvasView: View {
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
-    let hitScreenRadius: CGFloat
-    let tapThreshold: CGFloat
     let maxZoom: CGFloat
-    let numZoomLevels: Int
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
-    let nodeModelRadius: CGFloat
     
     var body: some View {
         Canvas { context, size in
@@ -70,7 +66,7 @@ struct GraphCanvasView: View {
             // Draw nodes
             for node in viewModel.model.nodes {
                 let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
-                let scaledRadius = nodeModelRadius * zoomScale
+                let scaledRadius = AppConstants.nodeModelRadius * zoomScale
                 context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
                 if node.id == selectedNodeID {
                     let borderWidth = 4 * zoomScale
@@ -106,10 +102,7 @@ struct GraphCanvasView: View {
             viewSize: viewSize,
             panStartOffset: $panStartOffset,
             showMenu: $showMenu,
-            hitScreenRadius: hitScreenRadius,
-            tapThreshold: tapThreshold,
             maxZoom: maxZoom,
-            numZoomLevels: numZoomLevels,
             crownPosition: $crownPosition,
             onUpdateZoomRanges: onUpdateZoomRanges
         ))

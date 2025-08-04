@@ -114,17 +114,18 @@ public class GraphModel: ObservableObject {
             self.physicsEngine.resetSimulation()
         }
 
-        func startSimulation() {
-            timer?.invalidate()
-            self.physicsEngine.resetSimulation()
-            timer = Timer.scheduledTimer(withTimeInterval: Constants.timeStep, repeats: true) { [weak self] _ in
-                guard let self else { return }
-                self.objectWillChange.send()
-                if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
-                    self.stopSimulation()
-                }
+    func startSimulation() {
+        timer?.invalidate()
+        self.physicsEngine.resetSimulation()
+        if nodes.count < 5 { return }  // Skip for small graphs
+        timer = Timer.scheduledTimer(withTimeInterval: Constants.timeStep * 2, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.objectWillChange.send()
+            if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
+                self.stopSimulation()
             }
         }
+    }
 
         func stopSimulation() {
             timer?.invalidate()

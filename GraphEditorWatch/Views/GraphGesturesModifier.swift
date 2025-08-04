@@ -22,10 +22,7 @@ struct GraphGesturesModifier: ViewModifier {
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
-    let hitScreenRadius: CGFloat
-    let tapThreshold: CGFloat
     let maxZoom: CGFloat
-    let numZoomLevels: Int
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     
@@ -38,7 +35,7 @@ struct GraphGesturesModifier: ViewModifier {
                         .inverted()
                     if draggedNode == nil {
                         let touchPos = value.startLocation.applying(inverseTransform)
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
                             draggedNode = hitNode
                         }
                     }
@@ -46,7 +43,7 @@ struct GraphGesturesModifier: ViewModifier {
                         dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
                         let currentPos = value.location.applying(inverseTransform)
                         potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < hitScreenRadius / zoomScale
+                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < AppConstants.hitScreenRadius / zoomScale
                         }
                     }
                 }
@@ -55,14 +52,14 @@ struct GraphGesturesModifier: ViewModifier {
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         viewModel.snapshot()
-                        if dragDistance < tapThreshold {
+                        if dragDistance < AppConstants.tapThreshold {
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
                                 selectedNodeID = node.id
                                 WKInterfaceDevice.current().play(.click)
                                 if zoomScale < maxZoom * 0.8 {
-                                    crownPosition = Double(numZoomLevels - 1)
+                                    crownPosition = Double(AppConstants.numZoomLevels - 1)
                                 }
                                 let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
                                 let worldPoint = node.position
@@ -81,7 +78,7 @@ struct GraphGesturesModifier: ViewModifier {
                             }
                         }
                     } else {
-                        if dragDistance < tapThreshold {
+                        if dragDistance < AppConstants.tapThreshold {
                             selectedNodeID = nil
                             viewModel.snapshot()
                             let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
@@ -123,7 +120,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 let worldPos = location.applying(inverseTransform)
                                 
                                 // Check for node hit (unchanged)
-                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < hitScreenRadius / zoomScale }) {
+                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
                                     viewModel.deleteNode(withID: hitNode.id)
                                     WKInterfaceDevice.current().play(.success)
                                     viewModel.model.startSimulation()
@@ -134,7 +131,7 @@ struct GraphGesturesModifier: ViewModifier {
                                 for edge in viewModel.model.edges {
                                     if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                                        let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < hitScreenRadius / zoomScale {
+                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
                                             viewModel.deleteEdge(withID: edge.id)
                                             WKInterfaceDevice.current().play(.success)
                                             viewModel.model.startSimulation()

@@ -28,11 +28,7 @@ struct ContentView: View {
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
     
-    let numZoomLevels = 6
-    let nodeModelRadius: CGFloat = 10.0
-    let hitScreenRadius: CGFloat = 30.0
-    let tapThreshold: CGFloat = 10.0
-    
+  
     var body: some View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
@@ -41,7 +37,7 @@ struct ContentView: View {
             menuView
         }
         .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
+        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
         .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -49,7 +45,7 @@ struct ContentView: View {
                 return
             }
             
-            let maxCrown = Double(numZoomLevels - 1)
+            let maxCrown = Double(AppConstants.numZoomLevels - 1)
             let clampedValue = max(0, min(newValue, maxCrown))
             if clampedValue != newValue {
                 ignoreNextCrownChange = true
@@ -87,13 +83,10 @@ struct ContentView: View {
             viewSize: geo.size,
             panStartOffset: $panStartOffset,
             showMenu: $showMenu,
-            hitScreenRadius: hitScreenRadius,
-            tapThreshold: tapThreshold,
             maxZoom: maxZoom,
-            numZoomLevels: numZoomLevels,
+
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: updateZoomRanges,
-            nodeModelRadius: nodeModelRadius
+            onUpdateZoomRanges: updateZoomRanges
         )
         .onAppear {
             viewSize = geo.size
@@ -154,7 +147,7 @@ struct ContentView: View {
         if viewModel.model.nodes.isEmpty {
             minZoom = 0.5
             maxZoom = 2.0
-            let midCrown = Double(numZoomLevels - 1) / 2.0
+            let midCrown = Double(AppConstants.numZoomLevels - 1) / 2.0
             if midCrown != crownPosition {
                 ignoreNextCrownChange = true
                 crownPosition = midCrown
@@ -169,7 +162,7 @@ struct ContentView: View {
         let targetDia = min(viewSize.width, viewSize.height) / CGFloat(3)
         let newMinZoom = targetDia / graphDia
         
-        let nodeDia = 2 * nodeModelRadius
+        let nodeDia = 2 * AppConstants.nodeModelRadius
         let targetNodeDia = min(viewSize.width, viewSize.height) * (CGFloat(2) / CGFloat(3))
         let newMaxZoom = targetNodeDia / nodeDia
         
@@ -186,7 +179,7 @@ struct ContentView: View {
             progress = 1.0
         }
         progress = progress.clamped(to: 0...1)  // Explicit clamp to [0,1]
-        let newCrown = Double(progress * CGFloat(numZoomLevels - 1))
+        let newCrown = Double(progress * CGFloat(AppConstants.numZoomLevels - 1))
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
             crownPosition = newCrown
@@ -195,10 +188,10 @@ struct ContentView: View {
     
     // Updates the zoom scale and adjusts offset if needed.
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
-        let oldProgress = oldCrown / Double(numZoomLevels - 1)
+        let oldProgress = oldCrown / Double(AppConstants.numZoomLevels - 1)
         let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), oldProgress))
         
-        let newProgress = crownPosition / Double(numZoomLevels - 1)
+        let newProgress = crownPosition / Double(AppConstants.numZoomLevels - 1)
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {

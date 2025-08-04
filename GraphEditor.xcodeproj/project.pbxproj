@@ -63,6 +63,7 @@
 		4EB112A92E3EFFA9001A8E1A /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatchTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				Models/AppConstants.swift,
 				Models/GraphModel.swift,
 				Models/PersistenceManager.swift,
 				Models/PhysicsEngine.swift,
