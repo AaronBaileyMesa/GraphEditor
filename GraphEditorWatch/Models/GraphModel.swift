@@ -1,3 +1,7 @@
+// At top of GraphModel.swift
+import os.log
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
+
 // Models/GraphModel.swift
 import SwiftUI
 import Combine
@@ -52,7 +56,11 @@ public class GraphModel: ObservableObject {
                 GraphEdge(from: nodes[1].id, to: nodes[2].id),
                 GraphEdge(from: nodes[2].id, to: nodes[0].id)
             ]
-            try? storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+            do {
+                try storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+            } catch {
+                logger.error("Failed to save default graph: \(error.localizedDescription)")
+            }
         } else {
             // Update nextLabel based on loaded nodes
             nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
@@ -68,7 +76,11 @@ public class GraphModel: ObservableObject {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save snapshot: \(error.localizedDescription)")
+        }
     }
     
     // Undoes the last action if possible, with haptic feedback.
@@ -84,7 +96,11 @@ public class GraphModel: ObservableObject {
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save after undo: \(error.localizedDescription)")
+        }
         // REMOVE any redoStack.removeAll() here if present
     }
     
@@ -100,7 +116,11 @@ public class GraphModel: ObservableObject {
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
-        try? storage.save(nodes: nodes, edges: edges)
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            logger.error("Failed to save after redo: \(error.localizedDescription)")
+        }
         // Optionally add redoStack.removeAll() here if you want to prevent redo chains, but standard is not to
     }
     

@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
+    @State private var storageError: String? = nil
     
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
@@ -73,6 +74,12 @@ struct ContentView: View {
         }
         .onDisappear {
             viewModel.model.stopSimulation()
+        }
+        // In body, add:
+        .alert("Storage Error", isPresented: Binding(get: { storageError != nil }, set: { _ in storageError = nil })) {
+            Button("OK") {}
+        } message: {
+            Text(storageError ?? "Unknown error")
         }
     }
     
