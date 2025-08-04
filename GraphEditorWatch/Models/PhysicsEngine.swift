@@ -38,21 +38,18 @@ class Quadtree {
     
     func insert(_ node: Node, depth: Int = 0) {
         if depth > Constants.maxQuadtreeDepth {
-            // Max depth: Add to leaf array
             nodes.append(node)
             updateCenterOfMass(with: node)
             return
         }
         
         if let children = children {
-            // Internal node: Update COM and recurse to child
-            updateCenterOfMass(with: node)
+            updateCenterOfMass(with: node)  // Incremental before recurse
             let quadrant = getQuadrant(for: node.position)
             children[quadrant].insert(node, depth: depth + 1)
+            aggregateFromChildren()  // Aggregate after child change
         } else {
-            // Leaf node
             if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
-                // All coincident: Add to array, no subdivide
                 nodes.append(node)
                 updateCenterOfMass(with: node)
                 return
@@ -61,29 +58,34 @@ class Quadtree {
             if !nodes.isEmpty {
                 subdivide()
                 if let children = children {
-                    // Reset for internal node
-                    centerOfMass = .zero
-                    totalMass = 0
-                    
-                    // Re-insert existing nodes
+                    // No reset needed; aggregate will handle
                     for existing in nodes {
                         let quadrant = getQuadrant(for: existing.position)
                         children[quadrant].insert(existing, depth: depth + 1)
                     }
-                    nodes = []  // Clear leaf array
-                    
-                    // Insert new node
+                    nodes = []
                     let quadrant = getQuadrant(for: node.position)
                     children[quadrant].insert(node, depth: depth + 1)
+                    aggregateFromChildren()  // Aggregate after all inserts
                 } else {
-                    // Subdivide failed: Add to leaf array
                     nodes.append(node)
                     updateCenterOfMass(with: node)
                 }
             } else {
-                // Empty leaf: Start array
                 nodes.append(node)
                 updateCenterOfMass(with: node)
+            }
+        }
+    }
+    
+    private func aggregateFromChildren() {
+        centerOfMass = .zero
+        totalMass = 0
+        guard let children = children else { return }
+        for child in children {
+            if child.totalMass > 0 {
+                centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / (totalMass + child.totalMass)
+                totalMass += child.totalMass
             }
         }
     }

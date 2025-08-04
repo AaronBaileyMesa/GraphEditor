@@ -19,7 +19,36 @@ class MockGraphStorage: GraphStorage {
 }
 
 struct GraphModelTests {
-
+    
+    @Test func testUndoRedoMixedOperations() {
+        let storage = MockGraphStorage()
+        let model = GraphModel(storage: storage)
+        let initialNodeCount = model.nodes.count
+        let initialEdgeCount = model.edges.count
+        
+        model.snapshot()  // Save initial state
+        let nodeToDelete = model.nodes.first!.id
+        model.deleteNode(withID: nodeToDelete)  // Delete a node (removes edges)
+        model.addNode(at: .zero)  // Add a new node
+        model.snapshot()  // Save after changes
+        
+        #expect(model.nodes.count == initialNodeCount, "After delete and add, node count matches initial")
+        #expect(model.edges.count < initialEdgeCount, "Edges decreased after delete")
+        
+        model.undo()  // Undo to post-delete state (before add)
+        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts add")
+        
+        model.undo()  // Undo to initial
+        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial state")
+        #expect(model.edges.count == initialEdgeCount, "Edges restored")
+        
+        model.redo()  // Redo delete
+        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
+        
+        model.redo()  // Redo add
+        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
+    }
+    
     @Test func testInitializationWithDefaults() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage)
@@ -169,6 +198,23 @@ struct GraphModelTests {
 }
 
 struct PhysicsEngineTests {
+    
+    @Test func testSimulationConvergence() {
+        let engine = PhysicsEngine()
+        var nodes: [Node] = [
+            Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 10, y: 10)),
+            Node(label: 2, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: -5, y: -5))
+        ]
+        let edges: [GraphEdge] = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
+        
+        for _ in 0..<100 {  // Run multiple steps
+            _ = engine.simulationStep(nodes: &nodes, edges: edges)
+        }
+        
+        #expect(nodes[0].velocity.magnitude < 0.1, "Node 1 velocity converges to near-zero")
+        #expect(nodes[1].velocity.magnitude < 0.1, "Node 2 velocity converges to near-zero")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 10, "Nodes approach ideal edge length")
+    }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
         var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
