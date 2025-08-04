@@ -314,6 +314,17 @@ struct PhysicsEngineTests {
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)
         #expect(!exceeded, "Simulation stops after max steps")
     }
+    
+    @Test func testQuadtreeCoincidentNodes() {
+        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: CGSize(width: 100, height: 100)))
+        let pos = CGPoint(x: 50, y: 50)
+        let node1 = Node(label: 1, position: pos)
+        let node2 = Node(label: 2, position: pos)
+        quadtree.insert(node1)
+        quadtree.insert(node2)
+        let force = quadtree.computeForce(on: node1)
+        #expect(force.magnitude > 0, "Force non-zero on coincident nodes")
+    }
 }
 
 struct PersistenceManagerTests {
@@ -380,12 +391,12 @@ class GraphGesturesModifierTests: XCTestCase {
     func testDragCreatesEdge() {
         let storage = mockStorage()
         let model: GraphEditorWatch.GraphModel = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())  // Qualify with module to resolve shadowing
-        let viewModel = GraphViewModel(model: model)
+        _ = GraphViewModel(model: model)
         // Setup: Add two nodes
         model.addNode(at: CGPoint.zero)
         model.addNode(at: CGPoint(x: 50, y: 50))
-        let node1 = model.nodes[0]
-        let node2 = model.nodes[1]
+        _ = model.nodes[0]
+        _ = model.nodes[1]
         // ... (rest of the function unchanged)
     }
 }
