@@ -26,29 +26,28 @@ struct GraphModelTests {
         let initialNodeCount = model.nodes.count  // 3
         let initialEdgeCount = model.edges.count  // 3
         
-        model.snapshot()  // Snapshot 1: initial
+        model.snapshot()  // Snapshot 1: initial (3n, 3e)
         
         let nodeToDelete = model.nodes.first!.id
-        model.deleteNode(withID: nodeToDelete)  // Now 2 nodes, fewer edges
-        model.snapshot()  // Snapshot 2: after delete
+        model.deleteNode(withID: nodeToDelete)  // Now 2n, 1e (assuming triangle, delete removes 2 edges)
+        model.snapshot()  // Snapshot 2: after delete (2n, 1e)
         
-        model.addNode(at: .zero)  // Now 3 nodes
-        model.snapshot()  // Snapshot 3: after add
+        model.addNode(at: .zero)  // Now 3n, 1e — NO snapshot here, so current is unsnapshotted post-add
         
-        #expect(model.nodes.count == initialNodeCount, "After delete and add: back to initial count")
-        #expect(model.edges.count < initialEdgeCount, "Edges decreased after delete")
+        #expect(model.nodes.count == initialNodeCount, "After add: count back to initial")
+        #expect(model.edges.count < initialEdgeCount, "Edges still decreased")
         
-        model.undo()  // Undo to Snapshot 2: after delete (2 nodes)
-        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts add")
+        model.undo()  // Undo from post-add to Snapshot 2: after delete (2n, 1e)
+        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
         
-        model.undo()  // Undo to Snapshot 1: initial (3 nodes)
+        model.undo()  // Undo to Snapshot 1: initial (3n, 3e)
         #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
         #expect(model.edges.count == initialEdgeCount, "Edges restored")
         
-        model.redo()  // Redo to Snapshot 2: after delete (2 nodes)
+        model.redo()  // Redo to post-delete (2n, 1e)
         #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
         
-        model.redo()  // Redo to Snapshot 3: after add (3 nodes)
+        model.redo()  // Redo to post-add (3n, 1e)
         #expect(model.nodes.count == initialNodeCount, "Redo applies add")
     }
     
@@ -210,17 +209,17 @@ struct PhysicsEngineTests {
         ]
         let edges: [GraphEdge] = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
         
-        for _ in 0..<200 {  // Increase to 200 steps for better convergence
+        for _ in 0..<300 {  // Increase steps for better damping
             _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
         
-        #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")  // Loosen to 0.3 if needed
+        #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
         #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
-        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 50, "Nodes approach ideal edge length")  // Loosen tolerance
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.idealLength) < 40, "Nodes approach ideal edge length")
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 90.0, y: 90.0))
         quadtree.insert(node1)
@@ -233,7 +232,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testComputeForceBasic() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 20.0, y: 20.0))
         quadtree.insert(node1)
         let testNode = Node(label: 2, position: CGPoint(x: 50.0, y: 50.0))
@@ -275,7 +274,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testQuadtreeMultiLevelSubdivision() {
-        var quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         // Insert nodes all in NW quadrant to force multi-level
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 20.0, y: 20.0))

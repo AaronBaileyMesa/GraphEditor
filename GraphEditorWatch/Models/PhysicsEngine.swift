@@ -44,7 +44,6 @@ class Quadtree {
         }
         
         if let children = children {
-            updateCenterOfMass(with: node)  // Incremental before recurse
             let quadrant = getQuadrant(for: node.position)
             children[quadrant].insert(node, depth: depth + 1)
             aggregateFromChildren()  // Aggregate after child change
