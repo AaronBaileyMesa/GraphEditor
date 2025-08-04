@@ -79,6 +79,7 @@ struct GraphCanvasView: View {
                 context.draw(resolvedText, at: pos, anchor: .center)
             }
         }
+        .drawingGroup()
         .accessibilityElement(children: .combine)
         .accessibilityLabel(graphDescription())
         .accessibilityHint("Double-tap for menu. Long press to delete selected.")
