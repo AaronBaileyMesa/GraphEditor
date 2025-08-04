@@ -132,19 +132,7 @@ struct ContentView: View {
         }
     }
     
-    // Provides a textual description of the graph for accessibility.
-    private func graphDescription() -> String {
-        var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
-        if let selectedID = selectedNodeID,
-           let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
-            desc += " Node \(selectedNode.label) selected with \(connections) connections."
-        } else {
-            desc += " No node selected."
-        }
-        return desc
-    }
-    
+      
     // Updates the zoom range based on current graph and view size.
     private func updateZoomRanges() {
         guard viewSize != .zero else { return }

@@ -81,9 +81,8 @@ struct GraphCanvasView: View {
         }
         .drawingGroup()
         .accessibilityElement(children: .combine)
-        .accessibilityLabel(graphDescription())
-        .accessibilityHint("Double-tap for menu. Long press to delete selected.")
-        .accessibilityChildren {
+            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID))
+            .accessibilityHint("Double-tap for menu. Long press to delete selected.")        .accessibilityChildren {
             ForEach(viewModel.model.nodes) { node in
                 Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
                     .accessibilityAction(named: "Select") {

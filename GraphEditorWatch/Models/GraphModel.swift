@@ -176,3 +176,24 @@ public class GraphModel: ObservableObject {
         self.physicsEngine.boundingBox(nodes: nodes)
     }
 }
+
+extension GraphModel {
+    func graphDescription(selectedID: NodeID?) -> String {
+        var desc = "Graph with \(nodes.count) nodes and \(edges.count) edges."
+        if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
+            let connectedLabels = edges
+                .filter { $0.from == selectedID || $0.to == selectedID }
+                .compactMap { edge in
+                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
+                    return nodes.first { $0.id == otherID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
+        } else {
+            desc += " No node selected."
+        }
+        return desc
+    }
+}
