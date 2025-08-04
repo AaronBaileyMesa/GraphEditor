@@ -31,7 +31,8 @@ public class PersistenceManager: GraphStorage {
             let edgeURL = documentsDirectory.appendingPathComponent(edgesFileName)
             try edgeData.write(to: edgeURL)
         } catch {
-            print("Error saving graph: \(error)")
+            print("Error saving graph: \(error.localizedDescription)")
+            // Future: Add UIAlert or flag for UI handling
         }
     }
     

@@ -215,30 +215,28 @@ public class PhysicsEngine {
             forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
         }
         
-        // Apply forces
-        for i in 0..<nodes.count {
-            let id = nodes[i].id
-            var node = nodes[i]
-            let force = forces[id] ?? .zero
-            node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
-            node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
-            node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
-            
-            // Inside the for loop after updating position:
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
-            if node.position.x == 0 || node.position.x == simulationBounds.width {
-                node.velocity.x = 0  // Reset velocity on bound hit
+            // Apply forces
+            for i in 0..<nodes.count {
+                let id = nodes[i].id
+                var node = nodes[i]
+                let force = forces[id] ?? .zero
+                node.velocity = CGPoint(x: node.velocity.x + force.x * Constants.timeStep, y: node.velocity.y + force.y * Constants.timeStep)
+                node.velocity = CGPoint(x: node.velocity.x * Constants.damping, y: node.velocity.y * Constants.damping)
+                node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.timeStep, y: node.position.y + node.velocity.y * Constants.timeStep)
+                
+                // Clamp position and reset velocity on bounds hit
+                let oldPosition = node.position  // For checking if clamped
+                node.position.x = max(0, min(simulationBounds.width, node.position.x))
+                node.position.y = max(0, min(simulationBounds.height, node.position.y))
+                if node.position.x != oldPosition.x {
+                    node.velocity.x = 0
+                }
+                if node.position.y != oldPosition.y {
+                    node.velocity.y = 0
+                }
+                
+                nodes[i] = node
             }
-            if node.position.y == 0 || node.position.y == simulationBounds.height {
-                node.velocity.y = 0
-            }
-            
-            nodes[i] = node
-
-        }
         
         // Check if stable
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
