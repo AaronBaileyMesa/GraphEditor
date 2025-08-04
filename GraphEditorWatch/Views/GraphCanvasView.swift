@@ -112,8 +112,16 @@ struct GraphCanvasView: View {
         var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
         if let selectedID = selectedNodeID,
            let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            let connections = viewModel.model.edges.filter { $0.from == selectedID || $0.to == selectedID }.count
-            desc += " Node \(selectedNode.label) selected with \(connections) connections."
+            let connectedLabels = viewModel.model.edges
+                .filter { $0.from == selectedID || $0.to == selectedID }
+                .compactMap { edge in
+                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
+                    return viewModel.model.nodes.first { $0.id == otherID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
         } else {
             desc += " No node selected."
         }
