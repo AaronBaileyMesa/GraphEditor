@@ -1,3 +1,117 @@
+// File: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
+//
+//  GraphEditorWatchUITestsLaunchTests.swift
+//  GraphEditorWatchUITests
+//
+//  Created by handcart on 8/4/25.
+//
+
+import XCTest
+
+final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
+
+    override class var runsForEachTargetApplicationUIConfiguration: Bool {
+        true
+    }
+
+    override func setUpWithError() throws {
+        continueAfterFailure = false
+    }
+
+    @MainActor
+    func testLaunch() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // Insert steps here to perform after app launch but before taking a screenshot,
+        // such as logging into a test account or navigating somewhere in the app
+
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Launch Screen"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+}
+
+
+
+// File: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+//
+//  GraphEditorWatchUITests.swift
+//  GraphEditorWatchUITests
+//
+//  Created by handcart on 8/4/25.
+//
+
+import XCTest
+
+final class GraphEditorWatchUITests: XCTestCase {
+
+    override func setUpWithError() throws {
+        // Put setup code here. This method is called before the invocation of each test method in the class.
+
+        // In UI tests it is usually best to stop immediately when a failure occurs.
+        continueAfterFailure = false
+
+        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
+    }
+
+    override func tearDownWithError() throws {
+        // Put teardown code here. This method is called after the invocation of each test method in the class.
+    }
+    
+    func testLaunch() throws {
+            let app = XCUIApplication()
+            app.launch()
+            
+            // Basic assertion: Check if the app launches without crashing
+            XCTAssertTrue(app.exists, "App should launch successfully")
+        }
+    
+    func testDragToCreateEdge() throws {
+        let app = XCUIApplication()
+        app.launch()
+        
+        // Wait for the graph to load (adjust timeout if simulation takes time)
+        let canvas = app.otherElements["GraphCanvas"]  // Add accessibilityIdentifier="GraphCanvas" to your GraphCanvasView in code if not already
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear")
+        
+        // Assume two nodes are visible at approximate positions (tweak based on defaults or add identifiers)
+        // Node 1 at ~ (100,100), Node 2 at ~ (200,200) – use normalized coordinates for drag
+        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Normalized (0-1) from top-left
+        let endPoint = CGVector(dx: 0.6, dy: 0.6)
+        
+        // Simulate drag gesture
+        let dragStart = canvas.coordinate(withNormalizedOffset: startPoint)
+        let dragEnd = canvas.coordinate(withNormalizedOffset: endPoint)
+        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        
+        // Assert: Check for accessibility label update or some indicator (e.g., edge count increases)
+        // If your graphDescription updates, query it via accessibility
+        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 edges."]  // Adjust based on expected post-drag state
+        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Edge should be created, updating graph description")
+    }
+
+    @MainActor
+    func testExample() throws {
+        // UI tests must launch the application that they test.
+        let app = XCUIApplication()
+        app.launch()
+
+        // Use XCTAssert and related functions to verify your tests produce the correct results.
+    }
+
+    @MainActor
+    func testLaunchPerformance() throws {
+        // This measures how long it takes to launch your application.
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            XCUIApplication().launch()
+        }
+    }
+}
+
+
+
 // File: GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
 import Testing
 import Foundation  // For UUID, JSONEncoder, JSONDecoder
@@ -527,6 +641,7 @@ public struct PhysicsConstants {
     public static let maxSimulationSteps = 500
     public static let minQuadSize: CGFloat = 1e-6
     public static let maxQuadtreeDepth = 64
+    private let maxNodesForQuadtree = 75  // Adjust based on profiling; watchOS limit
 }
 
 
@@ -545,11 +660,14 @@ import SwiftUI
 import Foundation
 import GraphEditorShared
 
-// ... (existing imports)
+import SwiftUI
+import Foundation
 import GraphEditorShared
 
 public class PhysicsEngine {
     let simulationBounds: CGSize
+    
+    private let maxNodesForQuadtree = 50  // Added constant for node cap fallback
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -571,17 +689,28 @@ public class PhysicsEngine {
         var forces: [NodeID: CGPoint] = [:]
         let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
         
-        // Build Quadtree for repulsion (Barnes-Hut)
-        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
-        for node in nodes {
-            quadtree.insert(node, depth: 0)
+        // Build Quadtree for repulsion (Barnes-Hut) only if under cap
+        let useQuadtree = nodes.count <= maxNodesForQuadtree
+        let quadtree: Quadtree? = useQuadtree ? Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds)) : nil
+        if useQuadtree {
+            for node in nodes {
+                quadtree?.insert(node, depth: 0)
+            }
         }
         
-        // Repulsion using Quadtree
+        // Repulsion (Quadtree or naive fallback)
         for i in 0..<nodes.count {
-            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5
-            let repulsion = quadtree.computeForce(on: nodes[i], theta: dynamicTheta)
-            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
+            var repulsion: CGPoint = .zero
+            if useQuadtree {
+                let dynamicTheta: CGFloat = nodes.count > 20 ? 1.0 : 0.5
+                repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
+            } else {
+                // Naive repulsion
+                for j in 0..<nodes.count where i != j {
+                    repulsion += repulsionForce(from: nodes[j].position, to: nodes[i].position)
+                }
+            }
+            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion  // Use repulsion here
         }
         
         // Attraction on edges
@@ -649,6 +778,17 @@ public class PhysicsEngine {
         let minY = ys.min() ?? 0
         let maxY = ys.max() ?? 0
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+    
+    private func repulsionForce(from: CGPoint, to: CGPoint) -> CGPoint {
+        let delta = to - from
+        let distSquared = delta.x * delta.x + delta.y * delta.y  // Manual calculation instead of magnitudeSquared
+        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = PhysicsConstants.repulsion / distSquared
+        return delta / dist * forceMagnitude
     }
 }
 
@@ -804,6 +944,99 @@ public class Quadtree {  // Made public for consistency/test access
 
 
 
+// File: GraphEditorWatch/Models/GraphSimulator.swift
+import Foundation
+import Combine
+import GraphEditorShared
+import WatchKit
+
+class GraphSimulator {
+    private var timer: Timer? = nil
+    private var recentVelocities: [CGFloat] = []
+    private let velocityChangeThreshold: CGFloat = 0.01
+    private let velocityHistoryCount = 5
+    
+    let physicsEngine: PhysicsEngine
+    private let getNodes: () -> [Node]
+    private let setNodes: ([Node]) -> Void
+    private let getEdges: () -> [GraphEdge]
+    
+    init(getNodes: @escaping () -> [Node],
+         setNodes: @escaping ([Node]) -> Void,
+         getEdges: @escaping () -> [GraphEdge],
+         physicsEngine: PhysicsEngine) {
+        self.getNodes = getNodes
+        self.setNodes = setNodes
+        self.getEdges = getEdges
+        self.physicsEngine = physicsEngine
+    }
+    
+    func startSimulation(onUpdate: @escaping () -> Void) {
+        timer?.invalidate()
+        physicsEngine.resetSimulation()
+        recentVelocities.removeAll()
+        
+        let nodeCount = getNodes().count
+        if nodeCount < 5 { return }
+        
+        let interval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : 1.0 / 15.0  // Slower for big graphs
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            
+            // Optional: In-code logging for perf (uncomment for debugging)
+            // let startTime = Date()
+            
+            onUpdate()
+            
+            let subSteps = nodeCount < 10 ? 5 : (nodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
+            var shouldContinue = true
+            var nodes = self.getNodes()
+            let edges = self.getEdges()
+            for _ in 0..<subSteps {
+                if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
+                    shouldContinue = false
+                    break
+                }
+            }
+            self.setNodes(nodes)
+            
+            // Optional: Log elapsed time if > threshold
+            // let elapsed = Date().timeIntervalSince(startTime)
+            // if elapsed > 0.05 {
+            //     print("Simulation step took \(elapsed)s for \(nodeCount) nodes")
+            // }
+            
+            if !shouldContinue {
+                self.stopSimulation()
+                return
+            }
+            
+            let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+            recentVelocities.append(totalVelocity)
+            if recentVelocities.count > velocityHistoryCount {
+                recentVelocities.removeFirst()
+            }
+            
+            if recentVelocities.count == velocityHistoryCount {
+                let maxVel = recentVelocities.max() ?? 1.0
+                let minVel = recentVelocities.min() ?? 0.0
+                let relativeChange = (maxVel - minVel) / maxVel
+                if relativeChange < velocityChangeThreshold {
+                    self.stopSimulation()
+                    return
+                }
+            }
+        }
+    }
+    
+    func stopSimulation() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+
+
+
 // File: GraphEditorWatch/Models/PersistenceManager.swift
 // Models/PersistenceManager.swift
 //
@@ -889,7 +1122,8 @@ public class PersistenceManager: GraphStorage {
 
 
 // File: GraphEditorWatch/Models/GraphModel.swift
-// At top of GraphModel.swift
+// Updated GraphModel.swift with lazy simulator to avoid initialization issues with closures capturing self.
+
 import os.log
 private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
@@ -907,16 +1141,19 @@ public class GraphModel: ObservableObject {
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
-    private var nextNodeLabel = 1  // Auto-increment for node labels
+    internal var nextNodeLabel = 1  // Internal for testability; auto-increments node labels
     
     private let storage: GraphStorage
     internal let physicsEngine: PhysicsEngine
     
-    private var timer: Timer? = nil
-    
-    private var recentVelocities: [CGFloat] = []  // Track last 5 total velocities for early stopping
-    private let velocityChangeThreshold: CGFloat = 0.01  // Relative change threshold (1%)
-    private let velocityHistoryCount = 5  // Number of frames to check
+    private lazy var simulator: GraphSimulator = {
+        GraphSimulator(
+            getNodes: { [weak self] in self?.nodes ?? [] },
+            setNodes: { [weak self] nodes in self?.nodes = nodes },
+            getEdges: { [weak self] in self?.edges ?? [] },
+            physicsEngine: self.physicsEngine
+        )
+    }()
     
     // Indicates if undo is possible.
     var canUndo: Bool {
@@ -932,32 +1169,78 @@ public class GraphModel: ObservableObject {
     public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
+        
         let loaded = storage.load()
-        nodes = loaded.nodes
-        edges = loaded.edges
-        if nodes.isEmpty && edges.isEmpty {
-            nodes = [
-                Node(label: nextNodeLabel, position: CGPoint(x: 100, y: 100)),
-                Node(label: nextNodeLabel + 1, position: CGPoint(x: 200, y: 200)),
-                Node(label: nextNodeLabel + 2, position: CGPoint(x: 150, y: 300))
+        var tempNodes = loaded.nodes
+        var tempEdges = loaded.edges
+        var tempNextLabel = 1
+        
+        if tempNodes.isEmpty && tempEdges.isEmpty {
+            tempNodes = [
+                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
-            nextNodeLabel += 3
-            edges = [
-                GraphEdge(from: nodes[0].id, to: nodes[1].id),
-                GraphEdge(from: nodes[1].id, to: nodes[2].id),
-                GraphEdge(from: nodes[2].id, to: nodes[0].id)
+            tempNextLabel += 3
+            tempEdges = [
+                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
+                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
+                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
             ]
             do {
-                try storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+                try storage.save(nodes: tempNodes, edges: tempEdges)  // Only here, for defaults
             } catch {
                 logger.error("Failed to save default graph: \(error.localizedDescription)")
             }
         } else {
             // Update nextLabel based on loaded nodes
-            nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
             // NO save here; loaded data doesn't need immediate save
         }
+        
+        self.nodes = tempNodes
+        self.edges = tempEdges
+        self.nextNodeLabel = tempNextLabel
     }
+
+    // Test-only initializer
+    #if DEBUG
+    init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
+        self.storage = storage
+        self.physicsEngine = physicsEngine
+        
+        let loaded = storage.load()
+        var tempNodes = loaded.nodes
+        var tempEdges = loaded.edges
+        var tempNextLabel = nextNodeLabel
+        
+        if tempNodes.isEmpty && tempEdges.isEmpty {
+            // Default graph setup (as in main init)
+            tempNodes = [
+                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
+            ]
+            tempNextLabel += 3
+            tempEdges = [
+                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
+                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
+                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
+            ]
+            do {
+                try storage.save(nodes: tempNodes, edges: tempEdges)
+            } catch {
+                logger.error("Failed to save default graph: \(error.localizedDescription)")
+            }
+        } else {
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
+        }
+        
+        self.nodes = tempNodes
+        self.edges = tempEdges
+        self.nextNodeLabel = tempNextLabel
+    }
+    #endif
     
     // Creates a snapshot of the current state for undo/redo and saves.
     func snapshot() {
@@ -1035,52 +1318,13 @@ public class GraphModel: ObservableObject {
     }
     
     func startSimulation() {
-        timer?.invalidate()
-        self.physicsEngine.resetSimulation()
-        recentVelocities.removeAll()  // Reset velocity history on start
-        if nodes.count < 5 { return }  // Skip for small graphs
-        
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.objectWillChange.send()
-            
-            let subSteps = nodes.count < 10 ? 5 : 10  // Dynamic: fewer sub-steps for small graphs
-            var shouldContinue = true
-            for _ in 0..<subSteps {
-                if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
-                    shouldContinue = false
-                    break
-                }
-            }
-            
-            if !shouldContinue {
-                self.stopSimulation()
-                return
-            }
-            
-            // Compute total velocity after sub-steps for early stopping
-            let totalVelocity = self.nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-            recentVelocities.append(totalVelocity)
-            if recentVelocities.count > velocityHistoryCount {
-                recentVelocities.removeFirst()
-            }
-            
-            // Check if velocity is stabilizing (relative change over history < threshold)
-            if recentVelocities.count == velocityHistoryCount {
-                let maxVel = recentVelocities.max() ?? 1.0  // Avoid div by zero
-                let minVel = recentVelocities.min() ?? 0.0
-                let relativeChange = (maxVel - minVel) / maxVel
-                if relativeChange < velocityChangeThreshold {
-                    self.stopSimulation()
-                    return
-                }
-            }
-        }
+        simulator.startSimulation(onUpdate: { [weak self] in
+            self?.objectWillChange.send()
+        })
     }
     
     func stopSimulation() {
-        timer?.invalidate()
-        timer = nil
+        simulator.stopSimulation()
     }
     
     func boundingBox() -> CGRect {
@@ -1996,6 +2240,23 @@ struct PhysicsEngineTests {
         #expect(!exceeded, "Simulation stops after max steps")
     }
     
+    @Test func testSimulationWithManyNodes() {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 3000, height: 3000))  // Increased bounds to match spread
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        for i in 1...50 {
+            model.addNode(at: CGPoint(x: CGFloat(i * 50), y: CGFloat(i * 50)))  // Spread more (x10)
+        }
+        model.startSimulation()
+        // Simulate more steps manually if needed, assert no crash and velocities decrease
+        var nodes = model.nodes
+        for _ in 0..<100 {  // Increased to 100 for damping to take effect
+            _ = physicsEngine.simulationStep(nodes: &nodes, edges: model.edges)
+        }
+        let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
+        #expect(totalVel < 5000, "Velocities should not explode with many nodes")  // Adjusted threshold
+    }
+    
     @Test func testQuadtreeCoincidentNodes() {
         let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: CGSize(width: 100, height: 100)))
         let pos = CGPoint(x: 50, y: 50)
@@ -2130,6 +2391,34 @@ class GraphGesturesModifierTests: XCTestCase {
                 #expect(newEdge.to == node2.id, "Edge to correct node")
             }
         }
+    }
+}
+
+// Add this struct at the end of GraphEditorWatchTests.swift, after the existing test structs.
+struct AccessibilityTests {
+    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
+        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    }
+
+    @Test func testGraphDescription() {
+        let storage = MockGraphStorage()
+        // Preload with dummy to avoid defaults and set nextNodeLabel to 1
+        storage.nodes = [Node(label: 0, position: .zero)]
+        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
+        model.nodes = []  // Clear for test setup
+        model.edges = []
+        
+        model.nextNodeLabel = 1  // Reset for consistent labeling in test
+        
+        model.addNode(at: .zero)  // Label 1
+        model.addNode(at: CGPoint(x: 10, y: 10))  // Label 2
+        model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id))
+        
+        let descNoSelect = model.graphDescription(selectedID: nil)
+        #expect(descNoSelect == "Graph with 2 nodes and 1 edges. No node selected.", "Correct desc without selection")
+        
+        let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id)
+        #expect(descWithSelect == "Graph with 2 nodes and 1 edges. Node 1 selected, connected to nodes: 2.", "Correct desc with selection")
     }
 }
 

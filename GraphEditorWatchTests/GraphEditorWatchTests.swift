@@ -22,8 +22,8 @@ class MockGraphStorage: GraphStorage {
 }
 
 struct GraphModelTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
     }
     
     @Test func testUndoRedoMixedOperations() {
@@ -208,7 +208,7 @@ struct GraphModelTests {
 }
 struct PhysicsEngineTests {
     @Test func testSimulationStepStability() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 1, y: 1)),  // hypot ≈1.414
             Node(label: 2, position: CGPoint(x: 300, y: 300), velocity: CGPoint(x: 1, y: 1))   // hypot ≈1.414, total ≈2.828 >0.4
@@ -224,7 +224,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testSimulationConvergence() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 10, y: 10)),
             Node(label: 2, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: -5, y: -5))
@@ -239,7 +239,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 90.0, y: 90.0))
         quadtree.insert(node1)
@@ -252,7 +252,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testComputeForceBasic() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 20.0, y: 20.0))
         quadtree.insert(node1)
         let testNode = Node(label: 2, position: CGPoint(x: 50.0, y: 50.0))
@@ -266,7 +266,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testBoundingBox() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         let nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 10.0, y: 20.0)),
             Node(label: 2, position: CGPoint(x: 30.0, y: 40.0)),
@@ -279,7 +279,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testQuadtreeMultiLevelSubdivision() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         // Insert nodes all in NW quadrant to force multi-level
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 20.0, y: 20.0))
@@ -292,7 +292,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testAttractionForceInSimulation() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0.0, y: 0.0)),
             Node(label: 2, position: CGPoint(x: 200.0, y: 200.0))
@@ -305,7 +305,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testSimulationMaxSteps() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
         for _ in 0..<PhysicsConstants.maxSimulationSteps {
@@ -345,8 +345,8 @@ struct PhysicsEngineTests {
 }
 
 struct PersistenceManagerTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
 
     private func mockStorage() -> MockGraphStorage {
@@ -393,8 +393,8 @@ struct PersistenceManagerTests {
 }
 
 class GraphGesturesModifierTests: XCTestCase {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
     }
     
     private func mockStorage() -> MockGraphStorage {
@@ -404,7 +404,7 @@ class GraphGesturesModifierTests: XCTestCase {
     struct GestureTests {
         @Test func testDragCreatesEdge() {
             let storage = MockGraphStorage()
-            let physicsEngine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+            let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
             let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: physicsEngine)
             
             // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
@@ -471,8 +471,8 @@ class GraphGesturesModifierTests: XCTestCase {
 
 // Add this struct at the end of GraphEditorWatchTests.swift, after the existing test structs.
 struct AccessibilityTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
 
     @Test func testGraphDescription() {

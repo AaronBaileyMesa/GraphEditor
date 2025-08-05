@@ -36,47 +36,44 @@ class GraphSimulator {
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             
-            // Optional: In-code logging for perf (uncomment for debugging)
-            // let startTime = Date()
+            // Recompute nodeCount and subSteps each time, in case nodes change
+            let currentNodeCount = self.getNodes().count
+            let subSteps = currentNodeCount < 10 ? 5 : (currentNodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
             
-            onUpdate()
-            
-            let subSteps = nodeCount < 10 ? 5 : (nodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
-            var shouldContinue = true
-            var nodes = self.getNodes()
-            let edges = self.getEdges()
-            for _ in 0..<subSteps {
-                if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
-                    shouldContinue = false
-                    break
+            DispatchQueue.global(qos: .userInitiated).async {
+                var nodes = self.getNodes()
+                let edges = self.getEdges()
+                var shouldContinue = true
+                for _ in 0..<subSteps {
+                    if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
+                        shouldContinue = false
+                        break
+                    }
                 }
-            }
-            self.setNodes(nodes)
-            
-            // Optional: Log elapsed time if > threshold
-            // let elapsed = Date().timeIntervalSince(startTime)
-            // if elapsed > 0.05 {
-            //     print("Simulation step took \(elapsed)s for \(nodeCount) nodes")
-            // }
-            
-            if !shouldContinue {
-                self.stopSimulation()
-                return
-            }
-            
-            let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-            recentVelocities.append(totalVelocity)
-            if recentVelocities.count > velocityHistoryCount {
-                recentVelocities.removeFirst()
-            }
-            
-            if recentVelocities.count == velocityHistoryCount {
-                let maxVel = recentVelocities.max() ?? 1.0
-                let minVel = recentVelocities.min() ?? 0.0
-                let relativeChange = (maxVel - minVel) / maxVel
-                if relativeChange < velocityChangeThreshold {
-                    self.stopSimulation()
-                    return
+                let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+                
+                DispatchQueue.main.async {
+                    self.setNodes(nodes)
+                    onUpdate()
+                    if !shouldContinue {
+                        self.stopSimulation()
+                        return
+                    }
+                    
+                    self.recentVelocities.append(totalVelocity)
+                    if self.recentVelocities.count > self.velocityHistoryCount {
+                        self.recentVelocities.removeFirst()
+                    }
+                    
+                    if self.recentVelocities.count == self.velocityHistoryCount {
+                        let maxVel = self.recentVelocities.max() ?? 1.0
+                        let minVel = self.recentVelocities.min() ?? 0.0
+                        let relativeChange = (maxVel - minVel) / maxVel
+                        if relativeChange < self.velocityChangeThreshold {
+                            self.stopSimulation()
+                            return
+                        }
+                    }
                 }
             }
         }

@@ -190,6 +190,10 @@ public class GraphModel: ObservableObject {
     func addNode(at position: CGPoint) {
         nodes.append(Node(label: nextNodeLabel, position: position))
         nextNodeLabel += 1
+        if nodes.count >= 100 {
+            // Trigger alert via view (e.g., publish @Published var showNodeLimitAlert = true)
+            return
+        }
         self.physicsEngine.resetSimulation()
     }
     

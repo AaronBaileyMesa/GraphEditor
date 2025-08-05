@@ -75,9 +75,6 @@
 				Models/GraphModel.swift,
 				Models/GraphSimulator.swift,
 				Models/PersistenceManager.swift,
-				Models/PhysicsConstants.swift,
-				Models/PhysicsEngine.swift,
-				Models/Quadtree.swift,
 			);
 			target = 4EB112712E3EE09D001A8E1A /* GraphEditorWatchTests */;
 		};
