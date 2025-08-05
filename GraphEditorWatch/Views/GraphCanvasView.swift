@@ -30,22 +30,49 @@ struct GraphCanvasView: View {
         Canvas { context, size in
             let transform = CGAffineTransform(translationX: offset.width, y: offset.height)
                 .scaledBy(x: zoomScale, y: zoomScale)
-            
-            // Draw edges and their labels
+
+            // Draw edges and their labels (updated for arrows)
             for edge in viewModel.model.edges {
                 if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                    let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    // Inside the for edge loop:
                     let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
                     let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
-                    context.stroke(Path { path in
-                        path.move(to: fromPos)
-                        path.addLine(to: toPos)
-                    }, with: .color(.blue), lineWidth: 2 * zoomScale)
-                    
+
+                    // Calculate direction and length
+                    let direction = CGPoint(x: toPos.x - fromPos.x, y: toPos.y - fromPos.y)
+                    let length = hypot(direction.x, direction.y)
+                    if length > 0 {
+                        let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
+
+                        // Shorten line to end at toNode's edge
+                        let scaledToRadius = toNode.radius * zoomScale
+                        let lineEnd = toPos - unitDir * scaledToRadius  // Back up from center by radius
+
+                        // Draw shortened line
+                        context.stroke(Path { path in
+                            path.move(to: fromPos)
+                            path.addLine(to: lineEnd)
+                        }, with: .color(.blue), lineWidth: 2 * zoomScale)
+
+                        // Draw arrowhead with tip at toNode's edge (uses arrowSize)
+                        let arrowSize: CGFloat = 10 * zoomScale  // Declaration here; now used below
+                        let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
+                        let arrowTip = lineEnd  // Tip at line end (node edge)
+                        let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
+                        let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
+
+                        context.fill(Path { path in
+                            path.move(to: arrowTip)
+                            path.addLine(to: arrowBase1)
+                            path.addLine(to: arrowBase2)
+                            path.closeSubpath()
+                        }, with: .color(.blue))
+                    }
+
+                    // Show direction e.g., "\(fromNode.label)→\(toNode.label)")
                     let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
-                    let fromLabel = fromNode.label
-                    let toLabel = toNode.label
-                    let edgeLabel = "\(min(fromLabel, toLabel))-\(max(fromLabel, toLabel))"
+                    let edgeLabel = "\(fromNode.label)→\(toNode.label)"  // Updated for direction
                     let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
                     let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
                     let resolvedText = context.resolve(text)

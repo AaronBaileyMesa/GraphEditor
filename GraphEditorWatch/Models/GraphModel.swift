@@ -188,7 +188,7 @@ public class GraphModel: ObservableObject {
     }
     
     func addNode(at position: CGPoint) {
-        nodes.append(Node(label: nextNodeLabel, position: position))
+        nodes.append(Node(label: nextNodeLabel, position: position, radius: 10.0))  // Explicit radius; vary later if needed
         nextNodeLabel += 1
         if nodes.count >= 100 {
             // Trigger alert via view (e.g., publish @Published var showNodeLimitAlert = true)
@@ -214,18 +214,29 @@ public class GraphModel: ObservableObject {
 
 extension GraphModel {
     func graphDescription(selectedID: NodeID?) -> String {
-        var desc = "Graph with \(nodes.count) nodes and \(edges.count) edges."
+        var desc = "Graph with \(nodes.count) nodes and \(edges.count) directed edges."
         if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
-            let connectedLabels = edges
-                .filter { $0.from == selectedID || $0.to == selectedID }
+            let outgoingLabels = edges
+                .filter { $0.from == selectedID }
                 .compactMap { edge in
-                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
-                    return nodes.first { $0.id == otherID }?.label
+                    let toID = edge.to
+                    return nodes.first { $0.id == toID }?.label
                 }
                 .sorted()
                 .map { String($0) }
                 .joined(separator: ", ")
-            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
+            let incomingLabels = edges
+                .filter { $0.to == selectedID }
+                .compactMap { edge in
+                    let fromID = edge.from
+                    return nodes.first { $0.id == fromID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
+            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
+            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
         } else {
             desc += " No node selected."
         }

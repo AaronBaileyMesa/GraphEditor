@@ -116,7 +116,7 @@ final class GraphEditorWatchUITests: XCTestCase {
 import Testing
 import Foundation  // For UUID, JSONEncoder, JSONDecoder
 import CoreGraphics  // For CGPoint
-@testable import GraphEditorShared
+import GraphEditorShared
 
 struct GraphEditorSharedTests {
 
@@ -341,6 +341,27 @@ struct GraphEditorSharedTests {
         let origin = CGPoint.zero
         #expect(distance(negativePoints, origin) == 5, "Distance with negatives is positive")
     }
+}
+
+struct PerformanceTests {
+
+    @Test func testSimulationPerformance() {
+        let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        var nodes: [Node] = (1...100).map { Node(label: $0, position: CGPoint(x: CGFloat.random(in: 0...300), y: CGFloat.random(in: 0...300))) }
+        let edges: [GraphEdge] = []
+        
+        let clock = ContinuousClock()
+        let duration = clock.measure {
+            for _ in 0..<10 {
+                _ = engine.simulationStep(nodes: &nodes, edges: edges)
+            }
+        }
+        
+        print("Duration for 10 simulation steps with 100 nodes: \(duration)")
+        
+        // Optional: Add a loose expectation (adjust threshold based on your machine/device)
+        #expect(duration < .seconds(0.5), "Simulation should be performant")
+    }
     
 }
 
@@ -372,6 +393,34 @@ let package = Package(
         ),
     ]
 )
+
+
+
+// File: GraphEditorShared/Sources/GraphEditorShared/PhysicsConstants.swift
+//
+//  PhysicConstants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/4/25.
+//
+
+
+import CoreGraphics
+
+public struct PhysicsConstants {
+    public static let stiffness: CGFloat = 0.5
+    public static let repulsion: CGFloat = 5000
+    public static let damping: CGFloat = 0.85
+    public static let idealLength: CGFloat = 100
+    public static let centeringForce: CGFloat = 0.005
+    public static let distanceEpsilon: CGFloat = 1e-3
+    public static let timeStep: CGFloat = 0.05
+    public static let velocityThreshold: CGFloat = 0.2
+    public static let maxSimulationSteps = 500
+    public static let minQuadSize: CGFloat = 1e-6
+    public static let maxQuadtreeDepth = 64
+    private let maxNodesForQuadtree = 75  // Adjust based on profiling; watchOS limit
+}
 
 
 
@@ -450,6 +499,300 @@ public extension CGSize {
 // Shared utility functions
 public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
     hypot(a.x - b.x, a.y - b.y)
+}
+
+
+
+// File: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
+//
+//  Constants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/1/25.
+//
+
+
+// Models/PhysicsEngine.swift
+import SwiftUI
+import Foundation
+import CoreGraphics
+
+public class PhysicsEngine {
+    let simulationBounds: CGSize
+    
+    private let maxNodesForQuadtree = 100  // Added constant for node cap fallback
+    
+    public init(simulationBounds: CGSize) {
+        self.simulationBounds = simulationBounds
+    }
+    
+    private var simulationSteps = 0
+    
+    public func resetSimulation() {
+        simulationSteps = 0
+    }
+    
+    @discardableResult
+    public func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
+        if simulationSteps >= PhysicsConstants.maxSimulationSteps {
+            return false
+        }
+        simulationSteps += 1
+        
+        var forces: [NodeID: CGPoint] = [:]
+        let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
+        
+        // Build Quadtree for repulsion (Barnes-Hut) only if under cap
+        let useQuadtree = nodes.count <= maxNodesForQuadtree
+        let quadtree: Quadtree? = useQuadtree ? Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds)) : nil
+        if useQuadtree {
+            for node in nodes {
+                quadtree?.insert(node, depth: 0)
+            }
+        }
+        
+        // Repulsion (Quadtree or naive fallback)
+        for i in 0..<nodes.count {
+            var repulsion: CGPoint = .zero
+            if useQuadtree {
+                let dynamicTheta: CGFloat = nodes.count > 50 ? 1.2 : (nodes.count > 20 ? 1.0 : 0.5)
+                repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
+            } else {
+                // Naive repulsion
+                for j in 0..<nodes.count where i != j {
+                    repulsion += repulsionForce(from: nodes[j].position, to: nodes[i].position)
+                }
+            }
+            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion  // Use repulsion here
+        }
+        
+        // Attraction on edges
+        for edge in edges {
+            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
+                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
+            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
+            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
+            let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
+            let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
+            let forceDirectionX = deltaX / dist
+            let forceDirectionY = deltaY / dist
+            let forceX = forceDirectionX * forceMagnitude
+            let forceY = forceDirectionY * forceMagnitude
+            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
+            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+        }
+        
+        // Weak centering force
+        for i in 0..<nodes.count {
+            let deltaX = center.x - nodes[i].position.x
+            let deltaY = center.y - nodes[i].position.y
+            let forceX = deltaX * PhysicsConstants.centeringForce
+            let forceY = deltaY * PhysicsConstants.centeringForce
+            let currentForce = forces[nodes[i].id] ?? .zero
+            forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
+        }
+        
+        // Apply forces
+        for i in 0..<nodes.count {
+            let id = nodes[i].id
+            var node = nodes[i]
+            let force = forces[id] ?? .zero
+            node.velocity = CGPoint(x: node.velocity.x + force.x * PhysicsConstants.timeStep, y: node.velocity.y + force.y * PhysicsConstants.timeStep)
+            node.velocity = CGPoint(x: node.velocity.x * PhysicsConstants.damping, y: node.velocity.y * PhysicsConstants.damping)
+            node.position = CGPoint(x: node.position.x + node.velocity.x * PhysicsConstants.timeStep, y: node.position.y + node.velocity.y * PhysicsConstants.timeStep)
+            
+            // Clamp position and reset velocity on bounds hit (with bounce from earlier fix)
+            let oldPosition = node.position
+            node.position.x = max(0, min(simulationBounds.width, node.position.x))
+            node.position.y = max(0, min(simulationBounds.height, node.position.y))
+            if node.position.x != oldPosition.x {
+                node.velocity.x = -node.velocity.x * PhysicsConstants.damping  // Bounce
+            }
+            if node.position.y != oldPosition.y {
+                node.velocity.y = -node.velocity.y * PhysicsConstants.damping
+            }
+            
+            nodes[i] = node
+        }
+        
+        // Check if stable
+        let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+        return totalVelocity >= PhysicsConstants.velocityThreshold * CGFloat(nodes.count)
+    }
+    
+    public func boundingBox(nodes: [Node]) -> CGRect {
+        if nodes.isEmpty { return .zero }
+        let xs = nodes.map { $0.position.x }
+        let ys = nodes.map { $0.position.y }
+        let minX = xs.min() ?? 0
+        let maxX = xs.max() ?? 0
+        let minY = ys.min() ?? 0
+        let maxY = ys.max() ?? 0
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+    
+    private func repulsionForce(from: CGPoint, to: CGPoint) -> CGPoint {
+        let delta = to - from
+        let distSquared = delta.x * delta.x + delta.y * delta.y  // Manual calculation instead of magnitudeSquared
+        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = PhysicsConstants.repulsion / distSquared
+        return delta / dist * forceMagnitude
+    }
+}
+
+
+
+// File: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+//
+//  Quadtree.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/4/25.
+//
+
+
+import Foundation
+import CoreGraphics
+
+
+public class Quadtree {  // Made public for consistency/test access
+    let bounds: CGRect
+    public var centerOfMass: CGPoint = .zero
+    public var totalMass: CGFloat = 0
+    public var children: [Quadtree]? = nil
+    var nodes: [Node] = []  // Replaces old single 'node'; allows multiple in leaves
+    
+    public init(bounds: CGRect) {
+        self.bounds = bounds
+    }
+    
+    public func insert(_ node: Node, depth: Int = 0) {
+        if depth > PhysicsConstants.maxQuadtreeDepth {  // Updated reference (line ~26)
+            nodes.append(node)
+            updateCenterOfMass(with: node)
+            return
+        }
+        
+        if let children = children {
+            let quadrant = getQuadrant(for: node.position)
+            children[quadrant].insert(node, depth: depth + 1)
+            aggregateFromChildren()
+        } else {
+            if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
+                nodes.append(node)
+                updateCenterOfMass(with: node)
+                return
+            }
+            
+            if !nodes.isEmpty {
+                subdivide()
+                if let children = children {
+                    for existing in nodes {
+                        let quadrant = getQuadrant(for: existing.position)
+                        children[quadrant].insert(existing, depth: depth + 1)
+                    }
+                    nodes = []
+                    let quadrant = getQuadrant(for: node.position)
+                    children[quadrant].insert(node, depth: depth + 1)
+                    aggregateFromChildren()
+                } else {
+                    nodes.append(node)
+                    updateCenterOfMass(with: node)
+                }
+            } else {
+                nodes.append(node)
+                updateCenterOfMass(with: node)
+            }
+        }
+    }
+    
+    private func aggregateFromChildren() {
+        centerOfMass = .zero
+        totalMass = 0
+        guard let children = children else { return }
+        for child in children {
+            if child.totalMass > 0 {
+                centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / (totalMass + child.totalMass)
+                totalMass += child.totalMass
+            }
+        }
+    }
+    
+    private func subdivide() {
+        let halfWidth = bounds.width / 2
+        let halfHeight = bounds.height / 2
+        if halfWidth < PhysicsConstants.distanceEpsilon || halfHeight < PhysicsConstants.distanceEpsilon {  // Updated (line ~80)
+            return  // Too small
+        }
+        children = [
+            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),
+            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)),
+            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight)),
+            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight))
+        ]
+    }
+    
+    private func getQuadrant(for point: CGPoint) -> Int {
+        let midX = bounds.midX
+        let midY = bounds.midY
+        if point.x < midX {
+            if point.y < midY { return 0 }
+            else { return 2 }
+        } else {
+            if point.y < midY { return 1 }
+            else { return 3 }
+        }
+    }
+    
+    private func updateCenterOfMass(with node: Node) {
+        // Incremental update (works for both leaves and internals)
+        centerOfMass = (centerOfMass * totalMass + node.position) / (totalMass + 1)
+        totalMass += 1
+    }
+    
+    public func computeForce(on queryNode: Node, theta: CGFloat = 0.5) -> CGPoint {
+        guard totalMass > 0 else { return .zero }
+        if !nodes.isEmpty {
+            // Leaf: Exact repulsion for each node in array
+            var force: CGPoint = .zero
+            for leafNode in nodes where leafNode.id != queryNode.id {
+                force += repulsionForce(from: leafNode.position, to: queryNode.position)
+            }
+            return force
+        }
+        // Internal: Approximation
+        let delta = centerOfMass - queryNode.position
+        let dist = max(delta.magnitude, PhysicsConstants.distanceEpsilon)  // Updated (line ~121)
+        if bounds.width / dist < theta || children == nil {
+            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
+        } else {
+            var force: CGPoint = .zero
+            if let children = children {
+                for child in children {
+                    force += child.computeForce(on: queryNode, theta: theta)
+                }
+            }
+            return force
+        }
+    }
+    
+    private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
+        let deltaX = to.x - from.x
+        let deltaY = to.y - from.y
+        let distSquared = deltaX * deltaX + deltaY * deltaY
+        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {  // Updated (line ~139)
+            // Jitter slightly to avoid zero
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion  // Updated (line ~141)
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = PhysicsConstants.repulsion * mass / distSquared  // Updated (line ~144)
+        return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
+    }
 }
 
 
@@ -618,332 +961,6 @@ class GraphViewModel: ObservableObject {
 
 
 
-// File: GraphEditorWatch/Models/PhysicsConstants.swift
-//
-//  PhysicConstants.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/4/25.
-//
-
-
-import CoreGraphics
-
-public struct PhysicsConstants {
-    public static let stiffness: CGFloat = 0.5
-    public static let repulsion: CGFloat = 5000
-    public static let damping: CGFloat = 0.85
-    public static let idealLength: CGFloat = 100
-    public static let centeringForce: CGFloat = 0.005
-    public static let distanceEpsilon: CGFloat = 1e-3
-    public static let timeStep: CGFloat = 0.05
-    public static let velocityThreshold: CGFloat = 0.2
-    public static let maxSimulationSteps = 500
-    public static let minQuadSize: CGFloat = 1e-6
-    public static let maxQuadtreeDepth = 64
-    private let maxNodesForQuadtree = 75  // Adjust based on profiling; watchOS limit
-}
-
-
-
-// File: GraphEditorWatch/Models/PhysicsEngine.swift
-//
-//  Constants.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
-//
-
-
-// Models/PhysicsEngine.swift
-import SwiftUI
-import Foundation
-import GraphEditorShared
-
-import SwiftUI
-import Foundation
-import GraphEditorShared
-
-public class PhysicsEngine {
-    let simulationBounds: CGSize
-    
-    private let maxNodesForQuadtree = 50  // Added constant for node cap fallback
-    
-    public init(simulationBounds: CGSize) {
-        self.simulationBounds = simulationBounds
-    }
-    
-    private var simulationSteps = 0
-    
-    func resetSimulation() {
-        simulationSteps = 0
-    }
-    
-    @discardableResult
-    func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
-        if simulationSteps >= PhysicsConstants.maxSimulationSteps {
-            return false
-        }
-        simulationSteps += 1
-        
-        var forces: [NodeID: CGPoint] = [:]
-        let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-        
-        // Build Quadtree for repulsion (Barnes-Hut) only if under cap
-        let useQuadtree = nodes.count <= maxNodesForQuadtree
-        let quadtree: Quadtree? = useQuadtree ? Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds)) : nil
-        if useQuadtree {
-            for node in nodes {
-                quadtree?.insert(node, depth: 0)
-            }
-        }
-        
-        // Repulsion (Quadtree or naive fallback)
-        for i in 0..<nodes.count {
-            var repulsion: CGPoint = .zero
-            if useQuadtree {
-                let dynamicTheta: CGFloat = nodes.count > 20 ? 1.0 : 0.5
-                repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
-            } else {
-                // Naive repulsion
-                for j in 0..<nodes.count where i != j {
-                    repulsion += repulsionForce(from: nodes[j].position, to: nodes[i].position)
-                }
-            }
-            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion  // Use repulsion here
-        }
-        
-        // Attraction on edges
-        for edge in edges {
-            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
-                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
-            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
-            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
-            let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
-            let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
-            let forceDirectionX = deltaX / dist
-            let forceDirectionY = deltaY / dist
-            let forceX = forceDirectionX * forceMagnitude
-            let forceY = forceDirectionY * forceMagnitude
-            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
-            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
-            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
-            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
-        }
-        
-        // Weak centering force
-        for i in 0..<nodes.count {
-            let deltaX = center.x - nodes[i].position.x
-            let deltaY = center.y - nodes[i].position.y
-            let forceX = deltaX * PhysicsConstants.centeringForce
-            let forceY = deltaY * PhysicsConstants.centeringForce
-            let currentForce = forces[nodes[i].id] ?? .zero
-            forces[nodes[i].id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
-        }
-        
-        // Apply forces
-        for i in 0..<nodes.count {
-            let id = nodes[i].id
-            var node = nodes[i]
-            let force = forces[id] ?? .zero
-            node.velocity = CGPoint(x: node.velocity.x + force.x * PhysicsConstants.timeStep, y: node.velocity.y + force.y * PhysicsConstants.timeStep)
-            node.velocity = CGPoint(x: node.velocity.x * PhysicsConstants.damping, y: node.velocity.y * PhysicsConstants.damping)
-            node.position = CGPoint(x: node.position.x + node.velocity.x * PhysicsConstants.timeStep, y: node.position.y + node.velocity.y * PhysicsConstants.timeStep)
-            
-            // Clamp position and reset velocity on bounds hit (with bounce from earlier fix)
-            let oldPosition = node.position
-            node.position.x = max(0, min(simulationBounds.width, node.position.x))
-            node.position.y = max(0, min(simulationBounds.height, node.position.y))
-            if node.position.x != oldPosition.x {
-                node.velocity.x = -node.velocity.x * PhysicsConstants.damping  // Bounce
-            }
-            if node.position.y != oldPosition.y {
-                node.velocity.y = -node.velocity.y * PhysicsConstants.damping
-            }
-            
-            nodes[i] = node
-        }
-        
-        // Check if stable
-        let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        return totalVelocity >= PhysicsConstants.velocityThreshold * CGFloat(nodes.count)
-    }
-    
-    func boundingBox(nodes: [Node]) -> CGRect {
-        if nodes.isEmpty { return .zero }
-        let xs = nodes.map { $0.position.x }
-        let ys = nodes.map { $0.position.y }
-        let minX = xs.min() ?? 0
-        let maxX = xs.max() ?? 0
-        let minY = ys.min() ?? 0
-        let maxY = ys.max() ?? 0
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-    
-    private func repulsionForce(from: CGPoint, to: CGPoint) -> CGPoint {
-        let delta = to - from
-        let distSquared = delta.x * delta.x + delta.y * delta.y  // Manual calculation instead of magnitudeSquared
-        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {
-            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion
-        }
-        let dist = sqrt(distSquared)
-        let forceMagnitude = PhysicsConstants.repulsion / distSquared
-        return delta / dist * forceMagnitude
-    }
-}
-
-
-
-// File: GraphEditorWatch/Models/Quadtree.swift
-//
-//  Quadtree.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/4/25.
-//
-
-
-import Foundation
-import CoreGraphics
-import GraphEditorShared  // For Node
-
-public class Quadtree {  // Made public for consistency/test access
-    let bounds: CGRect
-    var centerOfMass: CGPoint = .zero
-    var totalMass: CGFloat = 0
-    var children: [Quadtree]? = nil
-    var nodes: [Node] = []  // Replaces old single 'node'; allows multiple in leaves
-    
-    init(bounds: CGRect) {
-        self.bounds = bounds
-    }
-    
-    func insert(_ node: Node, depth: Int = 0) {
-        if depth > PhysicsConstants.maxQuadtreeDepth {  // Updated reference (line ~26)
-            nodes.append(node)
-            updateCenterOfMass(with: node)
-            return
-        }
-        
-        if let children = children {
-            let quadrant = getQuadrant(for: node.position)
-            children[quadrant].insert(node, depth: depth + 1)
-            aggregateFromChildren()
-        } else {
-            if !nodes.isEmpty && nodes.allSatisfy({ $0.position == node.position }) {
-                nodes.append(node)
-                updateCenterOfMass(with: node)
-                return
-            }
-            
-            if !nodes.isEmpty {
-                subdivide()
-                if let children = children {
-                    for existing in nodes {
-                        let quadrant = getQuadrant(for: existing.position)
-                        children[quadrant].insert(existing, depth: depth + 1)
-                    }
-                    nodes = []
-                    let quadrant = getQuadrant(for: node.position)
-                    children[quadrant].insert(node, depth: depth + 1)
-                    aggregateFromChildren()
-                } else {
-                    nodes.append(node)
-                    updateCenterOfMass(with: node)
-                }
-            } else {
-                nodes.append(node)
-                updateCenterOfMass(with: node)
-            }
-        }
-    }
-    
-    private func aggregateFromChildren() {
-        centerOfMass = .zero
-        totalMass = 0
-        guard let children = children else { return }
-        for child in children {
-            if child.totalMass > 0 {
-                centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / (totalMass + child.totalMass)
-                totalMass += child.totalMass
-            }
-        }
-    }
-    
-    private func subdivide() {
-        let halfWidth = bounds.width / 2
-        let halfHeight = bounds.height / 2
-        if halfWidth < PhysicsConstants.distanceEpsilon || halfHeight < PhysicsConstants.distanceEpsilon {  // Updated (line ~80)
-            return  // Too small
-        }
-        children = [
-            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight)),
-            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight))
-        ]
-    }
-    
-    private func getQuadrant(for point: CGPoint) -> Int {
-        let midX = bounds.midX
-        let midY = bounds.midY
-        if point.x < midX {
-            if point.y < midY { return 0 }
-            else { return 2 }
-        } else {
-            if point.y < midY { return 1 }
-            else { return 3 }
-        }
-    }
-    
-    private func updateCenterOfMass(with node: Node) {
-        // Incremental update (works for both leaves and internals)
-        centerOfMass = (centerOfMass * totalMass + node.position) / (totalMass + 1)
-        totalMass += 1
-    }
-    
-    func computeForce(on queryNode: Node, theta: CGFloat = 0.5) -> CGPoint {
-        guard totalMass > 0 else { return .zero }
-        if !nodes.isEmpty {
-            // Leaf: Exact repulsion for each node in array
-            var force: CGPoint = .zero
-            for leafNode in nodes where leafNode.id != queryNode.id {
-                force += repulsionForce(from: leafNode.position, to: queryNode.position)
-            }
-            return force
-        }
-        // Internal: Approximation
-        let delta = centerOfMass - queryNode.position
-        let dist = max(delta.magnitude, PhysicsConstants.distanceEpsilon)  // Updated (line ~121)
-        if bounds.width / dist < theta || children == nil {
-            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
-        } else {
-            var force: CGPoint = .zero
-            if let children = children {
-                for child in children {
-                    force += child.computeForce(on: queryNode, theta: theta)
-                }
-            }
-            return force
-        }
-    }
-    
-    private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
-        let deltaX = to.x - from.x
-        let deltaY = to.y - from.y
-        let distSquared = deltaX * deltaX + deltaY * deltaY
-        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {  // Updated (line ~139)
-            // Jitter slightly to avoid zero
-            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion  // Updated (line ~141)
-        }
-        let dist = sqrt(distSquared)
-        let forceMagnitude = PhysicsConstants.repulsion * mass / distSquared  // Updated (line ~144)
-        return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
-    }
-}
-
-
-
 // File: GraphEditorWatch/Models/GraphSimulator.swift
 import Foundation
 import Combine
@@ -983,47 +1000,44 @@ class GraphSimulator {
         timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
             
-            // Optional: In-code logging for perf (uncomment for debugging)
-            // let startTime = Date()
+            // Recompute nodeCount and subSteps each time, in case nodes change
+            let currentNodeCount = self.getNodes().count
+            let subSteps = currentNodeCount < 10 ? 5 : (currentNodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
             
-            onUpdate()
-            
-            let subSteps = nodeCount < 10 ? 5 : (nodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
-            var shouldContinue = true
-            var nodes = self.getNodes()
-            let edges = self.getEdges()
-            for _ in 0..<subSteps {
-                if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
-                    shouldContinue = false
-                    break
+            DispatchQueue.global(qos: .userInitiated).async {
+                var nodes = self.getNodes()
+                let edges = self.getEdges()
+                var shouldContinue = true
+                for _ in 0..<subSteps {
+                    if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
+                        shouldContinue = false
+                        break
+                    }
                 }
-            }
-            self.setNodes(nodes)
-            
-            // Optional: Log elapsed time if > threshold
-            // let elapsed = Date().timeIntervalSince(startTime)
-            // if elapsed > 0.05 {
-            //     print("Simulation step took \(elapsed)s for \(nodeCount) nodes")
-            // }
-            
-            if !shouldContinue {
-                self.stopSimulation()
-                return
-            }
-            
-            let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-            recentVelocities.append(totalVelocity)
-            if recentVelocities.count > velocityHistoryCount {
-                recentVelocities.removeFirst()
-            }
-            
-            if recentVelocities.count == velocityHistoryCount {
-                let maxVel = recentVelocities.max() ?? 1.0
-                let minVel = recentVelocities.min() ?? 0.0
-                let relativeChange = (maxVel - minVel) / maxVel
-                if relativeChange < velocityChangeThreshold {
-                    self.stopSimulation()
-                    return
+                let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+                
+                DispatchQueue.main.async {
+                    self.setNodes(nodes)
+                    onUpdate()
+                    if !shouldContinue {
+                        self.stopSimulation()
+                        return
+                    }
+                    
+                    self.recentVelocities.append(totalVelocity)
+                    if self.recentVelocities.count > self.velocityHistoryCount {
+                        self.recentVelocities.removeFirst()
+                    }
+                    
+                    if self.recentVelocities.count == self.velocityHistoryCount {
+                        let maxVel = self.recentVelocities.max() ?? 1.0
+                        let minVel = self.recentVelocities.min() ?? 0.0
+                        let relativeChange = (maxVel - minVel) / maxVel
+                        if relativeChange < self.velocityChangeThreshold {
+                            self.stopSimulation()
+                            return
+                        }
+                    }
                 }
             }
         }
@@ -1314,6 +1328,10 @@ public class GraphModel: ObservableObject {
     func addNode(at position: CGPoint) {
         nodes.append(Node(label: nextNodeLabel, position: position))
         nextNodeLabel += 1
+        if nodes.count >= 100 {
+            // Trigger alert via view (e.g., publish @Published var showNodeLimitAlert = true)
+            return
+        }
         self.physicsEngine.resetSimulation()
     }
     
@@ -1947,8 +1965,8 @@ class MockGraphStorage: GraphStorage {
 }
 
 struct GraphModelTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
     }
     
     @Test func testUndoRedoMixedOperations() {
@@ -2133,7 +2151,7 @@ struct GraphModelTests {
 }
 struct PhysicsEngineTests {
     @Test func testSimulationStepStability() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 1, y: 1)),  // hypot ≈1.414
             Node(label: 2, position: CGPoint(x: 300, y: 300), velocity: CGPoint(x: 1, y: 1))   // hypot ≈1.414, total ≈2.828 >0.4
@@ -2149,7 +2167,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testSimulationConvergence() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 10, y: 10)),
             Node(label: 2, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: -5, y: -5))
@@ -2164,7 +2182,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 90.0, y: 90.0))
         quadtree.insert(node1)
@@ -2177,7 +2195,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testComputeForceBasic() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 20.0, y: 20.0))
         quadtree.insert(node1)
         let testNode = Node(label: 2, position: CGPoint(x: 50.0, y: 50.0))
@@ -2191,7 +2209,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testBoundingBox() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         let nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 10.0, y: 20.0)),
             Node(label: 2, position: CGPoint(x: 30.0, y: 40.0)),
@@ -2204,7 +2222,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testQuadtreeMultiLevelSubdivision() {
-        let quadtree = GraphEditorWatch.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
+        let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         // Insert nodes all in NW quadrant to force multi-level
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
         let node2 = Node(label: 2, position: CGPoint(x: 20.0, y: 20.0))
@@ -2217,7 +2235,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testAttractionForceInSimulation() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [
             Node(label: 1, position: CGPoint(x: 0.0, y: 0.0)),
             Node(label: 2, position: CGPoint(x: 200.0, y: 200.0))
@@ -2230,7 +2248,7 @@ struct PhysicsEngineTests {
     }
     
     @Test func testSimulationMaxSteps() {
-        let engine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
         for _ in 0..<PhysicsConstants.maxSimulationSteps {
@@ -2270,8 +2288,8 @@ struct PhysicsEngineTests {
 }
 
 struct PersistenceManagerTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
 
     private func mockStorage() -> MockGraphStorage {
@@ -2318,8 +2336,8 @@ struct PersistenceManagerTests {
 }
 
 class GraphGesturesModifierTests: XCTestCase {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
     }
     
     private func mockStorage() -> MockGraphStorage {
@@ -2329,7 +2347,7 @@ class GraphGesturesModifierTests: XCTestCase {
     struct GestureTests {
         @Test func testDragCreatesEdge() {
             let storage = MockGraphStorage()
-            let physicsEngine = GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+            let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
             let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: physicsEngine)
             
             // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
@@ -2396,8 +2414,8 @@ class GraphGesturesModifierTests: XCTestCase {
 
 // Add this struct at the end of GraphEditorWatchTests.swift, after the existing test structs.
 struct AccessibilityTests {
-    private func mockPhysicsEngine() -> GraphEditorWatch.PhysicsEngine {
-        GraphEditorWatch.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
 
     @Test func testGraphDescription() {

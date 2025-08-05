@@ -33,27 +33,26 @@ final class GraphEditorWatchUITests: XCTestCase {
     func testDragToCreateEdge() throws {
         let app = XCUIApplication()
         app.launch()
-        
-        // Wait for the graph to load (adjust timeout if simulation takes time)
-        let canvas = app.otherElements["GraphCanvas"]  // Add accessibilityIdentifier="GraphCanvas" to your GraphCanvasView in code if not already
+
+        let canvas = app.otherElements["GraphCanvas"]  // Assumes accessibilityIdentifier set on GraphCanvasView
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear")
-        
-        // Assume two nodes are visible at approximate positions (tweak based on defaults or add identifiers)
-        // Node 1 at ~ (100,100), Node 2 at ~ (200,200) – use normalized coordinates for drag
-        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Normalized (0-1) from top-left
-        let endPoint = CGVector(dx: 0.6, dy: 0.6)
-        
-        // Simulate drag gesture
+
+        // Assume default nodes: Adjust start/end based on positions (e.g., node0 at (100,100), node1 at (200,200))
+        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Near node0
+        let endPoint = CGVector(dx: 0.6, dy: 0.6)    // Near node1
+
         let dragStart = canvas.coordinate(withNormalizedOffset: startPoint)
         let dragEnd = canvas.coordinate(withNormalizedOffset: endPoint)
         dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
-        
-        // Assert: Check for accessibility label update or some indicator (e.g., edge count increases)
-        // If your graphDescription updates, query it via accessibility
-        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 edges."]  // Adjust based on expected post-drag state
-        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Edge should be created, updating graph description")
-    }
 
+        // Assert: Updated label reflects directed edge (e.g., "Graph with 3 nodes and 4 directed edges." and mentions direction)
+        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 directed edges. No node selected."]  // Adjust based on post-drag (add "directed")
+        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Directed edge created, updating graph description")
+
+        // Optional: Select the from-node and check description mentions "outgoing to" the to-node
+        // Simulate tap on startPoint to select, then check label includes "outgoing to: <label>"
+    }
+    
     @MainActor
     func testExample() throws {
         // UI tests must launch the application that they test.

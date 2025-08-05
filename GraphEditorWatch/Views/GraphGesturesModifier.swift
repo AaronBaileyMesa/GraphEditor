@@ -36,7 +36,7 @@ struct GraphGesturesModifier: ViewModifier {
                     
                     if draggedNode == nil {
                         // Check for node hit to prioritize drag/selection
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {  // Adjust buffer for variable radius
                             draggedNode = hitNode
                         }
                     }
@@ -60,8 +60,7 @@ struct GraphGesturesModifier: ViewModifier {
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         viewModel.snapshot()
-                        if dragDistance < AppConstants.tapThreshold {
-                            // Handle tap on node: Toggle selection
+                        if dragDistance < AppConstants.tapThreshold {                            // Handle tap on node: Toggle selection
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
@@ -71,8 +70,8 @@ struct GraphGesturesModifier: ViewModifier {
                         } else {
                             // Handle actual drag: Move node or create edge
                             if let target = potentialEdgeTarget, target.id != node.id,
-                               !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
-                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
+                               !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) }) {  // Removed symmetric check; now only checks exact direction
+                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))  // Directed: dragged -> target
                                 viewModel.model.startSimulation()
                                 WKInterfaceDevice.current().play(.success)
                             } else {
@@ -113,41 +112,41 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             )
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
-                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                        .onEnded { value in
-                            switch value {
-                            case .second(true, let drag?):
-                                let location = drag.location
-                                let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                                    .scaledBy(x: zoomScale, y: zoomScale)
-                                    .inverted()
-                                let worldPos = location.applying(inverseTransform)
-                                
-                                // Check for node hit (unchanged)
-                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
-                                    viewModel.deleteNode(withID: hitNode.id)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                .onEnded { value in
+                    switch value {
+                    case .second(true, let drag?):
+                        let location = drag.location
+                        let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                            .scaledBy(x: zoomScale, y: zoomScale)
+                            .inverted()
+                        let worldPos = location.applying(inverseTransform)  // This is defined here
+
+                        // Check for node hit (use worldPos, not touchPos; update for radius if applied from previous)
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, worldPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {
+                            viewModel.deleteNode(withID: hitNode.id)
+                            WKInterfaceDevice.current().play(.success)
+                            viewModel.model.startSimulation()
+                            return
+                        }
+
+                        // Check for edge hit (unchanged, but uses worldPos)
+                        for edge in viewModel.model.edges {
+                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                                if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                                    viewModel.deleteEdge(withID: edge.id)
                                     WKInterfaceDevice.current().play(.success)
                                     viewModel.model.startSimulation()
                                     return
                                 }
-                                
-                                // Check for edge hit (now using point-to-line distance)
-                                for edge in viewModel.model.edges {
-                                    if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
-                                            viewModel.deleteEdge(withID: edge.id)
-                                            WKInterfaceDevice.current().play(.success)
-                                            viewModel.model.startSimulation()
-                                            return
-                                        }
-                                    }
-                                }
-                            default:
-                                break
                             }
                         }
-                    )
+                    default:
+                        break
+                    }
+                }
+            )
             .simultaneousGesture(TapGesture(count: 2)
                 .onEnded {
                     showMenu = true

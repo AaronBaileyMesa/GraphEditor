@@ -490,9 +490,9 @@ struct AccessibilityTests {
         model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id))
         
         let descNoSelect = model.graphDescription(selectedID: nil)
-        #expect(descNoSelect == "Graph with 2 nodes and 1 edges. No node selected.", "Correct desc without selection")
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edges. No node selected.", "Correct desc without selection")
         
         let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id)
-        #expect(descWithSelect == "Graph with 2 nodes and 1 edges. Node 1 selected, connected to nodes: 2.", "Correct desc with selection")
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edges. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
     }
 }
