@@ -32,30 +32,31 @@ class GraphSimulator {
         let nodeCount = getNodes().count
         if nodeCount < 5 { return }
         
-        let interval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : 1.0 / 15.0  // Slower for big graphs
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        // Dynamic interval: Slower for larger graphs to save battery
+        let baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
+        timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
-            
-            // Recompute nodeCount and subSteps each time, in case nodes change
-            let currentNodeCount = self.getNodes().count
-            let subSteps = currentNodeCount < 10 ? 5 : (currentNodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
             
             DispatchQueue.global(qos: .userInitiated).async {
                 var nodes = self.getNodes()
                 let edges = self.getEdges()
-                var shouldContinue = true
+                var shouldContinue = false
+                let subSteps = nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1)
+                
                 for _ in 0..<subSteps {
-                    if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
-                        shouldContinue = false
-                        break
+                    if self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
+                        shouldContinue = true
                     }
                 }
+                
                 let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
                 
                 DispatchQueue.main.async {
                     self.setNodes(nodes)
                     onUpdate()
-                    if !shouldContinue {
+                    
+                    // Early stop if already stable
+                    if !shouldContinue || totalVelocity < PhysicsConstants.velocityThreshold * CGFloat(nodes.count) {
                         self.stopSimulation()
                         return
                     }

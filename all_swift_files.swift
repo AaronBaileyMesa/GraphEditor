@@ -71,27 +71,26 @@ final class GraphEditorWatchUITests: XCTestCase {
     func testDragToCreateEdge() throws {
         let app = XCUIApplication()
         app.launch()
-        
-        // Wait for the graph to load (adjust timeout if simulation takes time)
-        let canvas = app.otherElements["GraphCanvas"]  // Add accessibilityIdentifier="GraphCanvas" to your GraphCanvasView in code if not already
+
+        let canvas = app.otherElements["GraphCanvas"]  // Assumes accessibilityIdentifier set on GraphCanvasView
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear")
-        
-        // Assume two nodes are visible at approximate positions (tweak based on defaults or add identifiers)
-        // Node 1 at ~ (100,100), Node 2 at ~ (200,200) – use normalized coordinates for drag
-        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Normalized (0-1) from top-left
-        let endPoint = CGVector(dx: 0.6, dy: 0.6)
-        
-        // Simulate drag gesture
+
+        // Assume default nodes: Adjust start/end based on positions (e.g., node0 at (100,100), node1 at (200,200))
+        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Near node0
+        let endPoint = CGVector(dx: 0.6, dy: 0.6)    // Near node1
+
         let dragStart = canvas.coordinate(withNormalizedOffset: startPoint)
         let dragEnd = canvas.coordinate(withNormalizedOffset: endPoint)
         dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
-        
-        // Assert: Check for accessibility label update or some indicator (e.g., edge count increases)
-        // If your graphDescription updates, query it via accessibility
-        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 edges."]  // Adjust based on expected post-drag state
-        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Edge should be created, updating graph description")
-    }
 
+        // Assert: Updated label reflects directed edge (e.g., "Graph with 3 nodes and 4 directed edges." and mentions direction)
+        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 directed edges. No node selected."]  // Adjust based on post-drag (add "directed")
+        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Directed edge created, updating graph description")
+
+        // Optional: Select the from-node and check description mentions "outgoing to" the to-node
+        // Simulate tap on startPoint to select, then check label includes "outgoing to: <label>"
+    }
+    
     @MainActor
     func testExample() throws {
         // UI tests must launch the application that they test.
@@ -119,7 +118,7 @@ import CoreGraphics  // For CGPoint
 import GraphEditorShared
 
 struct GraphEditorSharedTests {
-
+    
     @Test func testNodeInitializationAndEquality() {
         let id = UUID()
         let node1 = Node(id: id, label: 1, position: CGPoint(x: 10, y: 20))
@@ -341,26 +340,41 @@ struct GraphEditorSharedTests {
         let origin = CGPoint.zero
         #expect(distance(negativePoints, origin) == 5, "Distance with negatives is positive")
     }
+    
+    @Test func testDirectedEdgeCreation() {
+        let edge = GraphEdge(from: UUID(), to: UUID())
+        #expect(edge.from != edge.to, "Directed edge has distinct from/to")
+    }
+    
+    @Test func testAsymmetricAttraction() throws {
+        let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        engine.useAsymmetricAttraction = true
+        var nodes = [Node(id: UUID(), label: 1, position: CGPoint(x: 0, y: 0)),
+                     Node(id: UUID(), label: 2, position: CGPoint(x: 200, y: 0))]
+        let edges = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
+        _ = engine.simulationStep(nodes: &nodes, edges: edges)
+        #expect(abs(nodes[0].position.x - 0) < 1, "From node position unchanged in asymmetric")
+        #expect(nodes[1].position.x < 200, "To node pulled towards from")
+    }
 }
 
 struct PerformanceTests {
 
+    @available(watchOS 9.0, *)  // Guard for availability
     @Test func testSimulationPerformance() {
         let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         var nodes: [Node] = (1...100).map { Node(label: $0, position: CGPoint(x: CGFloat.random(in: 0...300), y: CGFloat.random(in: 0...300))) }
         let edges: [GraphEdge] = []
-        
-        let clock = ContinuousClock()
-        let duration = clock.measure {
-            for _ in 0..<10 {
-                _ = engine.simulationStep(nodes: &nodes, edges: edges)
-            }
+
+        let start = Date()
+        for _ in 0..<10 {
+            _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
-        
-        print("Duration for 10 simulation steps with 100 nodes: \(duration)")
-        
-        // Optional: Add a loose expectation (adjust threshold based on your machine/device)
-        #expect(duration < .seconds(0.5), "Simulation should be performant")
+        let duration = Date().timeIntervalSince(start)
+
+        print("Duration for 10 simulation steps with 100 nodes: \(duration) seconds")
+
+        #expect(duration < 0.5, "Simulation should be performant")
     }
     
 }
@@ -532,6 +546,8 @@ public class PhysicsEngine {
         simulationSteps = 0
     }
     
+    public var useAsymmetricAttraction: Bool = false  // New: Toggle for directed physics (default false for stability)
+    
     @discardableResult
     public func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
         if simulationSteps >= PhysicsConstants.maxSimulationSteps {
@@ -568,21 +584,29 @@ public class PhysicsEngine {
         
         // Attraction on edges
         for edge in edges {
-            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
-                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
-            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
-            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
-            let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
-            let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
-            let forceDirectionX = deltaX / dist
-            let forceDirectionY = deltaY / dist
-            let forceX = forceDirectionX * forceMagnitude
-            let forceY = forceDirectionY * forceMagnitude
-            let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
-            forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
-            let currentForceTo = forces[nodes[toIdx].id] ?? .zero
-            forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
-        }
+                    guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
+                          let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
+                    let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
+                    let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
+                    let dist = max(hypot(deltaX, deltaY), PhysicsConstants.distanceEpsilon)
+                    let forceMagnitude = PhysicsConstants.stiffness * (dist - PhysicsConstants.idealLength)
+                    let forceDirectionX = deltaX / dist
+                    let forceDirectionY = deltaY / dist
+                    let forceX = forceDirectionX * forceMagnitude
+                    let forceY = forceDirectionY * forceMagnitude
+
+                    if useAsymmetricAttraction {
+                        // Asymmetric: Only pull 'to' towards 'from' (stronger influence on 'to')
+                        let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+                        forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+                    } else {
+                        // Symmetric (original)
+                        let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+                        forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
+                        let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+                        forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+                    }
+                }
         
         // Weak centering force
         for i in 0..<nodes.count {
@@ -822,27 +846,32 @@ public typealias NodeID = UUID
 // Represents a node in the graph with position, velocity, and permanent label.
 public struct Node: Identifiable, Equatable, Codable {
     public let id: NodeID
-    public let label: Int  // Permanent label, assigned on creation
+    public let label: Int
     public var position: CGPoint
     public var velocity: CGPoint = .zero
-    
-    enum CodingKeys: String, CodingKey {
-        case id, label
-        case positionX, positionY
-        case velocityX, velocityY
-    }
-    
-    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero) {
+    public var radius: CGFloat = 10.0  // New: Per-node radius (default matches AppConstants.nodeModelRadius)
+
+    // Update init to include radius
+    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0) {
         self.id = id
         self.label = label
         self.position = position
         self.velocity = velocity
+        self.radius = radius
     }
-    
+
+    // Update CodingKeys and decoder/encoder for radius
+    enum CodingKeys: String, CodingKey {
+        case id, label, radius  // Add radius
+        case positionX, positionY
+        case velocityX, velocityY
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         id = try container.decode(NodeID.self, forKey: .id)
         label = try container.decode(Int.self, forKey: .label)
+        radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0  // Decode or default
         let posX = try container.decode(CGFloat.self, forKey: .positionX)
         let posY = try container.decode(CGFloat.self, forKey: .positionY)
         position = CGPoint(x: posX, y: posY)
@@ -850,11 +879,12 @@ public struct Node: Identifiable, Equatable, Codable {
         let velY = try container.decode(CGFloat.self, forKey: .velocityY)
         velocity = CGPoint(x: velX, y: velY)
     }
-    
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
         try container.encode(label, forKey: .label)
+        try container.encode(radius, forKey: .radius)  // Encode radius
         try container.encode(position.x, forKey: .positionX)
         try container.encode(position.y, forKey: .positionY)
         try container.encode(velocity.x, forKey: .velocityX)
@@ -1326,7 +1356,7 @@ public class GraphModel: ObservableObject {
     }
     
     func addNode(at position: CGPoint) {
-        nodes.append(Node(label: nextNodeLabel, position: position))
+        nodes.append(Node(label: nextNodeLabel, position: position, radius: 10.0))  // Explicit radius; vary later if needed
         nextNodeLabel += 1
         if nodes.count >= 100 {
             // Trigger alert via view (e.g., publish @Published var showNodeLimitAlert = true)
@@ -1352,18 +1382,29 @@ public class GraphModel: ObservableObject {
 
 extension GraphModel {
     func graphDescription(selectedID: NodeID?) -> String {
-        var desc = "Graph with \(nodes.count) nodes and \(edges.count) edges."
+        var desc = "Graph with \(nodes.count) nodes and \(edges.count) directed edges."
         if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
-            let connectedLabels = edges
-                .filter { $0.from == selectedID || $0.to == selectedID }
+            let outgoingLabels = edges
+                .filter { $0.from == selectedID }
                 .compactMap { edge in
-                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
-                    return nodes.first { $0.id == otherID }?.label
+                    let toID = edge.to
+                    return nodes.first { $0.id == toID }?.label
                 }
                 .sorted()
                 .map { String($0) }
                 .joined(separator: ", ")
-            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
+            let incomingLabels = edges
+                .filter { $0.to == selectedID }
+                .compactMap { edge in
+                    let fromID = edge.from
+                    return nodes.first { $0.id == fromID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
+            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
+            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
         } else {
             desc += " No node selected."
         }
@@ -1430,22 +1471,49 @@ struct GraphCanvasView: View {
         Canvas { context, size in
             let transform = CGAffineTransform(translationX: offset.width, y: offset.height)
                 .scaledBy(x: zoomScale, y: zoomScale)
-            
-            // Draw edges and their labels
+
+            // Draw edges and their labels (updated for arrows)
             for edge in viewModel.model.edges {
                 if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                    let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    // Inside the for edge loop:
                     let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
                     let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
-                    context.stroke(Path { path in
-                        path.move(to: fromPos)
-                        path.addLine(to: toPos)
-                    }, with: .color(.blue), lineWidth: 2 * zoomScale)
-                    
+
+                    // Calculate direction and length
+                    let direction = CGPoint(x: toPos.x - fromPos.x, y: toPos.y - fromPos.y)
+                    let length = hypot(direction.x, direction.y)
+                    if length > 0 {
+                        let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
+
+                        // Shorten line to end at toNode's edge
+                        let scaledToRadius = toNode.radius * zoomScale
+                        let lineEnd = toPos - unitDir * scaledToRadius  // Back up from center by radius
+
+                        // Draw shortened line
+                        context.stroke(Path { path in
+                            path.move(to: fromPos)
+                            path.addLine(to: lineEnd)
+                        }, with: .color(.blue), lineWidth: 2 * zoomScale)
+
+                        // Draw arrowhead with tip at toNode's edge (uses arrowSize)
+                        let arrowSize: CGFloat = 10 * zoomScale  // Declaration here; now used below
+                        let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
+                        let arrowTip = lineEnd  // Tip at line end (node edge)
+                        let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
+                        let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
+
+                        context.fill(Path { path in
+                            path.move(to: arrowTip)
+                            path.addLine(to: arrowBase1)
+                            path.addLine(to: arrowBase2)
+                            path.closeSubpath()
+                        }, with: .color(.blue))
+                    }
+
+                    // Show direction e.g., "\(fromNode.label)→\(toNode.label)")
                     let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
-                    let fromLabel = fromNode.label
-                    let toLabel = toNode.label
-                    let edgeLabel = "\(min(fromLabel, toLabel))-\(max(fromLabel, toLabel))"
+                    let edgeLabel = "\(fromNode.label)→\(toNode.label)"  // Updated for direction
                     let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
                     let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
                     let resolvedText = context.resolve(text)
@@ -1786,7 +1854,7 @@ struct GraphGesturesModifier: ViewModifier {
                     
                     if draggedNode == nil {
                         // Check for node hit to prioritize drag/selection
-                        if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - touchPos.x, $0.position.y - touchPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {  // Adjust buffer for variable radius
                             draggedNode = hitNode
                         }
                     }
@@ -1810,8 +1878,7 @@ struct GraphGesturesModifier: ViewModifier {
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         viewModel.snapshot()
-                        if dragDistance < AppConstants.tapThreshold {
-                            // Handle tap on node: Toggle selection
+                        if dragDistance < AppConstants.tapThreshold {                            // Handle tap on node: Toggle selection
                             if selectedNodeID == node.id {
                                 selectedNodeID = nil
                             } else {
@@ -1821,8 +1888,8 @@ struct GraphGesturesModifier: ViewModifier {
                         } else {
                             // Handle actual drag: Move node or create edge
                             if let target = potentialEdgeTarget, target.id != node.id,
-                               !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) || ($0.from == target.id && $0.to == node.id) }) {
-                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
+                               !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) }) {  // Removed symmetric check; now only checks exact direction
+                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))  // Directed: dragged -> target
                                 viewModel.model.startSimulation()
                                 WKInterfaceDevice.current().play(.success)
                             } else {
@@ -1863,41 +1930,41 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             )
             .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
-                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                        .onEnded { value in
-                            switch value {
-                            case .second(true, let drag?):
-                                let location = drag.location
-                                let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                                    .scaledBy(x: zoomScale, y: zoomScale)
-                                    .inverted()
-                                let worldPos = location.applying(inverseTransform)
-                                
-                                // Check for node hit (unchanged)
-                                if let hitNode = viewModel.model.nodes.first(where: { hypot($0.position.x - worldPos.x, $0.position.y - worldPos.y) < AppConstants.hitScreenRadius / zoomScale }) {
-                                    viewModel.deleteNode(withID: hitNode.id)
+                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
+                .onEnded { value in
+                    switch value {
+                    case .second(true, let drag?):
+                        let location = drag.location
+                        let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
+                            .scaledBy(x: zoomScale, y: zoomScale)
+                            .inverted()
+                        let worldPos = location.applying(inverseTransform)  // This is defined here
+
+                        // Check for node hit (use worldPos, not touchPos; update for radius if applied from previous)
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, worldPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {
+                            viewModel.deleteNode(withID: hitNode.id)
+                            WKInterfaceDevice.current().play(.success)
+                            viewModel.model.startSimulation()
+                            return
+                        }
+
+                        // Check for edge hit (unchanged, but uses worldPos)
+                        for edge in viewModel.model.edges {
+                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                                if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                                    viewModel.deleteEdge(withID: edge.id)
                                     WKInterfaceDevice.current().play(.success)
                                     viewModel.model.startSimulation()
                                     return
                                 }
-                                
-                                // Check for edge hit (now using point-to-line distance)
-                                for edge in viewModel.model.edges {
-                                    if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                        if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
-                                            viewModel.deleteEdge(withID: edge.id)
-                                            WKInterfaceDevice.current().play(.success)
-                                            viewModel.model.startSimulation()
-                                            return
-                                        }
-                                    }
-                                }
-                            default:
-                                break
                             }
                         }
-                    )
+                    default:
+                        break
+                    }
+                }
+            )
             .simultaneousGesture(TapGesture(count: 2)
                 .onEnded {
                     showMenu = true
@@ -2433,10 +2500,10 @@ struct AccessibilityTests {
         model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id))
         
         let descNoSelect = model.graphDescription(selectedID: nil)
-        #expect(descNoSelect == "Graph with 2 nodes and 1 edges. No node selected.", "Correct desc without selection")
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edges. No node selected.", "Correct desc without selection")
         
         let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id)
-        #expect(descWithSelect == "Graph with 2 nodes and 1 edges. Node 1 selected, connected to nodes: 2.", "Correct desc with selection")
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edges. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
     }
 }
 
