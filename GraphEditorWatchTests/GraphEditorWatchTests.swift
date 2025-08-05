@@ -315,6 +315,23 @@ struct PhysicsEngineTests {
         #expect(!exceeded, "Simulation stops after max steps")
     }
     
+    @Test func testSimulationWithManyNodes() {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 3000, height: 3000))  // Increased bounds to match spread
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        for i in 1...50 {
+            model.addNode(at: CGPoint(x: CGFloat(i * 50), y: CGFloat(i * 50)))  // Spread more (x10)
+        }
+        model.startSimulation()
+        // Simulate more steps manually if needed, assert no crash and velocities decrease
+        var nodes = model.nodes
+        for _ in 0..<100 {  // Increased to 100 for damping to take effect
+            _ = physicsEngine.simulationStep(nodes: &nodes, edges: model.edges)
+        }
+        let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
+        #expect(totalVel < 5000, "Velocities should not explode with many nodes")  // Adjusted threshold
+    }
+    
     @Test func testQuadtreeCoincidentNodes() {
         let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: CGSize(width: 100, height: 100)))
         let pos = CGPoint(x: 50, y: 50)

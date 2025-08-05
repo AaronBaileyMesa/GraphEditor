@@ -20,4 +20,5 @@ public struct PhysicsConstants {
     public static let maxSimulationSteps = 500
     public static let minQuadSize: CGFloat = 1e-6
     public static let maxQuadtreeDepth = 64
+    private let maxNodesForQuadtree = 75  // Adjust based on profiling; watchOS limit
 }

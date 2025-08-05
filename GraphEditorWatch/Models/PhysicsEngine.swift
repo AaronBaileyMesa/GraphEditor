@@ -11,11 +11,14 @@ import SwiftUI
 import Foundation
 import GraphEditorShared
 
-// ... (existing imports)
+import SwiftUI
+import Foundation
 import GraphEditorShared
 
 public class PhysicsEngine {
     let simulationBounds: CGSize
+    
+    private let maxNodesForQuadtree = 50  // Added constant for node cap fallback
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -37,17 +40,28 @@ public class PhysicsEngine {
         var forces: [NodeID: CGPoint] = [:]
         let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
         
-        // Build Quadtree for repulsion (Barnes-Hut)
-        let quadtree = Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds))
-        for node in nodes {
-            quadtree.insert(node, depth: 0)
+        // Build Quadtree for repulsion (Barnes-Hut) only if under cap
+        let useQuadtree = nodes.count <= maxNodesForQuadtree
+        let quadtree: Quadtree? = useQuadtree ? Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds)) : nil
+        if useQuadtree {
+            for node in nodes {
+                quadtree?.insert(node, depth: 0)
+            }
         }
         
-        // Repulsion using Quadtree
+        // Repulsion (Quadtree or naive fallback)
         for i in 0..<nodes.count {
-            let dynamicTheta: CGFloat = nodes.count > 50 ? 0.8 : 0.5
-            let repulsion = quadtree.computeForce(on: nodes[i], theta: dynamicTheta)
-            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
+            var repulsion: CGPoint = .zero
+            if useQuadtree {
+                let dynamicTheta: CGFloat = nodes.count > 20 ? 1.0 : 0.5
+                repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
+            } else {
+                // Naive repulsion
+                for j in 0..<nodes.count where i != j {
+                    repulsion += repulsionForce(from: nodes[j].position, to: nodes[i].position)
+                }
+            }
+            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion  // Use repulsion here
         }
         
         // Attraction on edges
@@ -115,5 +129,16 @@ public class PhysicsEngine {
         let minY = ys.min() ?? 0
         let maxY = ys.max() ?? 0
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+    
+    private func repulsionForce(from: CGPoint, to: CGPoint) -> CGPoint {
+        let delta = to - from
+        let distSquared = delta.x * delta.x + delta.y * delta.y  // Manual calculation instead of magnitudeSquared
+        if distSquared < PhysicsConstants.distanceEpsilon * PhysicsConstants.distanceEpsilon {
+            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * PhysicsConstants.repulsion
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = PhysicsConstants.repulsion / distSquared
+        return delta / dist * forceMagnitude
     }
 }

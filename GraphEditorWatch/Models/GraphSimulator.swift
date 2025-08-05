@@ -1,12 +1,3 @@
-//
-//  GraphSimulator.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/4/25.
-//
-
-// New GraphSimulator.swift with fixes for capturing inout in escaping closure (using closures instead of inout).
-
 import Foundation
 import Combine
 import GraphEditorShared
@@ -41,11 +32,16 @@ class GraphSimulator {
         let nodeCount = getNodes().count
         if nodeCount < 5 { return }
         
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        let interval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : 1.0 / 15.0  // Slower for big graphs
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             guard let self else { return }
+            
+            // Optional: In-code logging for perf (uncomment for debugging)
+            // let startTime = Date()
+            
             onUpdate()
             
-            let subSteps = nodeCount < 10 ? 5 : 10
+            let subSteps = nodeCount < 10 ? 5 : (nodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
             var shouldContinue = true
             var nodes = self.getNodes()
             let edges = self.getEdges()
@@ -56,6 +52,12 @@ class GraphSimulator {
                 }
             }
             self.setNodes(nodes)
+            
+            // Optional: Log elapsed time if > threshold
+            // let elapsed = Date().timeIntervalSince(startTime)
+            // if elapsed > 0.05 {
+            //     print("Simulation step took \(elapsed)s for \(nodeCount) nodes")
+            // }
             
             if !shouldContinue {
                 self.stopSimulation()
