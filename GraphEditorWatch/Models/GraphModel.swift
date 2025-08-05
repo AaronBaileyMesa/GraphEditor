@@ -16,7 +16,7 @@ public class GraphModel: ObservableObject {
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
-    private var nextNodeLabel = 1  // Auto-increment for node labels
+    internal var nextNodeLabel = 1  // Internal for testability; auto-increments node labels
     
     private let storage: GraphStorage
     internal let physicsEngine: PhysicsEngine
