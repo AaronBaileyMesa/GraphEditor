@@ -212,6 +212,52 @@ public class GraphModel: ObservableObject {
     func boundingBox() -> CGRect {
         self.physicsEngine.boundingBox(nodes: nodes as! [Node])  // Cast for physicsEngine
     }
+    
+    // In GraphModel.swift, add at the end:
+    func visibleNodes() -> [any NodeProtocol] {
+        var visible = [any NodeProtocol]()
+        var visited = Set<NodeID>()
+        let adjacency = buildAdjacencyList()
+        for node in nodes {
+            if node.isVisible && !visited.contains(node.id) {
+                dfsVisible(node: node, adjacency: adjacency, visited: &visited, visible: &visible)
+            }
+        }
+        return visible
+    }
+
+    private func dfsVisible(node: any NodeProtocol, adjacency: [NodeID: [NodeID]], visited: inout Set<NodeID>, visible: inout [any NodeProtocol]) {
+        visited.insert(node.id)
+        visible.append(node)
+        if let toggle = node as? ToggleNode, !toggle.isExpanded { return }  // Skip children if collapsed (cast to check type)
+        if let children = adjacency[node.id] {
+            for childID in children {
+                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID }), child.isVisible {
+                    dfsVisible(node: child, adjacency: adjacency, visited: &visited, visible: &visible)
+                }
+            }
+        }
+    }
+
+    func visibleEdges() -> [GraphEdge] {
+        let visibleIDs = Set(visibleNodes().map { $0.id })
+        return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
+    }
+
+    private func buildAdjacencyList() -> [NodeID: [NodeID]] {
+        var adj = [NodeID: [NodeID]]()
+        for edge in edges {
+            adj[edge.from, default: []].append(edge.to)
+        }
+        return adj
+    }
+
+    func addToggleNode(at position: CGPoint) {
+        nodes.append(ToggleNode(label: nextNodeLabel, position: position))
+        nextNodeLabel += 1
+        if nodes.count >= 100 { return }
+        physicsEngine.resetSimulation()
+    }
 }
 
 extension GraphModel {
@@ -245,3 +291,5 @@ extension GraphModel {
         return desc
     }
 }
+
+
