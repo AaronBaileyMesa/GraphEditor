@@ -1,0 +1,56 @@
+File: GraphEditorWatch/ViewModels/GraphViewModel.swift
+Key Declarations:
+class GraphViewModel: ObservableObject {
+
+
+
+File: GraphEditorWatch/Models/GraphSimulator.swift
+Key Declarations:
+class GraphSimulator {
+
+
+
+File: GraphEditorWatch/Models/PersistenceManager.swift
+Key Declarations:
+enum GraphStorageError: Error {
+public class PersistenceManager: GraphStorage {
+
+
+
+File: GraphEditorWatch/Models/GraphModel.swift
+Key Declarations:
+public class GraphModel: ObservableObject {
+extension GraphModel {
+
+
+
+File: GraphEditorWatch/Models/AppConstants.swift
+Key Declarations:
+struct AppConstants {
+
+
+
+File: GraphEditorWatch/Views/GraphCanvasView.swift
+Key Declarations:
+struct GraphCanvasView: View {
+
+
+
+File: GraphEditorWatch/Views/ContentView.swift
+Key Declarations:
+struct ContentView: View {
+
+
+
+File: GraphEditorWatch/Views/GraphGesturesModifier.swift
+Key Declarations:
+struct GraphGesturesModifier: ViewModifier {
+
+
+
+File: GraphEditorWatch/GraphEditorWatch.swift
+Key Declarations:
+struct GraphEditorWatchApp: App {
+
+
+

@@ -20,9 +20,9 @@ struct ContentView: View {
     @State private var viewSize: CGSize = .zero
     @State private var offset: CGSize = .zero
     @State private var panStartOffset: CGSize?
-    @State private var draggedNode: Node? = nil
+    @State private var draggedNode: (any NodeProtocol)? = nil  // Updated to existential for polymorphism
     @State private var dragOffset: CGPoint = .zero
-    @State private var potentialEdgeTarget: Node? = nil
+    @State private var potentialEdgeTarget: (any NodeProtocol)? = nil  // Updated to existential
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
@@ -96,7 +96,6 @@ struct ContentView: View {
             panStartOffset: $panStartOffset,
             showMenu: $showMenu,
             maxZoom: maxZoom,
-
             crownPosition: $crownPosition,
             onUpdateZoomRanges: updateZoomRanges
         )
@@ -197,7 +196,7 @@ struct ContentView: View {
         if adjustOffset && oldScale != newScale && viewSize != .zero {
             let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
             let worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
-            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)
+            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)  // Fixed: Removed erroneous .y after newScale
         }
         
         withAnimation(.easeInOut) {

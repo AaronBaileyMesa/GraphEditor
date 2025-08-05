@@ -15,9 +15,9 @@ struct GraphCanvasView: View {
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
     @Binding var offset: CGSize
-    @Binding var draggedNode: Node?
+    @Binding var draggedNode: (any NodeProtocol)?
     @Binding var dragOffset: CGPoint
-    @Binding var potentialEdgeTarget: Node?
+    @Binding var potentialEdgeTarget: (any NodeProtocol)?
     @Binding var selectedNodeID: NodeID?
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
@@ -93,7 +93,7 @@ struct GraphCanvasView: View {
             // Draw nodes
             for node in viewModel.model.nodes {
                 let pos = (draggedNode?.id == node.id ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position).applying(transform)
-                let scaledRadius = AppConstants.nodeModelRadius * zoomScale
+                let scaledRadius = node.radius * zoomScale  // Use per-node radius for consistency
                 context.fill(Path(ellipseIn: CGRect(x: pos.x - scaledRadius, y: pos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
                 if node.id == selectedNodeID {
                     let borderWidth = 4 * zoomScale
@@ -109,8 +109,9 @@ struct GraphCanvasView: View {
         .drawingGroup()
         .accessibilityElement(children: .combine)
             .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID))
-            .accessibilityHint("Double-tap for menu. Long press to delete selected.")        .accessibilityChildren {
-            ForEach(viewModel.model.nodes) { node in
+            .accessibilityHint("Double-tap for menu. Long press to delete selected.")
+        .accessibilityChildren {
+            ForEach(viewModel.model.nodes, id: \.id) { node in  // Explicit id key path to fix existential conformance
                 Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
                     .accessibilityAction(named: "Select") {
                         selectedNodeID = node.id

@@ -67,12 +67,12 @@ struct GraphModelTests {
     @Test func testSnapshotAndUndo() {
         let storage = MockGraphStorage()
         let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes
+        let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.count == initialNodes.count + 1, "Node added")
         model.undo()
-        let nodesMatch = model.nodes == initialNodes
+        let nodesMatch = (model.nodes as! [Node]) == initialNodes
         #expect(nodesMatch, "Undo restores state")
     }
     
@@ -90,7 +90,7 @@ struct GraphModelTests {
     @Test func testSaveLoadRoundTrip() {
         let storage = MockGraphStorage()
         let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let originalNodes = model.nodes
+        let originalNodes = model.nodes as! [Node]
         let originalEdges = model.edges
         // Modify and snapshot to trigger save
         model.addNode(at: CGPoint.zero)
@@ -113,7 +113,7 @@ struct GraphModelTests {
     @Test func testRedo() {
         let storage = MockGraphStorage()
         let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes
+        let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
         // Removed: model.snapshot() // Avoid saving post-add state; undo would be a no-op otherwise
@@ -175,7 +175,7 @@ struct GraphModelTests {
     @Test func testUndoAfterDelete() {
         let storage = MockGraphStorage()
         let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes
+        let initialNodes = model.nodes as! [Node]
         model.snapshot()
         let nodeID = model.nodes[0].id
         model.deleteNode(withID: nodeID)
@@ -189,9 +189,9 @@ struct GraphModelTests {
         let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         model.startSimulation()
         // Simulate time passage; check if positions change (e.g., run a few manual steps)
-        var nodesCopy = model.nodes
+        var nodesCopy = model.nodes as! [Node]
         _ = model.physicsEngine.simulationStep(nodes: &nodesCopy, edges: model.edges)
-        let positionsChanged = nodesCopy != model.nodes
+        let positionsChanged = nodesCopy != (model.nodes as! [Node])
         #expect(positionsChanged, "Simulation affects positions") // Assuming it runs
         model.stopSimulation()
         // Verify timer is nil (but since private, perhaps add a public isSimulating property if needed)
@@ -206,6 +206,7 @@ struct GraphModelTests {
         #expect(model.edges.count == 3, "Initializes with default edges if empty")
     }
 }
+
 struct PhysicsEngineTests {
     @Test func testSimulationStepStability() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
@@ -324,7 +325,7 @@ struct PhysicsEngineTests {
         }
         model.startSimulation()
         // Simulate more steps manually if needed, assert no crash and velocities decrease
-        var nodes = model.nodes
+        var nodes = model.nodes as! [Node]
         for _ in 0..<100 {  // Increased to 100 for damping to take effect
             _ = physicsEngine.simulationStep(nodes: &nodes, edges: model.edges)
         }
@@ -416,15 +417,15 @@ class GraphGesturesModifierTests: XCTestCase {
             #expect(model.edges.isEmpty, "No edges initially")
             
             let viewModel = GraphViewModel(model: model)
-            let node1 = model.nodes[0]
-            let node2 = model.nodes[1]
+            let node1 = model.nodes[0] as! Node
+            let node2 = model.nodes[1] as! Node
             
             // Mock gesture properties instead of creating Value
             let mockTranslation = CGSize(width: 50, height: 50)
             
             // Simulate onEnded logic
-            let draggedNode: Node? = node1
-            let potentialEdgeTarget: Node? = node2
+            let draggedNode: (any NodeProtocol)? = node1
+            let potentialEdgeTarget: (any NodeProtocol)? = node2
             let dragOffset: CGPoint = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)  // Assume zoomScale=1
             
             let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
@@ -448,7 +449,7 @@ class GraphGesturesModifierTests: XCTestCase {
                             viewModel.model.startSimulation()
                         } else {
                             // Move logic (skipped, but update to use vars)
-                            var updatedNode = viewModel.model.nodes[index]
+                            var updatedNode = viewModel.model.nodes[index] as! Node  // Cast for mutation
                             updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
                             viewModel.model.nodes[index] = updatedNode
                             viewModel.model.startSimulation()
@@ -469,7 +470,6 @@ class GraphGesturesModifierTests: XCTestCase {
     }
 }
 
-// Add this struct at the end of GraphEditorWatchTests.swift, after the existing test structs.
 struct AccessibilityTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))

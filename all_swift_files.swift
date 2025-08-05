@@ -433,7 +433,7 @@ public struct PhysicsConstants {
     public static let maxSimulationSteps = 500
     public static let minQuadSize: CGFloat = 1e-6
     public static let maxQuadtreeDepth = 64
-    private let maxNodesForQuadtree = 75  // Adjust based on profiling; watchOS limit
+    private let maxNodesForQuadtree = 200  // Adjust based on profiling; watchOS limit
 }
 
 
@@ -534,7 +534,7 @@ import CoreGraphics
 public class PhysicsEngine {
     let simulationBounds: CGSize
     
-    private let maxNodesForQuadtree = 100  // Added constant for node cap fallback
+    private let maxNodesForQuadtree = 200  // Added constant for node cap fallback
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -571,7 +571,7 @@ public class PhysicsEngine {
         for i in 0..<nodes.count {
             var repulsion: CGPoint = .zero
             if useQuadtree {
-                let dynamicTheta: CGFloat = nodes.count > 50 ? 1.2 : (nodes.count > 20 ? 1.0 : 0.5)
+                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
                 repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
             } else {
                 // Naive repulsion
@@ -1026,30 +1026,31 @@ class GraphSimulator {
         let nodeCount = getNodes().count
         if nodeCount < 5 { return }
         
-        let interval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : 1.0 / 15.0  // Slower for big graphs
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        // Dynamic interval: Slower for larger graphs to save battery
+        let baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
+        timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
             guard let self else { return }
-            
-            // Recompute nodeCount and subSteps each time, in case nodes change
-            let currentNodeCount = self.getNodes().count
-            let subSteps = currentNodeCount < 10 ? 5 : (currentNodeCount < 30 ? 3 : 1)  // Fewer sub-steps for large graphs
             
             DispatchQueue.global(qos: .userInitiated).async {
                 var nodes = self.getNodes()
                 let edges = self.getEdges()
-                var shouldContinue = true
+                var shouldContinue = false
+                let subSteps = nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1)
+                
                 for _ in 0..<subSteps {
-                    if !self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
-                        shouldContinue = false
-                        break
+                    if self.physicsEngine.simulationStep(nodes: &nodes, edges: edges) {
+                        shouldContinue = true
                     }
                 }
+                
                 let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
                 
                 DispatchQueue.main.async {
                     self.setNodes(nodes)
                     onUpdate()
-                    if !shouldContinue {
+                    
+                    // Early stop if already stable
+                    if !shouldContinue || totalVelocity < PhysicsConstants.velocityThreshold * CGFloat(nodes.count) {
                         self.stopSimulation()
                         return
                     }

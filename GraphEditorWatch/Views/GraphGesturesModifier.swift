@@ -14,9 +14,9 @@ struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
     @Binding var offset: CGSize
-    @Binding var draggedNode: Node?
+    @Binding var draggedNode: (any NodeProtocol)?
     @Binding var dragOffset: CGPoint
-    @Binding var potentialEdgeTarget: Node?
+    @Binding var potentialEdgeTarget: (any NodeProtocol)?
     @Binding var selectedNodeID: NodeID?
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?

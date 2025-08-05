@@ -11,7 +11,7 @@ import GraphEditorShared
 import WatchKit
 
 public class GraphModel: ObservableObject {
-    @Published var nodes: [Node] = []
+    @Published var nodes: [any NodeProtocol] = []
     @Published var edges: [GraphEdge] = []
     
     private var undoStack: [GraphState] = []
@@ -24,8 +24,8 @@ public class GraphModel: ObservableObject {
     
     private lazy var simulator: GraphSimulator = {
         GraphSimulator(
-            getNodes: { [weak self] in self?.nodes ?? [] },
-            setNodes: { [weak self] nodes in self?.nodes = nodes },
+            getNodes: { [weak self] in (self?.nodes as? [Node]) ?? [] },  // Cast to [Node] for simulator
+            setNodes: { [weak self] nodes in self?.nodes = nodes as [any NodeProtocol] },  // Cast back to existential
             getEdges: { [weak self] in self?.edges ?? [] },
             physicsEngine: self.physicsEngine
         )
@@ -47,24 +47,25 @@ public class GraphModel: ObservableObject {
         self.physicsEngine = physicsEngine
         
         let loaded = storage.load()
-        var tempNodes = loaded.nodes
+        var tempNodes: [any NodeProtocol] = loaded.nodes  // Implicit conversion from [Node] to [any NodeProtocol]
         var tempEdges = loaded.edges
         var tempNextLabel = 1
         
         if tempNodes.isEmpty && tempEdges.isEmpty {
-            tempNodes = [
+            let defaultNodes: [Node] = [
                 Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
                 Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
                 Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
+            tempNodes = defaultNodes  // [Node] to [any NodeProtocol]
             tempNextLabel += 3
             tempEdges = [
-                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
-                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
-                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
+                GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
+                GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
+                GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
             ]
             do {
-                try storage.save(nodes: tempNodes, edges: tempEdges)  // Only here, for defaults
+                try storage.save(nodes: defaultNodes, edges: tempEdges)  // Use concrete [Node] for save
             } catch {
                 logger.error("Failed to save default graph: \(error.localizedDescription)")
             }
@@ -86,25 +87,26 @@ public class GraphModel: ObservableObject {
         self.physicsEngine = physicsEngine
         
         let loaded = storage.load()
-        var tempNodes = loaded.nodes
+        var tempNodes: [any NodeProtocol] = loaded.nodes  // Implicit conversion
         var tempEdges = loaded.edges
         var tempNextLabel = nextNodeLabel
         
         if tempNodes.isEmpty && tempEdges.isEmpty {
             // Default graph setup (as in main init)
-            tempNodes = [
+            let defaultNodes: [Node] = [
                 Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
                 Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
                 Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
+            tempNodes = defaultNodes
             tempNextLabel += 3
             tempEdges = [
-                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
-                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
-                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
+                GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
+                GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
+                GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
             ]
             do {
-                try storage.save(nodes: tempNodes, edges: tempEdges)
+                try storage.save(nodes: defaultNodes, edges: tempEdges)
             } catch {
                 logger.error("Failed to save default graph: \(error.localizedDescription)")
             }
@@ -120,14 +122,14 @@ public class GraphModel: ObservableObject {
     
     // Creates a snapshot of the current state for undo/redo and saves.
     func snapshot() {
-        let state = GraphState(nodes: nodes, edges: edges)
+        let state = GraphState(nodes: nodes as! [Node], edges: edges)  // Cast for GraphState (assumes all are Node)
         undoStack.append(state)
         if undoStack.count > maxUndo {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
         do {
-            try storage.save(nodes: nodes, edges: edges)
+            try storage.save(nodes: nodes as! [Node], edges: edges)  // Cast for save
         } catch {
             logger.error("Failed to save snapshot: \(error.localizedDescription)")
         }
@@ -139,15 +141,15 @@ public class GraphModel: ObservableObject {
             WKInterfaceDevice.current().play(.failure)
             return
         }
-        let current = GraphState(nodes: nodes, edges: edges)
+        let current = GraphState(nodes: nodes as! [Node], edges: edges)
         redoStack.append(current)
         let previous = undoStack.removeLast()
-        nodes = previous.nodes
+        nodes = previous.nodes as [any NodeProtocol]  // Conversion from [Node]
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
         do {
-            try storage.save(nodes: nodes, edges: edges)
+            try storage.save(nodes: nodes as! [Node], edges: edges)
         } catch {
             logger.error("Failed to save after undo: \(error.localizedDescription)")
         }
@@ -159,15 +161,15 @@ public class GraphModel: ObservableObject {
             WKInterfaceDevice.current().play(.failure)
             return
         }
-        let current = GraphState(nodes: nodes, edges: edges)
+        let current = GraphState(nodes: nodes as! [Node], edges: edges)
         undoStack.append(current)
         let next = redoStack.removeLast()
-        nodes = next.nodes
+        nodes = next.nodes as [any NodeProtocol]
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
         WKInterfaceDevice.current().play(.success)
         do {
-            try storage.save(nodes: nodes, edges: edges)
+            try storage.save(nodes: nodes as! [Node], edges: edges)
         } catch {
             logger.error("Failed to save after redo: \(error.localizedDescription)")
         }
@@ -208,7 +210,7 @@ public class GraphModel: ObservableObject {
     }
     
     func boundingBox() -> CGRect {
-        self.physicsEngine.boundingBox(nodes: nodes)
+        self.physicsEngine.boundingBox(nodes: nodes as! [Node])  // Cast for physicsEngine
     }
 }
 
