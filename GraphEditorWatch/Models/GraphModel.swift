@@ -1,4 +1,5 @@
-// At top of GraphModel.swift
+// Updated GraphModel.swift with lazy simulator to avoid initialization issues with closures capturing self.
+
 import os.log
 private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
@@ -21,11 +22,14 @@ public class GraphModel: ObservableObject {
     private let storage: GraphStorage
     internal let physicsEngine: PhysicsEngine
     
-    private var timer: Timer? = nil
-    
-    private var recentVelocities: [CGFloat] = []  // Track last 5 total velocities for early stopping
-    private let velocityChangeThreshold: CGFloat = 0.01  // Relative change threshold (1%)
-    private let velocityHistoryCount = 5  // Number of frames to check
+    private lazy var simulator: GraphSimulator = {
+        GraphSimulator(
+            getNodes: { [weak self] in self?.nodes ?? [] },
+            setNodes: { [weak self] nodes in self?.nodes = nodes },
+            getEdges: { [weak self] in self?.edges ?? [] },
+            physicsEngine: self.physicsEngine
+        )
+    }()
     
     // Indicates if undo is possible.
     var canUndo: Bool {
@@ -41,62 +45,76 @@ public class GraphModel: ObservableObject {
     public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
+        
         let loaded = storage.load()
-        nodes = loaded.nodes
-        edges = loaded.edges
-        if nodes.isEmpty && edges.isEmpty {
-            nodes = [
-                Node(label: nextNodeLabel, position: CGPoint(x: 100, y: 100)),
-                Node(label: nextNodeLabel + 1, position: CGPoint(x: 200, y: 200)),
-                Node(label: nextNodeLabel + 2, position: CGPoint(x: 150, y: 300))
+        var tempNodes = loaded.nodes
+        var tempEdges = loaded.edges
+        var tempNextLabel = 1
+        
+        if tempNodes.isEmpty && tempEdges.isEmpty {
+            tempNodes = [
+                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
-            nextNodeLabel += 3
-            edges = [
-                GraphEdge(from: nodes[0].id, to: nodes[1].id),
-                GraphEdge(from: nodes[1].id, to: nodes[2].id),
-                GraphEdge(from: nodes[2].id, to: nodes[0].id)
+            tempNextLabel += 3
+            tempEdges = [
+                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
+                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
+                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
             ]
             do {
-                try storage.save(nodes: nodes, edges: edges)  // Only here, for defaults
+                try storage.save(nodes: tempNodes, edges: tempEdges)  // Only here, for defaults
             } catch {
                 logger.error("Failed to save default graph: \(error.localizedDescription)")
             }
         } else {
             // Update nextLabel based on loaded nodes
-            nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
             // NO save here; loaded data doesn't need immediate save
         }
+        
+        self.nodes = tempNodes
+        self.edges = tempEdges
+        self.nextNodeLabel = tempNextLabel
     }
- 
+
     // Test-only initializer
     #if DEBUG
     init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
         self.storage = storage
         self.physicsEngine = physicsEngine
+        
         let loaded = storage.load()
-        nodes = loaded.nodes
-        edges = loaded.edges
-        if nodes.isEmpty && edges.isEmpty {
+        var tempNodes = loaded.nodes
+        var tempEdges = loaded.edges
+        var tempNextLabel = nextNodeLabel
+        
+        if tempNodes.isEmpty && tempEdges.isEmpty {
             // Default graph setup (as in main init)
-            nodes = [
-                Node(label: nextNodeLabel, position: CGPoint(x: 100, y: 100)),
-                Node(label: nextNodeLabel + 1, position: CGPoint(x: 200, y: 200)),
-                Node(label: nextNodeLabel + 2, position: CGPoint(x: 150, y: 300))
+            tempNodes = [
+                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
             ]
-            self.nextNodeLabel = nextNodeLabel + 3  // Update based on defaults
-            edges = [
-                GraphEdge(from: nodes[0].id, to: nodes[1].id),
-                GraphEdge(from: nodes[1].id, to: nodes[2].id),
-                GraphEdge(from: nodes[2].id, to: nodes[0].id)
+            tempNextLabel += 3
+            tempEdges = [
+                GraphEdge(from: tempNodes[0].id, to: tempNodes[1].id),
+                GraphEdge(from: tempNodes[1].id, to: tempNodes[2].id),
+                GraphEdge(from: tempNodes[2].id, to: tempNodes[0].id)
             ]
             do {
-                try storage.save(nodes: nodes, edges: edges)
+                try storage.save(nodes: tempNodes, edges: tempEdges)
             } catch {
                 logger.error("Failed to save default graph: \(error.localizedDescription)")
             }
         } else {
-            self.nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
         }
+        
+        self.nodes = tempNodes
+        self.edges = tempEdges
+        self.nextNodeLabel = tempNextLabel
     }
     #endif
     
@@ -176,52 +194,13 @@ public class GraphModel: ObservableObject {
     }
     
     func startSimulation() {
-        timer?.invalidate()
-        self.physicsEngine.resetSimulation()
-        recentVelocities.removeAll()  // Reset velocity history on start
-        if nodes.count < 5 { return }  // Skip for small graphs
-        
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.objectWillChange.send()
-            
-            let subSteps = nodes.count < 10 ? 5 : 10  // Dynamic: fewer sub-steps for small graphs
-            var shouldContinue = true
-            for _ in 0..<subSteps {
-                if !self.physicsEngine.simulationStep(nodes: &self.nodes, edges: self.edges) {
-                    shouldContinue = false
-                    break
-                }
-            }
-            
-            if !shouldContinue {
-                self.stopSimulation()
-                return
-            }
-            
-            // Compute total velocity after sub-steps for early stopping
-            let totalVelocity = self.nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-            recentVelocities.append(totalVelocity)
-            if recentVelocities.count > velocityHistoryCount {
-                recentVelocities.removeFirst()
-            }
-            
-            // Check if velocity is stabilizing (relative change over history < threshold)
-            if recentVelocities.count == velocityHistoryCount {
-                let maxVel = recentVelocities.max() ?? 1.0  // Avoid div by zero
-                let minVel = recentVelocities.min() ?? 0.0
-                let relativeChange = (maxVel - minVel) / maxVel
-                if relativeChange < velocityChangeThreshold {
-                    self.stopSimulation()
-                    return
-                }
-            }
-        }
+        simulator.startSimulation(onUpdate: { [weak self] in
+            self?.objectWillChange.send()
+        })
     }
     
     func stopSimulation() {
-        timer?.invalidate()
-        timer = nil
+        simulator.stopSimulation()
     }
     
     func boundingBox() -> CGRect {

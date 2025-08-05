@@ -73,6 +73,7 @@
 			membershipExceptions = (
 				Models/AppConstants.swift,
 				Models/GraphModel.swift,
+				Models/GraphSimulator.swift,
 				Models/PersistenceManager.swift,
 				Models/PhysicsConstants.swift,
 				Models/PhysicsEngine.swift,
