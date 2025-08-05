@@ -462,12 +462,11 @@ struct AccessibilityTests {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
         storage.nodes = [Node(label: 0, position: .zero)]
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
+        model.nodes = []  // Clear for test setup
+        model.edges = []
         
         model.nextNodeLabel = 1  // Reset for consistent labeling in test
-        
-        model.nodes = []
-        model.edges = []
         
         model.addNode(at: .zero)  // Label 1
         model.addNode(at: CGPoint(x: 10, y: 10))  // Label 2

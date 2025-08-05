@@ -67,6 +67,38 @@ public class GraphModel: ObservableObject {
             // NO save here; loaded data doesn't need immediate save
         }
     }
+ 
+    // Test-only initializer
+    #if DEBUG
+    init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
+        self.storage = storage
+        self.physicsEngine = physicsEngine
+        let loaded = storage.load()
+        nodes = loaded.nodes
+        edges = loaded.edges
+        if nodes.isEmpty && edges.isEmpty {
+            // Default graph setup (as in main init)
+            nodes = [
+                Node(label: nextNodeLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: nextNodeLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: nextNodeLabel + 2, position: CGPoint(x: 150, y: 300))
+            ]
+            self.nextNodeLabel = nextNodeLabel + 3  // Update based on defaults
+            edges = [
+                GraphEdge(from: nodes[0].id, to: nodes[1].id),
+                GraphEdge(from: nodes[1].id, to: nodes[2].id),
+                GraphEdge(from: nodes[2].id, to: nodes[0].id)
+            ]
+            do {
+                try storage.save(nodes: nodes, edges: edges)
+            } catch {
+                logger.error("Failed to save default graph: \(error.localizedDescription)")
+            }
+        } else {
+            self.nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+        }
+    }
+    #endif
     
     // Creates a snapshot of the current state for undo/redo and saves.
     func snapshot() {
