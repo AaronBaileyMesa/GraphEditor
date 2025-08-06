@@ -176,6 +176,14 @@ public class GraphModel: ObservableObject {
         // Optionally add redoStack.removeAll() here if you want to prevent redo chains, but standard is not to
     }
     
+    public func saveGraph() {
+        do {
+            try storage.save(nodes: nodes as! [Node], edges: edges)
+        } catch {
+            logger.error("Failed to save graph: \(error.localizedDescription)")
+        }
+    }
+    
     func deleteNode(withID id: NodeID) {
         snapshot()
         nodes.removeAll { $0.id == id }

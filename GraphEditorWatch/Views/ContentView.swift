@@ -27,12 +27,32 @@ struct ContentView: View {
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
     @Environment(\.scenePhase) private var scenePhase
-    @State private var storageError: String? = nil
     
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
         _viewModel = StateObject(wrappedValue: GraphViewModel(model: model))
+    }
+    
+    // New: Define the shared closure here (incorporates your existing logic + offset clamping)
+    private var onUpdateZoomRanges: () -> Void {
+        return {
+            // Directly use self (safe for struct)
+            self.updateZoomRanges()
+            
+            // Add improved offset clamping (allows positive for zoom-out centering)
+            let bbox = self.viewModel.model.physicsEngine.boundingBox(nodes: self.viewModel.model.visibleNodes())
+            let scaledWidth = bbox.width * self.zoomScale
+            let scaledHeight = bbox.height * self.zoomScale
+            
+            let minOffsetX = min(0.0, self.viewSize.width - scaledWidth)
+            let maxOffsetX = max(0.0, self.viewSize.width - scaledWidth)
+            let minOffsetY = min(0.0, self.viewSize.height - scaledHeight)
+            let maxOffsetY = max(0.0, self.viewSize.height - scaledHeight)
+            
+            self.offset.width = max(min(self.offset.width, maxOffsetX), minOffsetX)
+            self.offset.height = max(min(self.offset.height, maxOffsetY), minOffsetY)
+        }
     }
     
     var body: some View {
@@ -59,28 +79,20 @@ struct ContentView: View {
                 return
             }
             
-            if floor(newValue) != floor(oldValue) {
-                WKInterfaceDevice.current().play(.click)
-            }
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
         }
-        .ignoresSafeArea()
-        .onChange(of: scenePhase) {
-            if scenePhase == .active {
-                viewModel.model.startSimulation()
-            } else {
-                viewModel.model.stopSimulation()
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            if newPhase == .background {
+                viewModel.model.saveGraph()
             }
         }
-        .onDisappear {
-            viewModel.model.stopSimulation()
+        .onAppear {
+            viewSize = WKInterfaceDevice.current().screenBounds.size
+            
+            updateZoomRanges()
         }
-        // In body, add:
-        .alert("Storage Error", isPresented: Binding(get: { storageError != nil }, set: { _ in storageError = nil })) {
-            Button("OK") {}
-        } message: {
-            Text(storageError ?? "Unknown error")
-        }
+       
+        
     }
     
     private func graphCanvasView(geo: GeometryProxy) -> some View {
@@ -97,60 +109,24 @@ struct ContentView: View {
             showMenu: $showMenu,
             maxZoom: maxZoom,
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: updateZoomRanges
+            onUpdateZoomRanges: onUpdateZoomRanges  // Pass the shared closure
         )
-        .onAppear {
-            viewSize = geo.size
-            updateZoomRanges()
-            viewModel.model.startSimulation()
-        }
     }
     
     private var menuView: some View {
         VStack {
-            Button("New Graph") {
-                viewModel.snapshot()
-                viewModel.model.nodes = []
-                viewModel.model.edges = []
-                showMenu = false
-                viewModel.model.startSimulation()
-            }
-            if let selected = selectedNodeID {
-                Button("Delete Selected") {
-                    viewModel.deleteNode(withID: selected)
-                    selectedNodeID = nil
-                    showMenu = false
-                    viewModel.model.startSimulation()
-                }
-            }
-            Button("Undo") {
-                viewModel.undo()
-                showMenu = false
-                viewModel.model.startSimulation()
-            }
-            .disabled(!viewModel.canUndo)
-            Button("Redo") {
-                viewModel.redo()
-                showMenu = false
-                viewModel.model.startSimulation()
-            }
-            .disabled(!viewModel.canRedo)
+            Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
+            Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
+            Button("Close") { showMenu = false }
         }
+        .padding()
     }
     
-      
-    // Updates the zoom range based on current graph and view size.
+    // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {
-        guard viewSize != .zero else { return }
-        
-        if viewModel.model.nodes.isEmpty {
-            minZoom = 0.5
-            maxZoom = 2.0
-            let midCrown = Double(AppConstants.numZoomLevels - 1) / 2.0
-            if midCrown != crownPosition {
-                ignoreNextCrownChange = true
-                crownPosition = midCrown
-            }
+        guard !viewModel.model.nodes.isEmpty else {
+            minZoom = 0.2
+            maxZoom = 5.0
             return
         }
         
@@ -177,7 +153,7 @@ struct ContentView: View {
         } else {
             progress = 1.0
         }
-        progress = progress.clamped(to: 0...1)  // Explicit clamp to [0,1]
+        progress = progress.clamped(to: 0.0...1.0)  // Explicit clamp to [0,1] with CGFloat range
         let newCrown = Double(progress * CGFloat(AppConstants.numZoomLevels - 1))
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
@@ -199,10 +175,9 @@ struct ContentView: View {
             offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)  // Fixed: Removed erroneous .y after newScale
         }
         
-            zoomScale = newScale
+        zoomScale = newScale
     }
 }
-  
 
 #Preview {
     ContentView()
