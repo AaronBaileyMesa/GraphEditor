@@ -115,13 +115,20 @@ struct ContentView: View {
     
     private var menuView: some View {
         VStack {
+            Button("Add Node") {
+                let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                let worldCenter = CGPoint(x: (centerScreen.x - offset.width) / zoomScale, y: (centerScreen.y - offset.height) / zoomScale)
+                viewModel.snapshot()
+                viewModel.model.addNode(at: worldCenter)
+                viewModel.model.startSimulation()
+                showMenu = false
+            }
             Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
             Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
             Button("Close") { showMenu = false }
         }
         .padding()
     }
-    
     // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {
         guard !viewModel.model.nodes.isEmpty else {

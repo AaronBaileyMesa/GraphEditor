@@ -5,7 +5,6 @@
 //  Created by handcart on 8/1/25.
 //
 
-
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -29,9 +28,8 @@ struct GraphGesturesModifier: ViewModifier {
         content
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                        .scaledBy(x: zoomScale, y: zoomScale)
-                        .inverted()
+                    let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                    let inverseTransform = transform.inverted()
                     let touchPos = value.startLocation.applying(inverseTransform)
                     
                     if draggedNode == nil {
@@ -52,9 +50,8 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 .onEnded { value in
                     let dragDistance = hypot(value.translation.width, value.translation.height)
-                    let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                        .scaledBy(x: zoomScale, y: zoomScale)
-                        .inverted()
+                    let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                    let inverseTransform = transform.inverted()
                     let touchPos = value.location.applying(inverseTransform)
                     
                     if let node = draggedNode,
@@ -82,12 +79,9 @@ struct GraphGesturesModifier: ViewModifier {
                             }
                         }
                     } else {
-                        // No node dragged: Handle tap to add new node or pan (but pan is in simultaneous gesture)
+                        // No node dragged: Handle tap to deselect (no addNode)
                         if dragDistance < AppConstants.tapThreshold {
                             selectedNodeID = nil  // Deselect on background tap
-                            viewModel.snapshot()
-                            viewModel.model.addNode(at: touchPos)
-                            viewModel.model.startSimulation()
                         }
                     }
                     
@@ -117,9 +111,8 @@ struct GraphGesturesModifier: ViewModifier {
                     switch value {
                     case .second(true, let drag?):
                         let location = drag.location
-                        let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                            .scaledBy(x: zoomScale, y: zoomScale)
-                            .inverted()
+                        let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                        let inverseTransform = transform.inverted()
                         let worldPos = location.applying(inverseTransform)  // This is defined here
 
                         // Check for node hit (use worldPos, not touchPos; update for radius if applied from previous)

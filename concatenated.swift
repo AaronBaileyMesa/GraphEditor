@@ -915,6 +915,7 @@ public enum GraphStorageError: Error {
     case writingFailed(Error)
     case loadingFailed(Error)
     case decodingFailed(Error)
+    case inconsistentFiles(String)  // New: For cases where one file exists but not the other
 }
 
 /// File-based JSON persistence conforming to GraphStorage.
@@ -923,13 +924,17 @@ public class PersistenceManager: GraphStorage {
     private let nodesFileName = "graphNodes.json"
     private let edgesFileName = "graphEdges.json"
     
-    public init() {
-        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        baseURL = documents.appendingPathComponent("GraphEditor")
+    public init(baseURL: URL) {
+        self.baseURL = baseURL
         try? FileManager.default.createDirectory(at: baseURL, withIntermediateDirectories: true)
     }
     
-    public func save(nodes: [Node], edges: [GraphEdge]) -> Result<Void, GraphStorageError> {
+    public convenience init() {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.init(baseURL: documents.appendingPathComponent("GraphEditor"))
+    }
+    
+    public func save(nodes: [Node], edges: [GraphEdge]) throws {
         let encoder = JSONEncoder()
         do {
             let nodeData = try encoder.encode(nodes)
@@ -939,62 +944,87 @@ public class PersistenceManager: GraphStorage {
             let edgeData = try encoder.encode(edges)
             let edgeURL = baseURL.appendingPathComponent(edgesFileName)
             try edgeData.write(to: edgeURL)
-            return .success(())
-        } catch let encodingError as EncodingError {
-            logger.error("Encoding failed: \(encodingError.localizedDescription)")
-            return .failure(.encodingFailed(encodingError))
-        } catch let writingError as NSError {
-            logger.error("Writing failed: \(writingError.localizedDescription)")
-            return .failure(.writingFailed(writingError))
+        } catch let error as EncodingError {
+            logger.error("Encoding failed: \(error.localizedDescription)")
+            throw GraphStorageError.encodingFailed(error)
         } catch {
-            logger.error("Unexpected save error: \(error.localizedDescription)")
-            return .failure(.encodingFailed(error))
+            logger.error("Writing failed: \(error.localizedDescription)")
+            throw GraphStorageError.writingFailed(error)
         }
     }
     
-    public func load() -> Result<(nodes: [Node], edges: [GraphEdge]), GraphStorageError> {
-        let decoder = JSONDecoder()
+    public func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
+        let fm = FileManager.default
         let nodeURL = baseURL.appendingPathComponent(nodesFileName)
-        guard let nodeData = try? Data(contentsOf: nodeURL) else {
-            return .failure(.loadingFailed(NSError(domain: "PersistenceManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Nodes file not found"])))
+        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
+        
+        let nodesExist = fm.fileExists(atPath: nodeURL.path)
+        let edgesExist = fm.fileExists(atPath: edgeURL.path)
+        
+        // If both missing, return empty (initial state)
+        if !nodesExist && !edgesExist {
+            return ([], [])
+        }
+        
+        // If only one exists, throw as inconsistent
+        if nodesExist != edgesExist {
+            let message = nodesExist ? "Edges file missing but nodes exist" : "Nodes file missing but edges exist"
+            logger.error("\(message)")
+            throw GraphStorageError.inconsistentFiles(message)
+        }
+        
+        // Both exist: Load and decode
+        let decoder = JSONDecoder()
+        
+        let nodeData: Data
+        do {
+            nodeData = try Data(contentsOf: nodeURL)
+        } catch {
+            logger.error("Loading nodes failed: \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
         }
         let loadedNodes: [Node]
         do {
             loadedNodes = try decoder.decode([Node].self, from: nodeData)
         } catch {
             logger.error("Decoding nodes failed: \(error.localizedDescription)")
-            return .failure(.decodingFailed(error))
+            throw GraphStorageError.decodingFailed(error)
         }
         
-        let edgeURL = baseURL.appendingPathComponent(edgesFileName)
-        guard let edgeData = try? Data(contentsOf: edgeURL) else {
-            return .failure(.loadingFailed(NSError(domain: "PersistenceManager", code: 404, userInfo: [NSLocalizedDescriptionKey: "Edges file not found"])))
+        let edgeData: Data
+        do {
+            edgeData = try Data(contentsOf: edgeURL)
+        } catch {
+            logger.error("Loading edges failed: \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
         }
         let loadedEdges: [GraphEdge]
         do {
             loadedEdges = try decoder.decode([GraphEdge].self, from: edgeData)
         } catch {
             logger.error("Decoding edges failed: \(error.localizedDescription)")
-            return .failure(.decodingFailed(error))
+            throw GraphStorageError.decodingFailed(error)
         }
         
-        return .success((loadedNodes, loadedEdges))
+        return (loadedNodes, loadedEdges)
     }
 }
-// Updated GraphModel.swift with lazy simulator to avoid initialization issues with closures capturing self.
+// Sources/GraphEditorShared/GraphModel.swift
 
 import os.log
-private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
-
-// Models/GraphModel.swift
 import SwiftUI
 import Combine
 import Foundation
 
+#if os(watchOS)
+import WatchKit
+#endif
+
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
 public class GraphModel: ObservableObject {
-    @Published var nodes: [any NodeProtocol] = []
-    @Published var edges: [GraphEdge] = []
+    @Published public var nodes: [any NodeProtocol] = []
+    @Published public var edges: [GraphEdge] = []
     
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
@@ -1002,7 +1032,7 @@ public class GraphModel: ObservableObject {
     internal var nextNodeLabel = 1  // Internal for testability; auto-increments node labels
     
     private let storage: GraphStorage
-    internal let physicsEngine: PhysicsEngine
+    public let physicsEngine: PhysicsEngine  // Changed to public
     
     private lazy var simulator: GraphSimulator = {
         GraphSimulator(
@@ -1014,39 +1044,50 @@ public class GraphModel: ObservableObject {
     }()
     
     // Indicates if undo is possible.
-    var canUndo: Bool {
+    public var canUndo: Bool {
         !undoStack.isEmpty
     }
     
     // Indicates if redo is possible.
-    var canRedo: Bool {
+    public var canRedo: Bool {
         !redoStack.isEmpty
     }
     
     // Initializes the graph model, loading from persistence if available.
-    public init(storage: GraphEditorShared.GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine) {
+    public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
         
-        let loadedResult = storage.load()
         var tempNodes: [any NodeProtocol] = []
         var tempEdges: [GraphEdge] = []
         var tempNextLabel = 1
         
-        switch loadedResult {
-        case .success(let loaded):
+        do {
+            let loaded = try storage.load()
             tempNodes = loaded.nodes
             tempEdges = loaded.edges
             tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
-        case .failure(let error):
+        } catch {
             logger.error("Load failed: \(error.localizedDescription)")
             // Proceed with defaults below
         }
         
         if tempNodes.isEmpty && tempEdges.isEmpty {
-            // Default setup...
-            let saveResult = storage.save(nodes: defaultNodes, edges: tempEdges)
-            if case .failure(let error) = saveResult {
+            let defaultNodes: [Node] = [
+                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
+                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
+                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
+            ]
+            tempNodes = defaultNodes
+            tempNextLabel += 3
+            tempEdges = [
+                GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
+                GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
+                GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
+            ]
+            do {
+                try storage.save(nodes: defaultNodes, edges: tempEdges)
+            } catch {
                 logger.error("Save defaults failed: \(error.localizedDescription)")
             }
         } else {
@@ -1062,17 +1103,24 @@ public class GraphModel: ObservableObject {
 
     // Test-only initializer
     #if DEBUG
-    init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
+    public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
         self.storage = storage
         self.physicsEngine = physicsEngine
         
-        let loaded = storage.load()
-        var tempNodes: [any NodeProtocol] = loaded.nodes  // Implicit conversion
-        var tempEdges = loaded.edges
+        var tempNodes: [any NodeProtocol] = []
+        var tempEdges: [GraphEdge] = []
         var tempNextLabel = nextNodeLabel
         
+        do {
+            let loaded = try storage.load()
+            tempNodes = loaded.nodes
+            tempEdges = loaded.edges
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
+        } catch {
+            logger.error("Load failed: \(error.localizedDescription)")
+        }
+        
         if tempNodes.isEmpty && tempEdges.isEmpty {
-            // Default graph setup (as in main init)
             let defaultNodes: [Node] = [
                 Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
                 Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
@@ -1101,7 +1149,7 @@ public class GraphModel: ObservableObject {
     #endif
     
     // Creates a snapshot of the current state for undo/redo and saves.
-    func snapshot() {
+    public func snapshot() {
         let state = GraphState(nodes: nodes as! [Node], edges: edges)  // Cast for GraphState (assumes all are Node)
         undoStack.append(state)
         if undoStack.count > maxUndo {
@@ -1116,9 +1164,11 @@ public class GraphModel: ObservableObject {
     }
     
     // Undoes the last action if possible, with haptic feedback.
-    func undo() {
+    public func undo() {
         guard !undoStack.isEmpty else {
+            #if os(watchOS)
             WKInterfaceDevice.current().play(.failure)
+            #endif
             return
         }
         let current = GraphState(nodes: nodes as! [Node], edges: edges)
@@ -1127,18 +1177,21 @@ public class GraphModel: ObservableObject {
         nodes = previous.nodes as [any NodeProtocol]  // Conversion from [Node]
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
+        #if os(watchOS)
         WKInterfaceDevice.current().play(.success)
+        #endif
         do {
             try storage.save(nodes: nodes as! [Node], edges: edges)
         } catch {
             logger.error("Failed to save after undo: \(error.localizedDescription)")
         }
-        // REMOVE any redoStack.removeAll() here if present
     }
     
-    func redo() {
+    public func redo() {
         guard !redoStack.isEmpty else {
+            #if os(watchOS)
             WKInterfaceDevice.current().play(.failure)
+            #endif
             return
         }
         let current = GraphState(nodes: nodes as! [Node], edges: edges)
@@ -1147,13 +1200,14 @@ public class GraphModel: ObservableObject {
         nodes = next.nodes as [any NodeProtocol]
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
+        #if os(watchOS)
         WKInterfaceDevice.current().play(.success)
+        #endif
         do {
             try storage.save(nodes: nodes as! [Node], edges: edges)
         } catch {
             logger.error("Failed to save after redo: \(error.localizedDescription)")
         }
-        // Optionally add redoStack.removeAll() here if you want to prevent redo chains, but standard is not to
     }
     
     public func saveGraph() {
@@ -1164,20 +1218,20 @@ public class GraphModel: ObservableObject {
         }
     }
     
-    func deleteNode(withID id: NodeID) {
+    public func deleteNode(withID id: NodeID) {
         snapshot()
         nodes.removeAll { $0.id == id }
         edges.removeAll { $0.from == id || $0.to == id }
         self.physicsEngine.resetSimulation()
     }
     
-    func deleteEdge(withID id: NodeID) {
+    public func deleteEdge(withID id: NodeID) {
         snapshot()
         edges.removeAll { $0.id == id }
         self.physicsEngine.resetSimulation()
     }
     
-    func addNode(at position: CGPoint) {
+    public func addNode(at position: CGPoint) {
         nodes.append(Node(label: nextNodeLabel, position: position, radius: 10.0))  // Explicit radius; vary later if needed
         nextNodeLabel += 1
         if nodes.count >= 100 {
@@ -1187,22 +1241,22 @@ public class GraphModel: ObservableObject {
         self.physicsEngine.resetSimulation()
     }
     
-    func startSimulation() {
+    public func startSimulation() {
         simulator.startSimulation(onUpdate: { [weak self] in
             self?.objectWillChange.send()
         })
     }
     
-    func stopSimulation() {
+    public func stopSimulation() {
         simulator.stopSimulation()
     }
     
-    func boundingBox() -> CGRect {
+    public func boundingBox() -> CGRect {
         self.physicsEngine.boundingBox(nodes: nodes as! [Node])  // Cast for physicsEngine
     }
     
-    // In GraphModel.swift, add at the end:
-    func visibleNodes() -> [any NodeProtocol] {
+    // Visibility methods
+    public func visibleNodes() -> [any NodeProtocol] {
         var visible = [any NodeProtocol]()
         var visited = Set<NodeID>()
         let adjacency = buildAdjacencyList()
@@ -1227,7 +1281,7 @@ public class GraphModel: ObservableObject {
         }
     }
 
-    func visibleEdges() -> [GraphEdge] {
+    public func visibleEdges() -> [GraphEdge] {
         let visibleIDs = Set(visibleNodes().map { $0.id })
         return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
     }
@@ -1240,7 +1294,7 @@ public class GraphModel: ObservableObject {
         return adj
     }
 
-    func addToggleNode(at position: CGPoint) {
+    public func addToggleNode(at position: CGPoint) {
         nodes.append(ToggleNode(label: nextNodeLabel, position: position))
         nextNodeLabel += 1
         if nodes.count >= 100 { return }
@@ -1249,7 +1303,7 @@ public class GraphModel: ObservableObject {
 }
 
 extension GraphModel {
-    func graphDescription(selectedID: NodeID?) -> String {
+    public func graphDescription(selectedID: NodeID?) -> String {
         var desc = "Graph with \(nodes.count) nodes and \(edges.count) directed edges."
         if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
             let outgoingLabels = edges
@@ -1279,8 +1333,6 @@ extension GraphModel {
         return desc
     }
 }
-
-
 // Sources/GraphEditorShared/NodeProtocol.swift
 
 import SwiftUI
@@ -1670,309 +1722,6 @@ class GraphViewModel: ObservableObject {
         model.deleteEdge(withID: id)
     }
 }
-// Updated GraphModel.swift with lazy simulator to avoid initialization issues with closures capturing self.
-
-import os.log
-private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
-
-// Models/GraphModel.swift
-import SwiftUI
-import Combine
-import Foundation
-import GraphEditorShared
-import WatchKit
-
-public class GraphModel: ObservableObject {
-    @Published var nodes: [any NodeProtocol] = []
-    @Published var edges: [GraphEdge] = []
-    
-    private var undoStack: [GraphState] = []
-    private var redoStack: [GraphState] = []
-    private let maxUndo = 10
-    internal var nextNodeLabel = 1  // Internal for testability; auto-increments node labels
-    
-    private let storage: GraphStorage
-    internal let physicsEngine: PhysicsEngine
-    
-    private lazy var simulator: GraphSimulator = {
-        GraphSimulator(
-            getNodes: { [weak self] in (self?.nodes as? [Node]) ?? [] },  // Cast to [Node] for simulator
-            setNodes: { [weak self] nodes in self?.nodes = nodes as [any NodeProtocol] },  // Cast back to existential
-            getEdges: { [weak self] in self?.edges ?? [] },
-            physicsEngine: self.physicsEngine
-        )
-    }()
-    
-    // Indicates if undo is possible.
-    var canUndo: Bool {
-        !undoStack.isEmpty
-    }
-    
-    // Indicates if redo is possible.
-    var canRedo: Bool {
-        !redoStack.isEmpty
-    }
-    
-    // Initializes the graph model, loading from persistence if available.
-    public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine) {
-        self.storage = storage
-        self.physicsEngine = physicsEngine
-        
-        let loaded = storage.load()
-        var tempNodes: [any NodeProtocol] = loaded.nodes  // Implicit conversion from [Node] to [any NodeProtocol]
-        var tempEdges = loaded.edges
-        var tempNextLabel = 1
-        
-        if tempNodes.isEmpty && tempEdges.isEmpty {
-            let defaultNodes: [Node] = [
-                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
-                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
-                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
-            ]
-            tempNodes = defaultNodes  // [Node] to [any NodeProtocol]
-            tempNextLabel += 3
-            tempEdges = [
-                GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
-                GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
-                GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
-            ]
-            do {
-                try storage.save(nodes: defaultNodes, edges: tempEdges)  // Use concrete [Node] for save
-            } catch {
-                logger.error("Failed to save default graph: \(error.localizedDescription)")
-            }
-        } else {
-            // Update nextLabel based on loaded nodes
-            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
-            // NO save here; loaded data doesn't need immediate save
-        }
-        
-        self.nodes = tempNodes
-        self.edges = tempEdges
-        self.nextNodeLabel = tempNextLabel
-    }
-
-    // Test-only initializer
-    #if DEBUG
-    init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int) {
-        self.storage = storage
-        self.physicsEngine = physicsEngine
-        
-        let loaded = storage.load()
-        var tempNodes: [any NodeProtocol] = loaded.nodes  // Implicit conversion
-        var tempEdges = loaded.edges
-        var tempNextLabel = nextNodeLabel
-        
-        if tempNodes.isEmpty && tempEdges.isEmpty {
-            // Default graph setup (as in main init)
-            let defaultNodes: [Node] = [
-                Node(label: tempNextLabel, position: CGPoint(x: 100, y: 100)),
-                Node(label: tempNextLabel + 1, position: CGPoint(x: 200, y: 200)),
-                Node(label: tempNextLabel + 2, position: CGPoint(x: 150, y: 300))
-            ]
-            tempNodes = defaultNodes
-            tempNextLabel += 3
-            tempEdges = [
-                GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
-                GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
-                GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
-            ]
-            do {
-                try storage.save(nodes: defaultNodes, edges: tempEdges)
-            } catch {
-                logger.error("Failed to save default graph: \(error.localizedDescription)")
-            }
-        } else {
-            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
-        }
-        
-        self.nodes = tempNodes
-        self.edges = tempEdges
-        self.nextNodeLabel = tempNextLabel
-    }
-    #endif
-    
-    // Creates a snapshot of the current state for undo/redo and saves.
-    func snapshot() {
-        let state = GraphState(nodes: nodes as! [Node], edges: edges)  // Cast for GraphState (assumes all are Node)
-        undoStack.append(state)
-        if undoStack.count > maxUndo {
-            undoStack.removeFirst()
-        }
-        redoStack.removeAll()
-        do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)  // Cast for save
-        } catch {
-            logger.error("Failed to save snapshot: \(error.localizedDescription)")
-        }
-    }
-    
-    // Undoes the last action if possible, with haptic feedback.
-    func undo() {
-        guard !undoStack.isEmpty else {
-            WKInterfaceDevice.current().play(.failure)
-            return
-        }
-        let current = GraphState(nodes: nodes as! [Node], edges: edges)
-        redoStack.append(current)
-        let previous = undoStack.removeLast()
-        nodes = previous.nodes as [any NodeProtocol]  // Conversion from [Node]
-        edges = previous.edges
-        self.physicsEngine.resetSimulation()  // Ready for new simulation
-        WKInterfaceDevice.current().play(.success)
-        do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
-        } catch {
-            logger.error("Failed to save after undo: \(error.localizedDescription)")
-        }
-        // REMOVE any redoStack.removeAll() here if present
-    }
-    
-    func redo() {
-        guard !redoStack.isEmpty else {
-            WKInterfaceDevice.current().play(.failure)
-            return
-        }
-        let current = GraphState(nodes: nodes as! [Node], edges: edges)
-        undoStack.append(current)
-        let next = redoStack.removeLast()
-        nodes = next.nodes as [any NodeProtocol]
-        edges = next.edges
-        self.physicsEngine.resetSimulation()  // Ready for new simulation
-        WKInterfaceDevice.current().play(.success)
-        do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
-        } catch {
-            logger.error("Failed to save after redo: \(error.localizedDescription)")
-        }
-        // Optionally add redoStack.removeAll() here if you want to prevent redo chains, but standard is not to
-    }
-    
-    public func saveGraph() {
-        do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
-        } catch {
-            logger.error("Failed to save graph: \(error.localizedDescription)")
-        }
-    }
-    
-    func deleteNode(withID id: NodeID) {
-        snapshot()
-        nodes.removeAll { $0.id == id }
-        edges.removeAll { $0.from == id || $0.to == id }
-        self.physicsEngine.resetSimulation()
-    }
-    
-    func deleteEdge(withID id: NodeID) {
-        snapshot()
-        edges.removeAll { $0.id == id }
-        self.physicsEngine.resetSimulation()
-    }
-    
-    func addNode(at position: CGPoint) {
-        nodes.append(Node(label: nextNodeLabel, position: position, radius: 10.0))  // Explicit radius; vary later if needed
-        nextNodeLabel += 1
-        if nodes.count >= 100 {
-            // Trigger alert via view (e.g., publish @Published var showNodeLimitAlert = true)
-            return
-        }
-        self.physicsEngine.resetSimulation()
-    }
-    
-    func startSimulation() {
-        simulator.startSimulation(onUpdate: { [weak self] in
-            self?.objectWillChange.send()
-        })
-    }
-    
-    func stopSimulation() {
-        simulator.stopSimulation()
-    }
-    
-    func boundingBox() -> CGRect {
-        self.physicsEngine.boundingBox(nodes: nodes as! [Node])  // Cast for physicsEngine
-    }
-    
-    // In GraphModel.swift, add at the end:
-    func visibleNodes() -> [any NodeProtocol] {
-        var visible = [any NodeProtocol]()
-        var visited = Set<NodeID>()
-        let adjacency = buildAdjacencyList()
-        for node in nodes {
-            if node.isVisible && !visited.contains(node.id) {
-                dfsVisible(node: node, adjacency: adjacency, visited: &visited, visible: &visible)
-            }
-        }
-        return visible
-    }
-
-    private func dfsVisible(node: any NodeProtocol, adjacency: [NodeID: [NodeID]], visited: inout Set<NodeID>, visible: inout [any NodeProtocol]) {
-        visited.insert(node.id)
-        visible.append(node)
-        if let toggle = node as? ToggleNode, !toggle.isExpanded { return }  // Skip children if collapsed (cast to check type)
-        if let children = adjacency[node.id] {
-            for childID in children {
-                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID }), child.isVisible {
-                    dfsVisible(node: child, adjacency: adjacency, visited: &visited, visible: &visible)
-                }
-            }
-        }
-    }
-
-    func visibleEdges() -> [GraphEdge] {
-        let visibleIDs = Set(visibleNodes().map { $0.id })
-        return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
-    }
-
-    private func buildAdjacencyList() -> [NodeID: [NodeID]] {
-        var adj = [NodeID: [NodeID]]()
-        for edge in edges {
-            adj[edge.from, default: []].append(edge.to)
-        }
-        return adj
-    }
-
-    func addToggleNode(at position: CGPoint) {
-        nodes.append(ToggleNode(label: nextNodeLabel, position: position))
-        nextNodeLabel += 1
-        if nodes.count >= 100 { return }
-        physicsEngine.resetSimulation()
-    }
-}
-
-extension GraphModel {
-    func graphDescription(selectedID: NodeID?) -> String {
-        var desc = "Graph with \(nodes.count) nodes and \(edges.count) directed edges."
-        if let selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
-            let outgoingLabels = edges
-                .filter { $0.from == selectedID }
-                .compactMap { edge in
-                    let toID = edge.to
-                    return nodes.first { $0.id == toID }?.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let incomingLabels = edges
-                .filter { $0.to == selectedID }
-                .compactMap { edge in
-                    let fromID = edge.from
-                    return nodes.first { $0.id == fromID }?.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
-            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
-            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
-        } else {
-            desc += " No node selected."
-        }
-        return desc
-    }
-}
-
-
 //
 //  AppConstants.swift
 //  GraphEditor
@@ -2161,13 +1910,13 @@ struct GraphCanvasView: View {
                     onUpdateZoomRanges()  // Clamp after centering
                 }
             }
-            .onChange(of: crownPosition) { _ in
-                        viewModel.model.physicsEngine.isPaused = true  // Pause sim
-                        zoomTimer?.invalidate()  // Cancel previous timer
-                        zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                            viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
-                        }
-                    }
+            .onChange(of: crownPosition) {
+                viewModel.model.physicsEngine.isPaused = true  // Pause sim
+                zoomTimer?.invalidate()  // Cancel previous timer
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                    viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
+                }
+            }
     }
     
     private var accessibleCanvas: some View {
@@ -2596,8 +2345,8 @@ struct GraphEditorWatchApp: App {
 import Testing
 import Foundation
 import CoreGraphics
-@testable import GraphEditorWatch // Updated module name
-import GraphEditorShared // For Node, GraphEdge, etc.
+@testable import GraphEditorWatch // Already present
+@testable import GraphEditorShared // Changed to @testable for accessing internal members
 import XCTest
 import SwiftUI
 
@@ -2605,13 +2354,12 @@ class MockGraphStorage: GraphStorage {
     var nodes: [Node] = []
     var edges: [GraphEdge] = []
     
-    func save(nodes: [Node], edges: [GraphEdge]) throws { // Add 'throws'
+    func save(nodes: [Node], edges: [GraphEdge]) throws {
         self.nodes = nodes
         self.edges = edges
-        // No actual throw needed for mock
     }
     
-    func load() -> (nodes: [Node], edges: [GraphEdge]) {
+    func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
         (nodes, edges)
     }
 }
@@ -2623,7 +2371,7 @@ struct GraphModelTests {
     
     @Test func testUndoRedoMixedOperations() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodeCount = model.nodes.count // 3
         let initialEdgeCount = model.edges.count // 3
         
@@ -2654,14 +2402,14 @@ struct GraphModelTests {
     
     @Test func testInitializationWithDefaults() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(model.nodes.count >= 3, "Should load default or saved nodes")
         #expect(model.edges.count >= 3, "Should load default edges")
     }
     
     @Test func testSnapshotAndUndo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -2673,7 +2421,7 @@ struct GraphModelTests {
     
     @Test func testDeleteNodeAndEdges() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.nodes.isEmpty, "Assumes default nodes exist")
         let nodeID = model.nodes[0].id
         let initialEdgeCount = model.edges.count
@@ -2684,14 +2432,14 @@ struct GraphModelTests {
     
     @Test func testSaveLoadRoundTrip() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let originalNodes = model.nodes as! [Node]
         let originalEdges = model.edges
         // Modify and snapshot to trigger save
         model.addNode(at: CGPoint.zero)
         model.snapshot()
         // New instance to trigger load
-        let newModel = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let newModel = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(newModel.nodes.count == originalNodes.count + 1, "Loaded nodes include addition")
         let edgesMatch = newModel.edges == originalEdges
         #expect(edgesMatch, "Loaded edges match original")
@@ -2699,7 +2447,7 @@ struct GraphModelTests {
     
     @Test func testAddNode() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialCount = model.nodes.count
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.count == initialCount + 1, "Node added")
@@ -2707,7 +2455,7 @@ struct GraphModelTests {
     
     @Test func testRedo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -2720,7 +2468,7 @@ struct GraphModelTests {
     
     @Test func testMaxUndoLimit() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         for _ in 0..<12 { // Exceed maxUndo=10
             model.addNode(at: CGPoint.zero)
             model.snapshot()
@@ -2740,14 +2488,14 @@ struct GraphModelTests {
             Node(label: 5, position: CGPoint.zero),
             Node(label: 10, position: CGPoint.zero)
         ]
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.last?.label == 11, "Added node gets max loaded + 1")
     }
     
     @Test func testDeleteEdge() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.edges.isEmpty, "Assumes default edges exist")
         let edgeID = model.edges[0].id
         let initialEdgeCount = model.edges.count
@@ -2758,7 +2506,7 @@ struct GraphModelTests {
     
     @Test func testCanUndoAndCanRedo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.canUndo, "No undo initially")
         #expect(!model.canRedo, "No redo initially")
         model.snapshot()
@@ -2769,7 +2517,7 @@ struct GraphModelTests {
     
     @Test func testUndoAfterDelete() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         let nodeID = model.nodes[0].id
@@ -2781,7 +2529,7 @@ struct GraphModelTests {
     
     @Test func testStartStopSimulation() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         model.startSimulation()
         // Simulate time passage; check if positions change (e.g., run a few manual steps)
         var nodesCopy = model.nodes as! [Node]
@@ -2796,7 +2544,7 @@ struct GraphModelTests {
         let storage = MockGraphStorage()
         storage.nodes = []
         storage.edges = []
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(model.nodes.count == 3, "Initializes with default nodes if empty")
         #expect(model.edges.count == 3, "Initializes with default edges if empty")
     }
@@ -2831,7 +2579,7 @@ struct PhysicsEngineTests {
         }
         #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
         #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
-        #expect(abs(distance(nodes[0].position, nodes[1].position) - PhysicsConstants.idealLength) < 42, "Nodes approach ideal edge length")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.Physics.idealLength) < 42, "Nodes approach ideal edge length")
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
@@ -2904,7 +2652,7 @@ struct PhysicsEngineTests {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
-        for _ in 0..<PhysicsConstants.maxSimulationSteps {
+        for _ in 0..<Constants.Physics.maxSimulationSteps {
             _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)
@@ -2960,7 +2708,7 @@ struct PersistenceManagerTests {
         }
         let manager = PersistenceManager(baseURL: tempDir)
         // No files yet, so load should be empty
-        let loaded = manager.load()
+        let loaded = try manager.load()
         #expect(loaded.nodes.isEmpty, "Empty nodes on initial load")
         #expect(loaded.edges.isEmpty, "Empty edges on initial load")
         let nodes = [Node(label: 1, position: CGPoint.zero)]
@@ -2971,14 +2719,14 @@ struct PersistenceManagerTests {
         let edgesURL = tempDir.appendingPathComponent("graphEdges.json")
         #expect(fm.fileExists(atPath: nodesURL.path), "Nodes file should exist after save")
         #expect(fm.fileExists(atPath: edgesURL.path), "Edges file should exist after save")
-        let reloaded = manager.load()
+        let reloaded = try manager.load()
         #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
 
     @Test func testUndoRedoThroughViewModel() {
         let storage = mockStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let viewModel = GraphViewModel(model: model)
         viewModel.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -2987,7 +2735,6 @@ struct PersistenceManagerTests {
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
     }
 }
-
 class GraphGesturesModifierTests: XCTestCase {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
@@ -3001,7 +2748,7 @@ class GraphGesturesModifierTests: XCTestCase {
         @Test func testDragCreatesEdge() {
             let storage = MockGraphStorage()
             let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-            let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: physicsEngine)
+            let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
             
             // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
             // Note: GraphModel init adds defaults if empty, so to match test intent, we'll clear them here for the test.
@@ -3074,7 +2821,7 @@ struct AccessibilityTests {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
         storage.nodes = [Node(label: 0, position: .zero)]
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
         model.nodes = []  // Clear for test setup
         model.edges = []
         
