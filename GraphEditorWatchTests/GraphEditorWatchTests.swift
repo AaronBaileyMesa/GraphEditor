@@ -1,8 +1,8 @@
 import Testing
 import Foundation
 import CoreGraphics
-@testable import GraphEditorWatch // Updated module name
-import GraphEditorShared // For Node, GraphEdge, etc.
+@testable import GraphEditorWatch // Already present
+@testable import GraphEditorShared // Changed to @testable for accessing internal members
 import XCTest
 import SwiftUI
 
@@ -10,13 +10,12 @@ class MockGraphStorage: GraphStorage {
     var nodes: [Node] = []
     var edges: [GraphEdge] = []
     
-    func save(nodes: [Node], edges: [GraphEdge]) throws { // Add 'throws'
+    func save(nodes: [Node], edges: [GraphEdge]) throws {
         self.nodes = nodes
         self.edges = edges
-        // No actual throw needed for mock
     }
     
-    func load() -> (nodes: [Node], edges: [GraphEdge]) {
+    func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
         (nodes, edges)
     }
 }
@@ -28,7 +27,7 @@ struct GraphModelTests {
     
     @Test func testUndoRedoMixedOperations() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodeCount = model.nodes.count // 3
         let initialEdgeCount = model.edges.count // 3
         
@@ -59,14 +58,14 @@ struct GraphModelTests {
     
     @Test func testInitializationWithDefaults() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(model.nodes.count >= 3, "Should load default or saved nodes")
         #expect(model.edges.count >= 3, "Should load default edges")
     }
     
     @Test func testSnapshotAndUndo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -78,7 +77,7 @@ struct GraphModelTests {
     
     @Test func testDeleteNodeAndEdges() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.nodes.isEmpty, "Assumes default nodes exist")
         let nodeID = model.nodes[0].id
         let initialEdgeCount = model.edges.count
@@ -89,14 +88,14 @@ struct GraphModelTests {
     
     @Test func testSaveLoadRoundTrip() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let originalNodes = model.nodes as! [Node]
         let originalEdges = model.edges
         // Modify and snapshot to trigger save
         model.addNode(at: CGPoint.zero)
         model.snapshot()
         // New instance to trigger load
-        let newModel = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let newModel = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(newModel.nodes.count == originalNodes.count + 1, "Loaded nodes include addition")
         let edgesMatch = newModel.edges == originalEdges
         #expect(edgesMatch, "Loaded edges match original")
@@ -104,7 +103,7 @@ struct GraphModelTests {
     
     @Test func testAddNode() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialCount = model.nodes.count
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.count == initialCount + 1, "Node added")
@@ -112,7 +111,7 @@ struct GraphModelTests {
     
     @Test func testRedo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -125,7 +124,7 @@ struct GraphModelTests {
     
     @Test func testMaxUndoLimit() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         for _ in 0..<12 { // Exceed maxUndo=10
             model.addNode(at: CGPoint.zero)
             model.snapshot()
@@ -145,14 +144,14 @@ struct GraphModelTests {
             Node(label: 5, position: CGPoint.zero),
             Node(label: 10, position: CGPoint.zero)
         ]
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.last?.label == 11, "Added node gets max loaded + 1")
     }
     
     @Test func testDeleteEdge() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.edges.isEmpty, "Assumes default edges exist")
         let edgeID = model.edges[0].id
         let initialEdgeCount = model.edges.count
@@ -163,7 +162,7 @@ struct GraphModelTests {
     
     @Test func testCanUndoAndCanRedo() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(!model.canUndo, "No undo initially")
         #expect(!model.canRedo, "No redo initially")
         model.snapshot()
@@ -174,7 +173,7 @@ struct GraphModelTests {
     
     @Test func testUndoAfterDelete() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let initialNodes = model.nodes as! [Node]
         model.snapshot()
         let nodeID = model.nodes[0].id
@@ -186,7 +185,7 @@ struct GraphModelTests {
     
     @Test func testStartStopSimulation() {
         let storage = MockGraphStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         model.startSimulation()
         // Simulate time passage; check if positions change (e.g., run a few manual steps)
         var nodesCopy = model.nodes as! [Node]
@@ -201,7 +200,7 @@ struct GraphModelTests {
         let storage = MockGraphStorage()
         storage.nodes = []
         storage.edges = []
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(model.nodes.count == 3, "Initializes with default nodes if empty")
         #expect(model.edges.count == 3, "Initializes with default edges if empty")
     }
@@ -236,7 +235,7 @@ struct PhysicsEngineTests {
         }
         #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
         #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
-        #expect(abs(distance(nodes[0].position, nodes[1].position) - PhysicsConstants.idealLength) < 42, "Nodes approach ideal edge length")
+        #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.Physics.idealLength) < 42, "Nodes approach ideal edge length")
     }
     
     @Test func testQuadtreeInsertionAndCenterOfMass() {
@@ -309,7 +308,7 @@ struct PhysicsEngineTests {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
         var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
-        for _ in 0..<PhysicsConstants.maxSimulationSteps {
+        for _ in 0..<Constants.Physics.maxSimulationSteps {
             _ = engine.simulationStep(nodes: &nodes, edges: edges)
         }
         let exceeded = engine.simulationStep(nodes: &nodes, edges: edges)
@@ -365,7 +364,7 @@ struct PersistenceManagerTests {
         }
         let manager = PersistenceManager(baseURL: tempDir)
         // No files yet, so load should be empty
-        let loaded = manager.load()
+        let loaded = try manager.load()
         #expect(loaded.nodes.isEmpty, "Empty nodes on initial load")
         #expect(loaded.edges.isEmpty, "Empty edges on initial load")
         let nodes = [Node(label: 1, position: CGPoint.zero)]
@@ -376,14 +375,14 @@ struct PersistenceManagerTests {
         let edgesURL = tempDir.appendingPathComponent("graphEdges.json")
         #expect(fm.fileExists(atPath: nodesURL.path), "Nodes file should exist after save")
         #expect(fm.fileExists(atPath: edgesURL.path), "Edges file should exist after save")
-        let reloaded = manager.load()
+        let reloaded = try manager.load()
         #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
 
     @Test func testUndoRedoThroughViewModel() {
         let storage = mockStorage()
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         let viewModel = GraphViewModel(model: model)
         viewModel.snapshot()
         model.addNode(at: CGPoint.zero)
@@ -392,7 +391,6 @@ struct PersistenceManagerTests {
         #expect(!viewModel.canUndo, "Undo updates viewModel state")
     }
 }
-
 class GraphGesturesModifierTests: XCTestCase {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
@@ -406,7 +404,7 @@ class GraphGesturesModifierTests: XCTestCase {
         @Test func testDragCreatesEdge() {
             let storage = MockGraphStorage()
             let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-            let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: physicsEngine)
+            let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
             
             // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
             // Note: GraphModel init adds defaults if empty, so to match test intent, we'll clear them here for the test.
@@ -479,7 +477,7 @@ struct AccessibilityTests {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
         storage.nodes = [Node(label: 0, position: .zero)]
-        let model = GraphEditorWatch.GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
         model.nodes = []  // Clear for test setup
         model.edges = []
         

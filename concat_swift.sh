@@ -1,21 +1,18 @@
 #!/bin/bash
 
-ROOT_DIR="."  # Project root
-OUTPUT_FILE="watch_ui_overview.txt"
+# Concatenates the contents of all .swift files in the current folder and subfolders into a single file.
+# This version avoids including the output file itself to prevent issues like infinite loops or unintended inclusion.
 
-# Clear the output file if it exists
-> "$OUTPUT_FILE"
+OUTPUT_FILE="concatenated.swift"
 
-# Find Swift files in watch-related directories, excluding tests
-find "$ROOT_DIR" -type f -name "*.swift" -ipath "*watch*" -not -ipath "*test*" | while read -r file; do
-    rel_path="${file#"$ROOT_DIR"/}"
-    echo "File: $rel_path" >> "$OUTPUT_FILE"
-    echo "Key Declarations:" >> "$OUTPUT_FILE"
-    
-    # Extract key declarations (struct, class, enum, protocol, extension)
-    grep -E "^[[:space:]]*(public|private|internal|fileprivate|open)?[[:space:]]*(final)?[[:space:]]*(struct|class|enum|protocol|extension)[[:space:]]+[A-Za-z0-9_]+" "$file" >> "$OUTPUT_FILE" || echo "No key declarations found." >> "$OUTPUT_FILE"
-    
-    echo -e "\n\n" >> "$OUTPUT_FILE"
-done
+# Remove the output file if it exists to ensure it's not included in the find results
+rm -f "$OUTPUT_FILE"
 
-echo "Generated overview of watch UI-related Swift files into: $OUTPUT_FILE"
+# Use a temporary file to build the output safely
+TEMP_FILE=$(mktemp) || exit 1
+
+# Find and concatenate all .swift files to the temp file
+find . -type f -name '*.swift' -exec cat {} + >> "$TEMP_FILE"
+
+# Move the temp file to the output file
+mv "$TEMP_FILE" "$OUTPUT_FILE"

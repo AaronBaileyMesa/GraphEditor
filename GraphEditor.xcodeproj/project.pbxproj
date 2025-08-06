@@ -72,9 +72,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Models/AppConstants.swift,
-				Models/GraphModel.swift,
-				Models/GraphSimulator.swift,
-				Models/PersistenceManager.swift,
 			);
 			target = 4EB112712E3EE09D001A8E1A /* GraphEditorWatchTests */;
 		};

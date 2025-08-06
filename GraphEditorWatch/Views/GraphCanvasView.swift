@@ -166,13 +166,13 @@ struct GraphCanvasView: View {
                     onUpdateZoomRanges()  // Clamp after centering
                 }
             }
-            .onChange(of: crownPosition) { _ in
-                        viewModel.model.physicsEngine.isPaused = true  // Pause sim
-                        zoomTimer?.invalidate()  // Cancel previous timer
-                        zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                            viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
-                        }
-                    }
+            .onChange(of: crownPosition) {
+                viewModel.model.physicsEngine.isPaused = true  // Pause sim
+                zoomTimer?.invalidate()  // Cancel previous timer
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
+                    viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
+                }
+            }
     }
     
     private var accessibleCanvas: some View {
