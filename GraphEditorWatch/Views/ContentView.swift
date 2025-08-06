@@ -199,9 +199,7 @@ struct ContentView: View {
             offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)  // Fixed: Removed erroneous .y after newScale
         }
         
-        withAnimation(.easeInOut) {
             zoomScale = newScale
-        }
     }
 }
   
