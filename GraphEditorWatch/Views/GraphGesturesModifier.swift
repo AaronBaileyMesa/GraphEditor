@@ -50,9 +50,6 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 .onEnded { value in
                     let dragDistance = hypot(value.translation.width, value.translation.height)
-                    let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                    let inverseTransform = transform.inverted()
-                    let touchPos = value.location.applying(inverseTransform)
                     
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
