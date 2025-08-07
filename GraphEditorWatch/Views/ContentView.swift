@@ -27,6 +27,7 @@ struct ContentView: View {
     @State private var showMenu = false
     @State private var previousCrownPosition: Double = 2.5  // Match initial crownPosition
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
+    @State private var selectedEdgeID: UUID? = nil  // New state
     @Environment(\.scenePhase) private var scenePhase
     
     init(storage: GraphStorage = PersistenceManager(),
@@ -108,7 +109,8 @@ struct ContentView: View {
             showMenu: $showMenu,
             maxZoom: maxZoom,
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: onUpdateZoomRanges
+            onUpdateZoomRanges: onUpdateZoomRanges,
+            selectedEdgeID: $selectedEdgeID
         )
         .onAppear {
             viewSize = geo.size
@@ -120,11 +122,16 @@ struct ContentView: View {
         VStack {
             // Your menu content...
             Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
-            Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
-            Button("Close") { showMenu = false }
-        }
-        .padding()
-    }
+                    Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
+                    Button("Delete Selected Edge") {
+                        viewModel.model.deleteSelectedEdge(id: selectedEdgeID)
+                        selectedEdgeID = nil  // Clear selection
+                        showMenu = false
+                    }.disabled(selectedEdgeID == nil)
+                    Button("Close") { showMenu = false }
+                }
+                .padding()
+            }
     
     // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {

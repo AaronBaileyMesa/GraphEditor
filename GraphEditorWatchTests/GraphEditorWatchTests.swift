@@ -155,7 +155,7 @@ struct GraphModelTests {
         #expect(!model.edges.isEmpty, "Assumes default edges exist")
         let edgeID = model.edges[0].id
         let initialEdgeCount = model.edges.count
-        model.deleteEdge(withID: edgeID)
+        model.deleteSelectedEdge(id: edgeID)  // Updated method call
         #expect(model.edges.first { $0.id == edgeID } == nil, "Edge deleted")
         #expect(model.edges.count == initialEdgeCount - 1, "Edge count reduced")
     }
@@ -203,6 +203,30 @@ struct GraphModelTests {
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         #expect(model.nodes.count == 3, "Initializes with default nodes if empty")
         #expect(model.edges.count == 3, "Initializes with default edges if empty")
+    }
+    
+    @Test func testDeleteSelectedEdge() {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        
+        // Setup: Add nodes and an edge
+        model.addNode(at: .zero)  // Node 1
+        model.addNode(at: CGPoint(x: 100, y: 100))  // Node 2
+        let edge = GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id)
+        model.edges.append(edge)
+        
+        #expect(model.edges.count == 1, "Edge added")
+        
+        // Act: Delete the selected edge
+        model.deleteSelectedEdge(id: edge.id)
+        
+        #expect(model.edges.isEmpty, "Edge deleted")
+        #expect(model.canUndo, "Snapshot created for undo")
+        
+        // Undo to verify
+        model.undo()
+        #expect(model.edges.count == 1, "Undo restores edge")
     }
 }
 
@@ -487,10 +511,10 @@ struct AccessibilityTests {
         model.addNode(at: CGPoint(x: 10, y: 10))  // Label 2
         model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id))
         
-        let descNoSelect = model.graphDescription(selectedID: nil)
-        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edges. No node selected.", "Correct desc without selection")
-        
-        let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id)
-        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edges. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
+        let descNoSelect = model.graphDescription(selectedID: nil, selectedEdgeID: nil)  // Add param
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")  // Updated expectation
+
+        let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil)  // Add param
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")  // Updated expectation
     }
 }

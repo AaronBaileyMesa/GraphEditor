@@ -27,6 +27,7 @@ struct GraphCanvasView: View {
     let onUpdateZoomRanges: () -> Void
     @State private var previousZoomScale: CGFloat = 1.0
     @State private var zoomTimer: Timer? = nil  // New: For debouncing crown activity
+    @Binding var selectedEdgeID: UUID?  // New
     
     private var canvasBase: some View {
         
@@ -58,13 +59,18 @@ struct GraphCanvasView: View {
                             let scaledToRadius = toNode.radius * zoomScale
                             let lineEnd = toPos - unitDir * scaledToRadius
                             
-                            // Draw shortened line (unchanged)
+                            // Conditional color and width for selection
+                            let isSelected = edge.id == selectedEdgeID
+                            let lineWidth = isSelected ? 4 * zoomScale : 2 * zoomScale
+                            let color = isSelected ? Color.red : Color.blue
+                            
+                            // Draw shortened line with conditional styling
                             context.stroke(Path { path in
                                 path.move(to: fromPos)
                                 path.addLine(to: lineEnd)
-                            }, with: .color(.blue), lineWidth: 2 * zoomScale)
+                            }, with: .color(color), lineWidth: lineWidth)
                             
-                            // Draw arrowhead (unchanged)
+                            // Draw arrowhead with conditional color
                             let arrowSize: CGFloat = 10 * zoomScale
                             let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
                             let arrowTip = lineEnd
@@ -76,10 +82,10 @@ struct GraphCanvasView: View {
                                 path.addLine(to: arrowBase1)
                                 path.addLine(to: arrowBase2)
                                 path.closeSubpath()
-                            }, with: .color(.blue))
+                            }, with: .color(color))
                         }
                         
-                        // Edge label (unchanged)
+
                         let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
                         let edgeLabel = "\(fromNode.label)→\(toNode.label)"
                         let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
@@ -115,20 +121,13 @@ struct GraphCanvasView: View {
     
     private var interactiveCanvas: some View {
         canvasBase
-        /*
-            .onChange(of: crownPosition) {
-                viewModel.model.physicsEngine.isPaused = true  // Pause sim
-                zoomTimer?.invalidate()  // Cancel previous timer
-                zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
-                    viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
-                }
-            } */
+
     }
     
     private var accessibleCanvas: some View {
         interactiveCanvas
             .accessibilityElement(children: .combine)
-            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID))
+            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID, selectedEdgeID: selectedEdgeID))
             .accessibilityHint("Double-tap for menu. Long press to delete selected.")
             .accessibilityChildren {
                 ForEach(viewModel.model.visibleNodes(), id: \.id) { node in
@@ -151,6 +150,7 @@ struct GraphCanvasView: View {
                 dragOffset: $dragOffset,
                 potentialEdgeTarget: $potentialEdgeTarget,
                 selectedNodeID: $selectedNodeID,
+                selectedEdgeID: $selectedEdgeID,
                 viewSize: viewSize,
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,

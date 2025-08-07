@@ -17,6 +17,7 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var dragOffset: CGPoint
     @Binding var potentialEdgeTarget: (any NodeProtocol)?
     @Binding var selectedNodeID: NodeID?
+    @Binding var selectedEdgeID: UUID?  // New: Binding for edge selection
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
@@ -25,126 +26,150 @@ struct GraphGesturesModifier: ViewModifier {
     let onUpdateZoomRanges: () -> Void
     
     func body(content: Content) -> some View {
-        content
-            .gesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+        let dragGesture = DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                if panStartOffset == nil {
+                    panStartOffset = offset
+                }
+                offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
+            }
+            .onEnded { value in
+                let dragDistance = hypot(value.translation.width, value.translation.height)
+                if dragDistance < AppConstants.tapThreshold {
+                    let preOffset = panStartOffset ?? offset
+                    let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: preOffset.width, y: preOffset.height)
                     let inverseTransform = transform.inverted()
                     let touchPos = value.startLocation.applying(inverseTransform)
                     
-                    if draggedNode == nil {
-                        // Check for node hit to prioritize drag/selection
-                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {  // Adjust buffer for variable radius
-                            draggedNode = hitNode
-                        }
-                    }
-                    
-                    if let dragged = draggedNode {
-                        // Handle ongoing drag (for potential edge or move)
-                        dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                        let currentPos = value.location.applying(inverseTransform)
-                        potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && hypot($0.position.x - currentPos.x, $0.position.y - currentPos.y) < AppConstants.hitScreenRadius / zoomScale
-                        }
-                    }
-                }
-                .onEnded { value in
-                    let dragDistance = hypot(value.translation.width, value.translation.height)
-                    
-                    if let node = draggedNode,
-                       let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                        viewModel.snapshot()
-                        if dragDistance < AppConstants.tapThreshold {                            // Handle tap on node: Toggle selection
-                            if selectedNodeID == node.id {
-                                selectedNodeID = nil
-                            } else {
-                                selectedNodeID = node.id
+                    // Node hit check first
+                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale }) {
+                        selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
+                        selectedEdgeID = nil  // Clear edge selection
+                        WKInterfaceDevice.current().play(.click)
+                    } else {
+                        // Edge hit check if no node
+                        var hitEdge: GraphEdge? = nil
+                        for edge in viewModel.model.edges {
+                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
+                               pointToLineDistance(point: touchPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                                hitEdge = edge
+                                break
                             }
-                            WKInterfaceDevice.current().play(.click)  // Haptic feedback for selection
+                        }
+                        if let hitEdge = hitEdge {
+                            selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
+                            selectedNodeID = nil  // Clear node selection
+                            WKInterfaceDevice.current().play(.click)
                         } else {
-                            // Handle actual drag: Move node or create edge
+                            selectedNodeID = nil
+                            selectedEdgeID = nil
+                        }
+                    }
+                    
+                    // Reset offset only if panStartOffset was set
+                    if panStartOffset != nil {
+                        offset = preOffset
+                    }
+                } else {
+                    // True pan, no action
+                }
+                panStartOffset = nil
+            }
+        
+        let longPressDragGesture = LongPressGesture(minimumDuration: 0.5)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                switch value {
+                case .second(true, let drag?):
+                    let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                    let inverseTransform = transform.inverted()
+                    if draggedNode == nil {
+                        let startPos = drag.startLocation.applying(inverseTransform)
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startPos) < AppConstants.hitScreenRadius / zoomScale }) {
+                            draggedNode = hitNode
+                            WKInterfaceDevice.current().play(.click)  // Feedback for grab
+                        }
+                    }
+                    if let dragged = draggedNode {
+                        dragOffset = CGPoint(x: drag.translation.width / zoomScale, y: drag.translation.height / zoomScale)
+                        let currentPos = drag.location.applying(inverseTransform)
+                        potentialEdgeTarget = viewModel.model.nodes.first {
+                            $0.id != dragged.id && distance($0.position, currentPos) < AppConstants.hitScreenRadius / zoomScale
+                        }
+                    }
+                default:
+                    break
+                }
+            }
+            .onEnded { value in
+                switch value {
+                case .second(true, let drag?):
+                    if let node = draggedNode {
+                        let dragDistance = hypot(drag.translation.width, drag.translation.height)
+                        viewModel.snapshot()
+                        if dragDistance > AppConstants.tapThreshold {
+                            // Move or create edge
                             if let target = potentialEdgeTarget, target.id != node.id,
-                               !viewModel.model.edges.contains(where: { ($0.from == node.id && $0.to == target.id) }) {  // Removed symmetric check; now only checks exact direction
-                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))  // Directed: dragged -> target
+                               !viewModel.model.edges.contains(where: { $0.from == node.id && $0.to == target.id }) {
+                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
                                 viewModel.model.startSimulation()
                                 WKInterfaceDevice.current().play(.success)
                             } else {
-                                var updatedNode = viewModel.model.nodes[index]
-                                updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
-                                viewModel.model.nodes[index] = updatedNode
-                                viewModel.model.startSimulation()
+                                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                                    var updatedNode = viewModel.model.nodes[index]
+                                    updatedNode.position.x += dragOffset.x
+                                    updatedNode.position.y += dragOffset.y
+                                    viewModel.model.nodes[index] = updatedNode
+                                    viewModel.model.startSimulation()
+                                }
                             }
+                        } else {
+                            // Delete node (no significant drag)
+                            viewModel.deleteNode(withID: node.id)
+                            viewModel.model.startSimulation()
+                            WKInterfaceDevice.current().play(.success)
                         }
                     } else {
-                        // No node dragged: Handle tap to deselect (no addNode)
-                        if dragDistance < AppConstants.tapThreshold {
-                            selectedNodeID = nil  // Deselect on background tap
-                        }
-                    }
-                    
-                    // Reset drag state
-                    draggedNode = nil
-                    dragOffset = .zero
-                    potentialEdgeTarget = nil
-                    onUpdateZoomRanges()
-                }
-            )
-            .simultaneousGesture(DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    if draggedNode == nil {
-                        if panStartOffset == nil {
-                            panStartOffset = offset
-                        }
-                        offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
-                    }
-                }
-                .onEnded { _ in
-                    panStartOffset = nil
-                }
-            )
-            .simultaneousGesture(LongPressGesture(minimumDuration: 0.5)
-                .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .global))
-                .onEnded { value in
-                    switch value {
-                    case .second(true, let drag?):
-                        let location = drag.location
-                        let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                        // No node hit: Check for edge delete (only if it matches selectedEdgeID)
+                        let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
                         let inverseTransform = transform.inverted()
-                        let worldPos = location.applying(inverseTransform)  // This is defined here
-
-                        // Check for node hit (use worldPos, not touchPos; update for radius if applied from previous)
-                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, worldPos) < $0.radius + (AppConstants.hitScreenRadius / zoomScale - $0.radius) }) {
-                            viewModel.deleteNode(withID: hitNode.id)
-                            WKInterfaceDevice.current().play(.success)
-                            viewModel.model.startSimulation()
-                            return
-                        }
-
-                        // Check for edge hit (unchanged, but uses worldPos)
+                        let startPos = drag.startLocation.applying(inverseTransform)
                         for edge in viewModel.model.edges {
                             if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                                let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                if pointToLineDistance(point: worldPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
-                                    viewModel.deleteEdge(withID: edge.id)
-                                    WKInterfaceDevice.current().play(.success)
+                                if edge.id == selectedEdgeID &&  // Add this check for selection consistency
+                                   pointToLineDistance(point: startPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                                    viewModel.deleteSelectedEdge(id: edge.id)  // Updated: Call via ViewModel
+                                    selectedEdgeID = nil  // Clear selection
                                     viewModel.model.startSimulation()
-                                    return
+                                    WKInterfaceDevice.current().play(.success)
+                                    break
                                 }
                             }
                         }
-                    default:
-                        break
                     }
+                default:
+                    break
                 }
-            )
-            .simultaneousGesture(TapGesture(count: 2)
-                .onEnded {
-                    showMenu = true
-                }
-            )
+                draggedNode = nil
+                dragOffset = .zero
+                potentialEdgeTarget = nil
+                onUpdateZoomRanges()
+            }
+        
+        let doubleTapGesture = TapGesture(count: 2)
+            .onEnded {
+                showMenu = true
+            }
+        
+        content
+            .gesture(dragGesture)
+            .highPriorityGesture(longPressDragGesture)
+            .gesture(doubleTapGesture)
     }
     
-    // New helper function for point-to-line distance
+    // Helper function (keep as in original)
     private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
         let lineVec = to - from
         let pointVec = point - from

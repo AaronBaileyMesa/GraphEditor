@@ -12,6 +12,8 @@ import GraphEditorShared
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
+    @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
+    
     private var cancellable: AnyCancellable?
     
     var canUndo: Bool {
@@ -45,7 +47,7 @@ class GraphViewModel: ObservableObject {
         model.deleteNode(withID: id)
     }
     
-    func deleteEdge(withID id: NodeID) {
-        model.deleteEdge(withID: id)
+    func deleteSelectedEdge(id: UUID?) {
+        model.deleteSelectedEdge(id: id)
     }
 }
