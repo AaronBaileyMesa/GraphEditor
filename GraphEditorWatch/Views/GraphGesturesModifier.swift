@@ -43,8 +43,16 @@ struct GraphGesturesModifier: ViewModifier {
                     
                     // Node hit check first
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale }) {
+                        if hitNode.isExpanded != true {  // Or check if type is ToggleNode, but polymorphic
+                            // Toggle via protocol method
+                            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
+                                viewModel.snapshot()
+                                viewModel.model.nodes[index] = hitNode.handlingTap()  // Calls toggle if ToggleNode
+                                viewModel.model.startSimulation()
+                            }
+                        }
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
-                        selectedEdgeID = nil  // Clear edge selection
+                        selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else {
                         // Edge hit check if no node
