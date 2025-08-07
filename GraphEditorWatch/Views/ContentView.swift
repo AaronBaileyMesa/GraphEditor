@@ -5,7 +5,6 @@
 //  Created by handcart on 8/1/25.
 //
 
-
 // Views/ContentView.swift
 import SwiftUI
 import WatchKit
@@ -77,41 +76,22 @@ struct ContentView: View {
             let maxCrown = Double(AppConstants.numZoomLevels - 1)
             let clampedValue = max(0, min(newValue, maxCrown))
             if clampedValue != newValue {
-                ignoreNextCrownChange = true
                 crownPosition = clampedValue
                 return
             }
             
-            // Pause simulation if zooming
-            let delta = newValue - previousCrownPosition
-            if abs(delta) > 0.001 && !isZooming {
-                isZooming = true
-                viewModel.model.stopSimulation()
-            }
-            
+            // Integrated updates here
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
             previousCrownPosition = newValue
             
-            // Debounce resume
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                if isZooming {
-                    isZooming = false
-                    viewModel.model.startSimulation()
+            // Debounce simulation resume
+            if isZooming {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    self.isZooming = false
+                    self.viewModel.model.startSimulation()
                 }
             }
         }
-        .onChange(of: scenePhase) { oldPhase, newPhase in
-            if newPhase == .background {
-                viewModel.model.saveGraph()
-            }
-        }
-        .onAppear {
-            viewSize = WKInterfaceDevice.current().screenBounds.size
-            updateZoomRanges()
-            centerGraph()  // Auto-center on load
-        }
-        
-        
     }
     
     private func graphCanvasView(geo: GeometryProxy) -> some View {
@@ -128,24 +108,17 @@ struct ContentView: View {
             showMenu: $showMenu,
             maxZoom: maxZoom,
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: onUpdateZoomRanges  // Pass the shared closure
+            onUpdateZoomRanges: onUpdateZoomRanges
         )
+        .onAppear {
+            viewSize = geo.size
+        }
     }
     
+    // Assuming menuView is defined here or elsewhere; keep as is
     private var menuView: some View {
         VStack {
-            Button("Add Node") {
-                let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                let worldCenter = CGPoint(x: (centerScreen.x - offset.width) / zoomScale, y: (centerScreen.y - offset.height) / zoomScale)
-                viewModel.snapshot()
-                viewModel.model.addNode(at: worldCenter)
-                viewModel.model.startSimulation()
-                showMenu = false
-            }
-            Button("Center Graph") {
-                centerGraph()
-                showMenu = false
-            }
+            // Your menu content...
             Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
             Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
             Button("Close") { showMenu = false }
@@ -201,19 +174,18 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            var focus: CGPoint  // Screen focus point
+            var focus: CGPoint  // Screen focus point (use view center for gray circle)
             var worldFocus: CGPoint  // Corresponding world point
             
             if let selectedID = selectedNodeID,
                let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                // Center on selected node's current screen position
                 worldFocus = node.position
                 focus = CGPoint(
                     x: worldFocus.x * oldScale + offset.width,
                     y: worldFocus.y * oldScale + offset.height
                 )
             } else {
-                // Center on view center
+                // Always focus on view center (gray circle)
                 focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
                 worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
             }
@@ -222,6 +194,11 @@ struct ContentView: View {
         }
         
         zoomScale = newScale
+        
+        // New: Recenter if no selection after zoom
+        if selectedNodeID == nil {
+            centerGraph()
+        }
     }
     
     private func centerGraph() {

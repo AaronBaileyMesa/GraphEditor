@@ -408,18 +408,18 @@ import CoreGraphics
 
 public enum Constants {
     public enum Physics {
-        public static let stiffness: CGFloat = 0.5
-        public static let repulsion: CGFloat = 5000
-        public static let damping: CGFloat = 0.85
-        public static let idealLength: CGFloat = 100
-        public static let centeringForce: CGFloat = 0.005
+        public static let stiffness: CGFloat = 0.8  // Balanced (slightly higher than original for tighter edges)
+        public static let repulsion: CGFloat = 4000  // Compromise (lower than original 5000 for less spreading, higher than 3000 to match test forces)
+        public static let damping: CGFloat = 0.85  // Reverted to original for faster convergence (reduces velocity quicker than 0.95)
+        public static let idealLength: CGFloat = 90  // Slight decrease for watch screen compactness
+        public static let centeringForce: CGFloat = 0.015  // Mild increase for better centering without oscillation
         public static let distanceEpsilon: CGFloat = 1e-3
         public static let timeStep: CGFloat = 0.05
-        public static let velocityThreshold: CGFloat = 0.2
+        public static let velocityThreshold: CGFloat = 0.2  // Reverted to original (matches test expectation for stop condition)
         public static let maxSimulationSteps = 500
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 64
-        public static let maxNodesForQuadtree = 200  // Adjust based on device profiling
+        public static let maxNodesForQuadtree = 200  // Unchanged
     }
     
     public enum App {
@@ -430,7 +430,8 @@ public enum Constants {
     }
     
     // Add more enums as needed (e.g., UI, Testing)
-}import Foundation
+}
+import Foundation
 import CoreGraphics
 
 public extension Double {
@@ -528,6 +529,7 @@ public class PhysicsEngine {
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
+        self.useAsymmetricAttraction = true  // Enable for directed graphs (creates hierarchy)
     }
     
     private var simulationSteps = 0
@@ -541,8 +543,8 @@ public class PhysicsEngine {
     public var isPaused: Bool = false  // New: Flag to pause simulation steps
     
     @discardableResult
-        public func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
-        if isPaused { return false }  // New: Skip if paused (no updates, signals stable)
+    public func simulationStep(nodes: inout [Node], edges: [GraphEdge]) -> Bool {
+        if isPaused { return false }
         
         if simulationSteps >= Constants.Physics.maxSimulationSteps {
             return false
@@ -568,39 +570,39 @@ public class PhysicsEngine {
                 let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
                 repulsion = quadtree!.computeForce(on: nodes[i], theta: dynamicTheta)
             } else {
-                // Naive repulsion
                 for j in 0..<nodes.count where i != j {
                     repulsion += repulsionForce(from: nodes[j].position, to: nodes[i].position)
                 }
             }
-            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion  // Use repulsion here
+            forces[nodes[i].id] = (forces[nodes[i].id] ?? .zero) + repulsion
         }
         
         // Attraction on edges
         for edge in edges {
-                    guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
-                          let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
-                    let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
-                    let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
+            guard let fromIdx = nodes.firstIndex(where: { $0.id == edge.from }),
+                  let toIdx = nodes.firstIndex(where: { $0.id == edge.to }) else { continue }
+            let deltaX = nodes[toIdx].position.x - nodes[fromIdx].position.x
+            let deltaY = nodes[toIdx].position.y - nodes[fromIdx].position.y
             let dist = max(hypot(deltaX, deltaY), Constants.Physics.distanceEpsilon)
-                    let forceMagnitude = Constants.Physics.stiffness * (dist - Constants.Physics.idealLength)
-                    let forceDirectionX = deltaX / dist
-                    let forceDirectionY = deltaY / dist
-                    let forceX = forceDirectionX * forceMagnitude
-                    let forceY = forceDirectionY * forceMagnitude
-
-                    if useAsymmetricAttraction {
-                        // Asymmetric: Only pull 'to' towards 'from' (stronger influence on 'to')
-                        let currentForceTo = forces[nodes[toIdx].id] ?? .zero
-                        forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
-                    } else {
-                        // Symmetric (original)
-                        let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
-                        forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
-                        let currentForceTo = forces[nodes[toIdx].id] ?? .zero
-                        forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
-                    }
-                }
+            let forceMagnitude = Constants.Physics.stiffness * (dist - Constants.Physics.idealLength)
+            let forceDirectionX = deltaX / dist
+            let forceDirectionY = deltaY / dist
+            let forceX = forceDirectionX * forceMagnitude
+            let forceY = forceDirectionY * forceMagnitude
+            
+            if useAsymmetricAttraction {
+                // Asymmetric: Stronger pull on 'to' node
+                let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+                forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX * 0.5, y: currentForceFrom.y + forceY * 0.5)
+                let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+                forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX * 1.5, y: currentForceTo.y - forceY * 1.5)
+            } else {
+                let currentForceFrom = forces[nodes[fromIdx].id] ?? .zero
+                forces[nodes[fromIdx].id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
+                let currentForceTo = forces[nodes[toIdx].id] ?? .zero
+                forces[nodes[toIdx].id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+            }
+        }
         
         // Weak centering force
         for i in 0..<nodes.count {
@@ -621,12 +623,12 @@ public class PhysicsEngine {
             node.velocity = CGPoint(x: node.velocity.x * Constants.Physics.damping, y: node.velocity.y * Constants.Physics.damping)
             node.position = CGPoint(x: node.position.x + node.velocity.x * Constants.Physics.timeStep, y: node.position.y + node.velocity.y * Constants.Physics.timeStep)
             
-            // Clamp position and reset velocity on bounds hit (with bounce from earlier fix)
+            // Clamp position and bounce on bounds hit
             let oldPosition = node.position
             node.position.x = max(0, min(simulationBounds.width, node.position.x))
             node.position.y = max(0, min(simulationBounds.height, node.position.y))
             if node.position.x != oldPosition.x {
-                node.velocity.x = -node.velocity.x * Constants.Physics.damping  // Bounce
+                node.velocity.x = -node.velocity.x * Constants.Physics.damping
             }
             if node.position.y != oldPosition.y {
                 node.velocity.y = -node.velocity.y * Constants.Physics.damping
@@ -635,11 +637,10 @@ public class PhysicsEngine {
             nodes[i] = node
         }
         
-        // Check if stable
+        // Check if stable (velocity only)
         let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
         return totalVelocity >= Constants.Physics.velocityThreshold * CGFloat(nodes.count)
     }
-    
     @available(iOS 13.0, *)
     @available(watchOS 9.0, *)
     public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
@@ -830,15 +831,18 @@ class GraphSimulator {
     private let getNodes: () -> [Node]
     private let setNodes: ([Node]) -> Void
     private let getEdges: () -> [GraphEdge]
+    private let onStable: (() -> Void)?  // New: Optional callback
     
     init(getNodes: @escaping () -> [Node],
          setNodes: @escaping ([Node]) -> Void,
          getEdges: @escaping () -> [GraphEdge],
-         physicsEngine: PhysicsEngine) {
+         physicsEngine: PhysicsEngine,
+         onStable: (() -> Void)? = nil) {  // New parameter
         self.getNodes = getNodes
         self.setNodes = setNodes
         self.getEdges = getEdges
         self.physicsEngine = physicsEngine
+        self.onStable = onStable
     }
     
     func startSimulation(onUpdate: @escaping () -> Void) {
@@ -875,9 +879,9 @@ class GraphSimulator {
                     // Early stop if already stable
                     if !shouldContinue || totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodes.count) {
                         self.stopSimulation()
+                        self.onStable?()  // New: Call when stable
                         return
                     }
-                    
                     self.recentVelocities.append(totalVelocity)
                     if self.recentVelocities.count > self.velocityHistoryCount {
                         self.recentVelocities.removeFirst()
@@ -887,11 +891,14 @@ class GraphSimulator {
                         let maxVel = self.recentVelocities.max() ?? 1.0
                         let minVel = self.recentVelocities.min() ?? 0.0
                         let relativeChange = (maxVel - minVel) / maxVel
+                        // In the relativeChange check, also call onStable on stop
                         if relativeChange < self.velocityChangeThreshold {
                             self.stopSimulation()
+                            self.onStable?()  // New
                             return
                         }
                     }
+                    
                 }
             }
         }
@@ -1859,64 +1866,14 @@ struct GraphCanvasView: View {
     
     private var interactiveCanvas: some View {
         canvasBase
-            .onChange(of: zoomScale) { oldScale, newScale in
-                guard oldScale != newScale else { return }
-                
-                // Determine pivot in world coordinates
-                let pivotWorld: CGPoint
-                if let selectedID = selectedNodeID,
-                   let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    pivotWorld = node.position
-                } else {
-                    // Fallback: Current view center in world coords
-                    let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                    pivotWorld = CGPoint(
-                        x: (centerScreen.x - offset.width) / oldScale,
-                        y: (centerScreen.y - offset.height) / oldScale
-                    )
-                }
-                
-                // Compute screen position of pivot (remains fixed)
-                let screenPivot = CGPoint(
-                    x: pivotWorld.x * oldScale + offset.width,
-                    y: pivotWorld.y * oldScale + offset.height
-                )
-                
-                // Compute new offset to keep screenPivot mapping to pivotWorld at newScale
-                let newOffsetWidth = screenPivot.x - pivotWorld.x * newScale
-                let newOffsetHeight = screenPivot.y - pivotWorld.y * newScale
-                offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                
-                onUpdateZoomRanges()  // Assuming this clamps or updates ranges
-            }
-            .onChange(of: selectedNodeID) { oldID, newID in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    if let newID = newID,
-                       let node = viewModel.model.nodes.first(where: { $0.id == newID }) {
-                        // Center on selected node
-                        let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                        let newOffsetWidth = centerScreen.x - node.position.x * zoomScale
-                        let newOffsetHeight = centerScreen.y - node.position.y * zoomScale
-                        offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                    } else {
-                        // On deselection, recenter on graph bounding box center (fallback)
-                        let bbox = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-                        let graphCenter = CGPoint(x: bbox.midX, y: bbox.midY)
-                        let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                        let newOffsetWidth = centerScreen.x - graphCenter.x * zoomScale
-                        let newOffsetHeight = centerScreen.y - graphCenter.y * zoomScale
-                        offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                    }
-                    onUpdateZoomRanges()  // Clamp after centering
-                }
-            }
+        /*
             .onChange(of: crownPosition) {
                 viewModel.model.physicsEngine.isPaused = true  // Pause sim
                 zoomTimer?.invalidate()  // Cancel previous timer
                 zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
                     viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
                 }
-            }
+            } */
     }
     
     private var accessibleCanvas: some View {
@@ -2002,6 +1959,8 @@ struct ContentView: View {
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
+    @State private var previousCrownPosition: Double = 2.5  // Match initial crownPosition
+    @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
     
     init(storage: GraphStorage = PersistenceManager(),
@@ -2035,6 +1994,7 @@ struct ContentView: View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
         }
+        .ignoresSafeArea()  // New: Ignore safe area insets to fill screen top/bottom
         .sheet(isPresented: $showMenu) {
             menuView
         }
@@ -2055,7 +2015,23 @@ struct ContentView: View {
                 return
             }
             
+            // Pause simulation if zooming
+            let delta = newValue - previousCrownPosition
+            if abs(delta) > 0.001 && !isZooming {
+                isZooming = true
+                viewModel.model.stopSimulation()
+            }
+            
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
+            previousCrownPosition = newValue
+            
+            // Debounce resume
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if isZooming {
+                    isZooming = false
+                    viewModel.model.startSimulation()
+                }
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .background {
@@ -2064,10 +2040,10 @@ struct ContentView: View {
         }
         .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
-            
             updateZoomRanges()
+            centerGraph()  // Auto-center on load
         }
-       
+        
         
     }
     
@@ -2091,6 +2067,18 @@ struct ContentView: View {
     
     private var menuView: some View {
         VStack {
+            Button("Add Node") {
+                let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                let worldCenter = CGPoint(x: (centerScreen.x - offset.width) / zoomScale, y: (centerScreen.y - offset.height) / zoomScale)
+                viewModel.snapshot()
+                viewModel.model.addNode(at: worldCenter)
+                viewModel.model.startSimulation()
+                showMenu = false
+            }
+            Button("Center Graph") {
+                centerGraph()
+                showMenu = false
+            }
             Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
             Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
             Button("Close") { showMenu = false }
@@ -2146,13 +2134,46 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-            let worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
-            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)  // Fixed: Removed erroneous .y after newScale
+            var focus: CGPoint  // Screen focus point
+            var worldFocus: CGPoint  // Corresponding world point
+            
+            if let selectedID = selectedNodeID,
+               let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                // Center on selected node's current screen position
+                worldFocus = node.position
+                focus = CGPoint(
+                    x: worldFocus.x * oldScale + offset.width,
+                    y: worldFocus.y * oldScale + offset.height
+                )
+            } else {
+                // Center on view center
+                focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
+            }
+            
+            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)
         }
         
         zoomScale = newScale
     }
+    
+    private func centerGraph() {
+        guard !viewModel.model.nodes.isEmpty else { return }
+        
+        // Compute centroid
+        let totalX = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.x }
+        let totalY = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.y }
+        let centroid = CGPoint(x: totalX / CGFloat(viewModel.model.nodes.count), y: totalY / CGFloat(viewModel.model.nodes.count))
+        
+        // Set offset to center centroid
+        offset = CGSize(
+            width: viewSize.width / 2 - centroid.x * zoomScale,
+            height: viewSize.height / 2 - centroid.y * zoomScale
+        )
+        
+        onUpdateZoomRanges()  // Clamp after centering
+    }
+    
 }
 
 #Preview {
@@ -2164,7 +2185,6 @@ struct ContentView: View {
 //
 //  Created by handcart on 8/1/25.
 //
-
 
 import SwiftUI
 import WatchKit
@@ -2189,9 +2209,8 @@ struct GraphGesturesModifier: ViewModifier {
         content
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                        .scaledBy(x: zoomScale, y: zoomScale)
-                        .inverted()
+                    let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                    let inverseTransform = transform.inverted()
                     let touchPos = value.startLocation.applying(inverseTransform)
                     
                     if draggedNode == nil {
@@ -2212,10 +2231,6 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 .onEnded { value in
                     let dragDistance = hypot(value.translation.width, value.translation.height)
-                    let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                        .scaledBy(x: zoomScale, y: zoomScale)
-                        .inverted()
-                    let touchPos = value.location.applying(inverseTransform)
                     
                     if let node = draggedNode,
                        let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
@@ -2242,12 +2257,9 @@ struct GraphGesturesModifier: ViewModifier {
                             }
                         }
                     } else {
-                        // No node dragged: Handle tap to add new node or pan (but pan is in simultaneous gesture)
+                        // No node dragged: Handle tap to deselect (no addNode)
                         if dragDistance < AppConstants.tapThreshold {
                             selectedNodeID = nil  // Deselect on background tap
-                            viewModel.snapshot()
-                            viewModel.model.addNode(at: touchPos)
-                            viewModel.model.startSimulation()
                         }
                     }
                     
@@ -2277,9 +2289,8 @@ struct GraphGesturesModifier: ViewModifier {
                     switch value {
                     case .second(true, let drag?):
                         let location = drag.location
-                        let inverseTransform = CGAffineTransform(translationX: offset.width, y: offset.height)
-                            .scaledBy(x: zoomScale, y: zoomScale)
-                            .inverted()
+                        let transform = CGAffineTransform.identity.scaledBy(x: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                        let inverseTransform = transform.inverted()
                         let worldPos = location.applying(inverseTransform)  // This is defined here
 
                         // Check for node hit (use worldPos, not touchPos; update for radius if applied from previous)
