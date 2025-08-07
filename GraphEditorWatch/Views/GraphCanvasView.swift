@@ -115,64 +115,14 @@ struct GraphCanvasView: View {
     
     private var interactiveCanvas: some View {
         canvasBase
-            .onChange(of: zoomScale) { oldScale, newScale in
-                guard oldScale != newScale else { return }
-                
-                // Determine pivot in world coordinates
-                let pivotWorld: CGPoint
-                if let selectedID = selectedNodeID,
-                   let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    pivotWorld = node.position
-                } else {
-                    // Fallback: Current view center in world coords
-                    let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                    pivotWorld = CGPoint(
-                        x: (centerScreen.x - offset.width) / oldScale,
-                        y: (centerScreen.y - offset.height) / oldScale
-                    )
-                }
-                
-                // Compute screen position of pivot (remains fixed)
-                let screenPivot = CGPoint(
-                    x: pivotWorld.x * oldScale + offset.width,
-                    y: pivotWorld.y * oldScale + offset.height
-                )
-                
-                // Compute new offset to keep screenPivot mapping to pivotWorld at newScale
-                let newOffsetWidth = screenPivot.x - pivotWorld.x * newScale
-                let newOffsetHeight = screenPivot.y - pivotWorld.y * newScale
-                offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                
-                onUpdateZoomRanges()  // Assuming this clamps or updates ranges
-            }
-            .onChange(of: selectedNodeID) { oldID, newID in
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    if let newID = newID,
-                       let node = viewModel.model.nodes.first(where: { $0.id == newID }) {
-                        // Center on selected node
-                        let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                        let newOffsetWidth = centerScreen.x - node.position.x * zoomScale
-                        let newOffsetHeight = centerScreen.y - node.position.y * zoomScale
-                        offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                    } else {
-                        // On deselection, recenter on graph bounding box center (fallback)
-                        let bbox = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-                        let graphCenter = CGPoint(x: bbox.midX, y: bbox.midY)
-                        let centerScreen = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                        let newOffsetWidth = centerScreen.x - graphCenter.x * zoomScale
-                        let newOffsetHeight = centerScreen.y - graphCenter.y * zoomScale
-                        offset = CGSize(width: newOffsetWidth, height: newOffsetHeight)
-                    }
-                    onUpdateZoomRanges()  // Clamp after centering
-                }
-            }
+        /*
             .onChange(of: crownPosition) {
                 viewModel.model.physicsEngine.isPaused = true  // Pause sim
                 zoomTimer?.invalidate()  // Cancel previous timer
                 zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in
                     viewModel.model.physicsEngine.isPaused = false  // Resume after inactivity
                 }
-            }
+            } */
     }
     
     private var accessibleCanvas: some View {

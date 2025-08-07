@@ -26,6 +26,8 @@ struct ContentView: View {
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
+    @State private var previousCrownPosition: Double = 2.5  // Match initial crownPosition
+    @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
     
     init(storage: GraphStorage = PersistenceManager(),
@@ -59,6 +61,7 @@ struct ContentView: View {
         GeometryReader { geo in
             graphCanvasView(geo: geo)
         }
+        .ignoresSafeArea()  // New: Ignore safe area insets to fill screen top/bottom
         .sheet(isPresented: $showMenu) {
             menuView
         }
@@ -79,7 +82,23 @@ struct ContentView: View {
                 return
             }
             
+            // Pause simulation if zooming
+            let delta = newValue - previousCrownPosition
+            if abs(delta) > 0.001 && !isZooming {
+                isZooming = true
+                viewModel.model.stopSimulation()
+            }
+            
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
+            previousCrownPosition = newValue
+            
+            // Debounce resume
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                if isZooming {
+                    isZooming = false
+                    viewModel.model.startSimulation()
+                }
+            }
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             if newPhase == .background {
@@ -88,10 +107,10 @@ struct ContentView: View {
         }
         .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
-            
             updateZoomRanges()
+            centerGraph()  // Auto-center on load
         }
-       
+        
         
     }
     
@@ -123,12 +142,17 @@ struct ContentView: View {
                 viewModel.model.startSimulation()
                 showMenu = false
             }
+            Button("Center Graph") {
+                centerGraph()
+                showMenu = false
+            }
             Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
             Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
             Button("Close") { showMenu = false }
         }
         .padding()
     }
+    
     // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {
         guard !viewModel.model.nodes.isEmpty else {
@@ -177,13 +201,46 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-            let worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
-            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)  // Fixed: Removed erroneous .y after newScale
+            var focus: CGPoint  // Screen focus point
+            var worldFocus: CGPoint  // Corresponding world point
+            
+            if let selectedID = selectedNodeID,
+               let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                // Center on selected node's current screen position
+                worldFocus = node.position
+                focus = CGPoint(
+                    x: worldFocus.x * oldScale + offset.width,
+                    y: worldFocus.y * oldScale + offset.height
+                )
+            } else {
+                // Center on view center
+                focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
+            }
+            
+            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)
         }
         
         zoomScale = newScale
     }
+    
+    private func centerGraph() {
+        guard !viewModel.model.nodes.isEmpty else { return }
+        
+        // Compute centroid
+        let totalX = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.x }
+        let totalY = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.y }
+        let centroid = CGPoint(x: totalX / CGFloat(viewModel.model.nodes.count), y: totalY / CGFloat(viewModel.model.nodes.count))
+        
+        // Set offset to center centroid
+        offset = CGSize(
+            width: viewSize.width / 2 - centroid.x * zoomScale,
+            height: viewSize.height / 2 - centroid.y * zoomScale
+        )
+        
+        onUpdateZoomRanges()  // Clamp after centering
+    }
+    
 }
 
 #Preview {
