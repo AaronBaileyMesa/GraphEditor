@@ -117,21 +117,54 @@ struct ContentView: View {
         }
     }
     
-    // Assuming menuView is defined here or elsewhere; keep as is
+    // Completed menuView with node/edge delete logic
     private var menuView: some View {
         VStack {
-            // Your menu content...
-            Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
-                    Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
-                    Button("Delete Selected Edge") {
-                        viewModel.model.deleteSelectedEdge(id: selectedEdgeID)
-                        selectedEdgeID = nil  // Clear selection
-                        showMenu = false
-                    }.disabled(selectedEdgeID == nil)
-                    Button("Close") { showMenu = false }
+            if let selectedID = selectedNodeID,
+               let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                Button("Delete Node \(selectedNode.label)") {
+                    viewModel.snapshot()
+                    viewModel.model.deleteNode(withID: selectedID)
+                    viewModel.model.startSimulation()
+                    selectedNodeID = nil
+                    showMenu = false
+                    WKInterfaceDevice.current().play(.success)
                 }
-                .padding()
+            } else if let selectedEdge = selectedEdgeID {
+                Button("Delete Edge") {
+                    viewModel.snapshot()
+                    viewModel.model.deleteSelectedEdge(id: selectedEdge)
+                    viewModel.model.startSimulation()
+                    selectedEdgeID = nil
+                    showMenu = false
+                    WKInterfaceDevice.current().play(.success)
+                }
             }
+            Button("Add Node") {
+                viewModel.snapshot()
+                viewModel.model.addNode(at: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2))
+                viewModel.model.startSimulation()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            Button("Undo") {
+                viewModel.undo()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            .disabled(!viewModel.canUndo)
+            Button("Redo") {
+                viewModel.redo()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            .disabled(!viewModel.canRedo)
+            Button("Close") {
+                showMenu = false
+            }
+        }
+        .padding()
+    }
     
     // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {

@@ -58,7 +58,7 @@ let package = Package(
 --------------------------------------------------
 File: Constants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-06 18:04:37
+Last modified: 2025-08-07 12:42:52
 
 Contents:
 //
@@ -83,7 +83,7 @@ public enum Constants {
         public static let distanceEpsilon: CGFloat = 1e-3
         public static let timeStep: CGFloat = 0.05
         public static let velocityThreshold: CGFloat = 0.2
-        public static let maxSimulationSteps = 500
+        public static let maxSimulationSteps = 3000
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 64
         public static let maxNodesForQuadtree = 200
@@ -923,7 +923,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-07 11:42:19
+Last modified: 2025-08-07 14:58:16
 
 Contents:
 //
@@ -1009,12 +1009,11 @@ public class PhysicsEngine {
             let forceY = forceDirectionY * forceMagnitude
             
             if useAsymmetricAttraction {
-                // Asymmetric: Stronger pull on 'to' node
-                let currentForceFrom = forces[fromNode.id] ?? .zero
-                forces[fromNode.id] = CGPoint(x: currentForceFrom.x + forceX * 0.5, y: currentForceFrom.y + forceY * 0.5)
+                // Asymmetric: No force on 'from' (source), doubled pull on 'to' (target) toward 'from'
                 let currentForceTo = forces[toNode.id] ?? .zero
-                forces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * 1.5, y: currentForceTo.y - forceY * 1.5)
+                forces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * 2, y: currentForceTo.y - forceY * 2)
             } else {
+                // Symmetric: Split force between 'from' and 'to'
                 let currentForceFrom = forces[fromNode.id] ?? .zero
                 forces[fromNode.id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
                 let currentForceTo = forces[toNode.id] ?? .zero
@@ -1523,7 +1522,7 @@ public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
 --------------------------------------------------
 File: GraphEditorSharedTests.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
-Last modified: 2025-08-05 00:48:09
+Last modified: 2025-08-07 14:22:34
 
 Contents:
 import Testing
@@ -1762,11 +1761,12 @@ struct GraphEditorSharedTests {
     
     @Test func testAsymmetricAttraction() throws {
         let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        engine.useAsymmetricAttraction = true
+        engine.useAsymmetricAttraction = true  // Assumes this property is added (see implementation below)
         var nodes = [Node(id: UUID(), label: 1, position: CGPoint(x: 0, y: 0)),
                      Node(id: UUID(), label: 2, position: CGPoint(x: 200, y: 0))]
         let edges = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
-        _ = engine.simulationStep(nodes: &nodes, edges: edges)
+        let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
+        nodes = updatedNodes as! [Node]
         #expect(abs(nodes[0].position.x - 0) < 1, "From node position unchanged in asymmetric")
         #expect(nodes[1].position.x < 200, "To node pulled towards from")
     }
@@ -1782,7 +1782,8 @@ struct PerformanceTests {
 
         let start = Date()
         for _ in 0..<10 {
-            _ = engine.simulationStep(nodes: &nodes, edges: edges)
+            let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
+            nodes = updatedNodes as! [Node]
         }
         let duration = Date().timeIntervalSince(start)
 
@@ -1911,7 +1912,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-07 08:34:48
+Last modified: 2025-08-07 15:59:44
 
 Contents:
 //
@@ -2033,21 +2034,54 @@ struct ContentView: View {
         }
     }
     
-    // Assuming menuView is defined here or elsewhere; keep as is
+    // Completed menuView with node/edge delete logic
     private var menuView: some View {
         VStack {
-            // Your menu content...
-            Button("Undo") { viewModel.undo() }.disabled(!viewModel.canUndo)
-                    Button("Redo") { viewModel.redo() }.disabled(!viewModel.canRedo)
-                    Button("Delete Selected Edge") {
-                        viewModel.model.deleteSelectedEdge(id: selectedEdgeID)
-                        selectedEdgeID = nil  // Clear selection
-                        showMenu = false
-                    }.disabled(selectedEdgeID == nil)
-                    Button("Close") { showMenu = false }
+            if let selectedID = selectedNodeID,
+               let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                Button("Delete Node \(selectedNode.label)") {
+                    viewModel.snapshot()
+                    viewModel.model.deleteNode(withID: selectedID)
+                    viewModel.model.startSimulation()
+                    selectedNodeID = nil
+                    showMenu = false
+                    WKInterfaceDevice.current().play(.success)
                 }
-                .padding()
+            } else if let selectedEdge = selectedEdgeID {
+                Button("Delete Edge") {
+                    viewModel.snapshot()
+                    viewModel.model.deleteSelectedEdge(id: selectedEdge)
+                    viewModel.model.startSimulation()
+                    selectedEdgeID = nil
+                    showMenu = false
+                    WKInterfaceDevice.current().play(.success)
+                }
             }
+            Button("Add Node") {
+                viewModel.snapshot()
+                viewModel.model.addNode(at: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2))
+                viewModel.model.startSimulation()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            Button("Undo") {
+                viewModel.undo()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            .disabled(!viewModel.canUndo)
+            Button("Redo") {
+                viewModel.redo()
+                showMenu = false
+                WKInterfaceDevice.current().play(.success)
+            }
+            .disabled(!viewModel.canRedo)
+            Button("Close") {
+                showMenu = false
+            }
+        }
+        .padding()
+    }
     
     // Existing function (unchanged, but called in onUpdateZoomRanges)
     private func updateZoomRanges() {
@@ -2151,7 +2185,7 @@ struct ContentView: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-06 20:26:13
+Last modified: 2025-08-07 16:30:52
 
 Contents:
 //
@@ -2161,8 +2195,6 @@ Contents:
 //  Created by handcart on 8/1/25.
 //
 
-
-// Views/GraphCanvasView.swift
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -2182,51 +2214,42 @@ struct GraphCanvasView: View {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     @State private var previousZoomScale: CGFloat = 1.0
-    @State private var zoomTimer: Timer? = nil  // New: For debouncing crown activity
-    @Binding var selectedEdgeID: UUID?  // New
+    @State private var zoomTimer: Timer? = nil
+    @Binding var selectedEdgeID: UUID?
     
     private var canvasBase: some View {
-        
-        ZStack {  // New: Wrap for overlay
-            // New: Fixed grey circle at screen center
+        ZStack {
             Circle()
-                .fill(Color.gray.opacity(0.2))  // Semi-transparent grey
-                .frame(width: min(viewSize.width, viewSize.height) * 0.4,  // ~20% of smaller dimension
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: min(viewSize.width, viewSize.height) * 0.4,
                        height: min(viewSize.width, viewSize.height) * 0.4)
-                .position(x: viewSize.width / 2, y: viewSize.height / 2)  // Fixed at view center
+                .position(x: viewSize.width / 2, y: viewSize.height / 2)
             
             Canvas { context, size in
                 let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
                 
-                // Draw edges (unchanged)
                 for edge in viewModel.model.visibleEdges() {
                     if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
                         let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
                         let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
                         
-                        // Calculate direction and length (unchanged)
                         let direction = CGPoint(x: toPos.x - fromPos.x, y: toPos.y - fromPos.y)
                         let length = hypot(direction.x, direction.y)
                         if length > 0 {
                             let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
-                            
-                            // Shorten line to end at toNode's edge (unchanged)
                             let scaledToRadius = toNode.radius * zoomScale
                             let lineEnd = toPos - unitDir * scaledToRadius
                             
-                            // Conditional color and width for selection
                             let isSelected = edge.id == selectedEdgeID
                             let lineWidth = isSelected ? 4 * zoomScale : 2 * zoomScale
                             let color = isSelected ? Color.red : Color.blue
                             
-                            // Draw shortened line with conditional styling
                             context.stroke(Path { path in
                                 path.move(to: fromPos)
                                 path.addLine(to: lineEnd)
                             }, with: .color(color), lineWidth: lineWidth)
                             
-                            // Draw arrowhead with conditional color
                             let arrowSize: CGFloat = 10 * zoomScale
                             let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
                             let arrowTip = lineEnd
@@ -2241,7 +2264,6 @@ struct GraphCanvasView: View {
                             }, with: .color(color))
                         }
                         
-
                         let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
                         let edgeLabel = "\(fromNode.label)→\(toNode.label)"
                         let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
@@ -2251,7 +2273,6 @@ struct GraphCanvasView: View {
                     }
                 }
                 
-                // Draw potential new edge during drag (unchanged; assumes always visible)
                 if let dragged = draggedNode, let target = potentialEdgeTarget {
                     let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y).applying(transform)
                     let toPos = target.position.applying(transform)
@@ -2261,7 +2282,6 @@ struct GraphCanvasView: View {
                     }, with: .color(.green), style: StrokeStyle(lineWidth: 2 * zoomScale, dash: [5 * zoomScale]))
                 }
                 
-                // Draw nodes (moved inside Canvas for unified rendering)
                 for node in viewModel.model.visibleNodes() {
                     let isDragged = draggedNode?.id == node.id
                     let worldPos = isDragged ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position
@@ -2271,20 +2291,19 @@ struct GraphCanvasView: View {
                     node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: isSelected)
                 }
             }
-            .drawingGroup()  // Optional: Improves anti-aliasing consistency
+            .drawingGroup()
         }
     }
     
     private var interactiveCanvas: some View {
         canvasBase
-
     }
     
     private var accessibleCanvas: some View {
         interactiveCanvas
             .accessibilityElement(children: .combine)
             .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID, selectedEdgeID: selectedEdgeID))
-            .accessibilityHint("Double-tap for menu. Long press to delete selected.")
+            .accessibilityHint("Long press for menu. Tap to select.")
             .accessibilityChildren {
                 ForEach(viewModel.model.visibleNodes(), id: \.id) { node in
                     Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
@@ -2315,33 +2334,13 @@ struct GraphCanvasView: View {
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
     }
-    
-    private func graphDescription() -> String {
-        var desc = "Graph with \(viewModel.model.nodes.count) nodes and \(viewModel.model.edges.count) edges."
-        if let selectedID = selectedNodeID,
-           let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            let connectedLabels = viewModel.model.edges
-                .filter { $0.from == selectedID || $0.to == selectedID }
-                .compactMap { edge in
-                    let otherID = (edge.from == selectedID ? edge.to : edge.from)
-                    return viewModel.model.nodes.first { $0.id == otherID }?.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            desc += " Node \(selectedNode.label) selected, connected to nodes: \(connectedLabels.isEmpty ? "none" : connectedLabels)."
-        } else {
-            desc += " No node selected."
-        }
-        return desc
-    }
 }
 
 --------------------------------------------------
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-07 09:03:56
+Last modified: 2025-08-07 15:59:44
 
 Contents:
 //
@@ -2363,7 +2362,7 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var dragOffset: CGPoint
     @Binding var potentialEdgeTarget: (any NodeProtocol)?
     @Binding var selectedNodeID: NodeID?
-    @Binding var selectedEdgeID: UUID?  // New: Binding for edge selection
+    @Binding var selectedEdgeID: UUID?
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
@@ -2371,159 +2370,118 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     
+    @State private var dragStartNode: (any NodeProtocol)? = nil  // New: Track node at drag start
+    @State private var isMovingSelectedNode: Bool = false  // New: Flag for moving selected node
+    
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
-                if panStartOffset == nil {
-                    panStartOffset = offset
+                let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                let inverseTransform = transform.inverted()
+                let touchPos = value.location.applying(inverseTransform)
+                
+                if dragStartNode == nil {
+                    // Detect start on node
+                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, value.startLocation.applying(inverseTransform)) < AppConstants.hitScreenRadius / zoomScale }) {
+                        dragStartNode = hitNode
+                        isMovingSelectedNode = (hitNode.id == selectedNodeID)
+                    }
                 }
-                offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
+                
+                if isMovingSelectedNode, let node = dragStartNode {
+                    // Update dragOffset for moving
+                    dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
+                    draggedNode = node  // Set for rendering
+                } else {
+                    // Pan if not moving node
+                    if panStartOffset == nil {
+                        panStartOffset = offset
+                    }
+                    offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
+                }
+                
+                // Update potential target for edge creation
+                potentialEdgeTarget = viewModel.model.nodes.first {
+                    dragStartNode?.id != $0.id && distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale
+                }
             }
             .onEnded { value in
                 let dragDistance = hypot(value.translation.width, value.translation.height)
+                let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
+                let inverseTransform = transform.inverted()
+                // Removed unused endPos
+                
                 if dragDistance < AppConstants.tapThreshold {
-                    let preOffset = panStartOffset ?? offset
-                    let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: preOffset.width, y: preOffset.height)
-                    let inverseTransform = transform.inverted()
+                    // Tap: Select/deselect
                     let touchPos = value.startLocation.applying(inverseTransform)
-                    
-                    // Node hit check first
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale }) {
-                        if hitNode.isExpanded != true {  // Or check if type is ToggleNode, but polymorphic
-                            // Toggle via protocol method
-                            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
-                                viewModel.snapshot()
-                                viewModel.model.nodes[index] = hitNode.handlingTap()  // Calls toggle if ToggleNode
-                                viewModel.model.startSimulation()
-                            }
+                        if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
+                            viewModel.snapshot()
+                            viewModel.model.nodes[index] = hitNode.handlingTap()
+                            viewModel.model.startSimulation()
                         }
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
+                    } else if let hitEdge = viewModel.model.edges.first(where: { edge in
+                        if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                           let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
+                           pointToLineDistance(point: touchPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                            return true
+                        }
+                        return false
+                    }) {
+                        selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
+                        selectedNodeID = nil
+                        WKInterfaceDevice.current().play(.click)
                     } else {
-                        // Edge hit check if no node
-                        var hitEdge: GraphEdge? = nil
-                        for edge in viewModel.model.edges {
-                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                               pointToLineDistance(point: touchPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
-                                hitEdge = edge
-                                break
-                            }
-                        }
-                        if let hitEdge = hitEdge {
-                            selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
-                            selectedNodeID = nil  // Clear node selection
-                            WKInterfaceDevice.current().play(.click)
-                        } else {
-                            selectedNodeID = nil
-                            selectedEdgeID = nil
-                        }
-                    }
-                    
-                    // Reset offset only if panStartOffset was set
-                    if panStartOffset != nil {
-                        offset = preOffset
+                        selectedNodeID = nil
+                        selectedEdgeID = nil
                     }
                 } else {
-                    // True pan, no action
-                }
-                panStartOffset = nil
-            }
-        
-        let longPressDragGesture = LongPressGesture(minimumDuration: 0.5)
-            .sequenced(before: DragGesture(minimumDistance: 0))
-            .onChanged { value in
-                switch value {
-                case .second(true, let drag?):
-                    let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                    let inverseTransform = transform.inverted()
-                    if draggedNode == nil {
-                        let startPos = drag.startLocation.applying(inverseTransform)
-                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startPos) < AppConstants.hitScreenRadius / zoomScale }) {
-                            draggedNode = hitNode
-                            WKInterfaceDevice.current().play(.click)  // Feedback for grab
-                        }
-                    }
-                    if let dragged = draggedNode {
-                        dragOffset = CGPoint(x: drag.translation.width / zoomScale, y: drag.translation.height / zoomScale)
-                        let currentPos = drag.location.applying(inverseTransform)
-                        potentialEdgeTarget = viewModel.model.nodes.first {
-                            $0.id != dragged.id && distance($0.position, currentPos) < AppConstants.hitScreenRadius / zoomScale
-                        }
-                    }
-                default:
-                    break
-                }
-            }
-            .onEnded { value in
-                switch value {
-                case .second(true, let drag?):
-                    if let node = draggedNode {
-                        let dragDistance = hypot(drag.translation.width, drag.translation.height)
-                        viewModel.snapshot()
-                        if dragDistance > AppConstants.tapThreshold {
-                            // Move or create edge
-                            if let target = potentialEdgeTarget, target.id != node.id,
-                               !viewModel.model.edges.contains(where: { $0.from == node.id && $0.to == target.id }) {
-                                viewModel.model.edges.append(GraphEdge(from: node.id, to: target.id))
-                                viewModel.model.startSimulation()
-                                WKInterfaceDevice.current().play(.success)
-                            } else {
-                                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                                    var updatedNode = viewModel.model.nodes[index]
-                                    updatedNode.position.x += dragOffset.x
-                                    updatedNode.position.y += dragOffset.y
-                                    viewModel.model.nodes[index] = updatedNode
-                                    viewModel.model.startSimulation()
-                                }
-                            }
-                        } else {
-                            // Delete node (no significant drag)
-                            viewModel.deleteNode(withID: node.id)
-                            viewModel.model.startSimulation()
-                            WKInterfaceDevice.current().play(.success)
-                        }
+                    // Drag: Create edge or move
+                    viewModel.snapshot()
+                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id,
+                       !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
+                        // Create edge
+                        viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
+                        viewModel.model.startSimulation()
+                        WKInterfaceDevice.current().play(.success)
+                    } else if isMovingSelectedNode, let node = dragStartNode,
+                              let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                        // Move selected node
+                        var updatedNode = viewModel.model.nodes[index]
+                        updatedNode.position.x += value.translation.width / zoomScale
+                        updatedNode.position.y += value.translation.height / zoomScale
+                        viewModel.model.nodes[index] = updatedNode
+                        viewModel.model.startSimulation()
+                        WKInterfaceDevice.current().play(.success)
                     } else {
-                        // No node hit: Check for edge delete (only if it matches selectedEdgeID)
-                        let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                        let inverseTransform = transform.inverted()
-                        let startPos = drag.startLocation.applying(inverseTransform)
-                        for edge in viewModel.model.edges {
-                            if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                               let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                                if edge.id == selectedEdgeID &&  // Add this check for selection consistency
-                                   pointToLineDistance(point: startPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
-                                    viewModel.deleteSelectedEdge(id: edge.id)  // Updated: Call via ViewModel
-                                    selectedEdgeID = nil  // Clear selection
-                                    viewModel.model.startSimulation()
-                                    WKInterfaceDevice.current().play(.success)
-                                    break
-                                }
-                            }
-                        }
+                        // Pan completed (offset already updated)
                     }
-                default:
-                    break
                 }
+                
+                // Reset states
+                dragStartNode = nil
+                isMovingSelectedNode = false
                 draggedNode = nil
                 dragOffset = .zero
                 potentialEdgeTarget = nil
+                panStartOffset = nil
                 onUpdateZoomRanges()
             }
         
-        let doubleTapGesture = TapGesture(count: 2)
-            .onEnded {
+        let longPressGesture = LongPressGesture(minimumDuration: 0.5)
+            .onEnded { _ in
                 showMenu = true
+                WKInterfaceDevice.current().play(.click)
             }
         
         content
             .gesture(dragGesture)
-            .highPriorityGesture(longPressDragGesture)
-            .gesture(doubleTapGesture)
+            .highPriorityGesture(longPressGesture)
     }
     
-    // Helper function (keep as in original)
     private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
         let lineVec = to - from
         let pointVec = point - from
