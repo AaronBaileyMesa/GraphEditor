@@ -82,15 +82,14 @@ struct ContentView: View {
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
         
-        .onChange(of: crownPosition) { newValue in
+        .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
-                previousCrownPosition = newValue
-                return
+                return  // No need to set previousCrownPosition
             }
             
             let oldOffset = offset
-            print("Crown changed from \(previousCrownPosition) to \(newValue), pausing simulation")
+            print("Crown changed from \(oldValue) to \(newValue), pausing simulation")  // Updated print
             isZooming = true
             resumeTimer?.invalidate()
             viewModel.model.pauseSimulation()
@@ -100,8 +99,7 @@ struct ContentView: View {
                 viewModel.model.resumeSimulation()
             }
             
-            updateZoomScale(oldCrown: previousCrownPosition)  // Simplified call
-            previousCrownPosition = newValue
+            updateZoomScale(oldCrown: oldValue)  // Pass oldValue directly
             clampOffset()
             
             let newOffset = offset
@@ -112,8 +110,8 @@ struct ContentView: View {
         .onReceive(viewModel.model.$nodes) { _ in
             onUpdateZoomRanges()
         }
-        .onChange(of: panStartOffset) { newValue in
-            isPanning = newValue != nil
+        .onChange(of: panStartOffset) {
+            isPanning = panStartOffset != nil
             if isPanning {
                 viewModel.model.stopSimulation()
             } else {
@@ -121,11 +119,11 @@ struct ContentView: View {
                 let block: (Timer) -> Void = { [self] _ in
                     self.viewModel.model.startSimulation()
                 }
-                resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: block)  // Extended to 1s
+                resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: block)
             }
         }
-        .onChange(of: scenePhase) { newPhase in
-            switch newPhase {
+        .onChange(of: scenePhase) {
+            switch scenePhase {
             case .active:
                 viewModel.model.startSimulation()
             case .inactive, .background:
@@ -133,8 +131,7 @@ struct ContentView: View {
             @unknown default:
                 break
             }
-        }
-        .onAppear {
+        }        .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
             onUpdateZoomRanges()
             viewModel.model.startSimulation()
@@ -158,7 +155,7 @@ struct ContentView: View {
             crownPosition: $crownPosition,
             onUpdateZoomRanges: onUpdateZoomRanges,
             selectedEdgeID: $selectedEdgeID,
-            showOverlays: $showOverlays  // Pass the binding
+            showOverlays: $showOverlays
         )
         .onAppear {
             viewSize = geo.size
@@ -259,17 +256,11 @@ struct ContentView: View {
     
     // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
-        let clampedOldCrown = Swift.max(0, Swift.min(oldCrown, Double(AppConstants.numZoomLevels - 1)))
-        
-        let oldProgress = clampedOldCrown / Double(AppConstants.numZoomLevels - 1)
-        let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(oldProgress)))
-        
         let newProgress = crownPosition / Double(AppConstants.numZoomLevels - 1)
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
         zoomScale = newScale
     }
-    
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
         let paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25  // More room at high zoom
