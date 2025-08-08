@@ -28,39 +28,45 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     
     private var canvasBase: some View {
-        ZStack {
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        let visibleNodes = viewModel.model.visibleNodes()
+        let centroid = visibleNodes.centroid() ?? .zero
+        
+        return ZStack {
             Circle()
                 .fill(Color.gray.opacity(0.2))
                 .frame(width: min(viewSize.width, viewSize.height) * 0.4,
                        height: min(viewSize.width, viewSize.height) * 0.4)
-                .position(x: viewSize.width / 2, y: viewSize.height / 2)
+                .position(viewCenter)
             
             Canvas { context, size in
-                let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                
                 for edge in viewModel.model.visibleEdges() {
                     if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                        let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position).applying(transform)
-                        let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position).applying(transform)
+                        let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
+                        let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
                         
-                        let direction = CGPoint(x: toPos.x - fromPos.x, y: toPos.y - fromPos.y)
+                        let fromDisplay = (fromPos - centroid) * zoomScale + viewCenter + panOffset
+                        let toDisplay = (toPos - centroid) * zoomScale + viewCenter + panOffset
+                        
+                        let direction = toDisplay - fromDisplay
                         let length = hypot(direction.x, direction.y)
                         if length > 0 {
-                            let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
+                            let unitDir = direction / length
                             let scaledToRadius = toNode.radius * zoomScale
-                            let lineEnd = toPos - unitDir * scaledToRadius
+                            let lineEnd = toDisplay - unitDir * scaledToRadius
                             
                             let isSelected = edge.id == selectedEdgeID
-                            let lineWidth = isSelected ? 4 * zoomScale : 2 * zoomScale
+                            let lineWidth = isSelected ? 4.0 : 2.0
                             let color = isSelected ? Color.red : Color.blue
                             
                             context.stroke(Path { path in
-                                path.move(to: fromPos)
+                                path.move(to: fromDisplay)
                                 path.addLine(to: lineEnd)
                             }, with: .color(color), lineWidth: lineWidth)
                             
-                            let arrowSize: CGFloat = 10 * zoomScale
+                            let arrowSize: CGFloat = 10.0
                             let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
                             let arrowTip = lineEnd
                             let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
@@ -74,9 +80,9 @@ struct GraphCanvasView: View {
                             }, with: .color(color))
                         }
                         
-                        let midpoint = CGPoint(x: (fromPos.x + toPos.x) / 2, y: (fromPos.y + toPos.y) / 2)
+                        let midpoint = (fromDisplay + toDisplay) / 2
                         let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                        let fontSize = UIFontMetrics.default.scaledValue(for: 12)
                         let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
                         let resolvedText = context.resolve(text)
                         context.draw(resolvedText, at: midpoint, anchor: .center)
@@ -84,27 +90,41 @@ struct GraphCanvasView: View {
                 }
                 
                 if let dragged = draggedNode, let target = potentialEdgeTarget {
-                    let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y).applying(transform)
-                    let toPos = target.position.applying(transform)
+                    let fromPos = dragged.position + dragOffset
+                    let toPos = target.position
+                    let fromDisplay = (fromPos - centroid) * zoomScale + viewCenter + panOffset
+                    let toDisplay = (toPos - centroid) * zoomScale + viewCenter + panOffset
                     context.stroke(Path { path in
-                        path.move(to: fromPos)
-                        path.addLine(to: toPos)
-                    }, with: .color(.green), style: StrokeStyle(lineWidth: 2 * zoomScale, dash: [5 * zoomScale]))
+                        path.move(to: fromDisplay)
+                        path.addLine(to: toDisplay)
+                    }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
                 }
                 
-                for node in viewModel.model.visibleNodes() {
+                for node in visibleNodes {
                     let isDragged = draggedNode?.id == node.id
-                    let worldPos = isDragged ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position
-                    let screenPos = worldPos.applying(transform)
+                    let worldPos = isDragged ? node.position + dragOffset : node.position
+                    let relative = worldPos - centroid
+                    let scaled = relative * zoomScale
+                    let displayPos = scaled + viewCenter + panOffset
                     let isSelected = node.id == selectedNodeID
                     
-                    node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: isSelected)
+                    node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
                 }
             }
             .drawingGroup()
+            
+            if let centroid = visibleNodes.centroid() {
+                let relative = centroid - centroid  // Zero
+                let scaled = relative * zoomScale
+                let displayPos = scaled + viewCenter + panOffset  // Moves with pan, fixed during zoom
+                
+                Circle()
+                    .fill(Color.yellow)
+                    .frame(width: 4, height: 4)
+                    .position(displayPos)
+            }
         }
     }
-    
     private var interactiveCanvas: some View {
         canvasBase
     }
@@ -143,5 +163,18 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
+    }
+}
+
+extension Array where Element == any NodeProtocol {
+    func centroid() -> CGPoint? {
+        guard !isEmpty else { return nil }
+        var totalX: CGFloat = 0.0
+        var totalY: CGFloat = 0.0
+        for node in self {
+            totalX += node.position.x
+            totalY += node.position.y
+        }
+        return CGPoint(x: totalX / CGFloat(count), y: totalY / CGFloat(count))
     }
 }

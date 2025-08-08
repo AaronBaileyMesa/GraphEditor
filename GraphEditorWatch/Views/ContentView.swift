@@ -30,15 +30,15 @@ struct ContentView: View {
     @State private var selectedEdgeID: UUID? = nil  // New state
     @Environment(\.scenePhase) private var scenePhase
     @State private var previousCrownPosition: Double = 2.5
-
+    
     
     // New: Timer for debouncing simulation resume
     @State private var resumeTimer: Timer? = nil
     
     @State private var logOffsetChanges = true  // Toggle for console logs
-
+    
     @State private var isPanning: Bool = false  // New: Track panning to pause clamping/simulation
-
+    
     @State private var showOverlay: Bool = true  // New: Toggle for overlays (can bind to menu later)
     
     init(storage: GraphStorage = PersistenceManager(),
@@ -92,6 +92,7 @@ struct ContentView: View {
                     //         .position(x: geo.size.width / 2, y: geo.size.height - 20)  // Bottom-center
                     // }
                 }
+                
             }
         }
         .ignoresSafeArea()  // New: Ignore safe area insets to fill screen top/bottom
@@ -100,48 +101,36 @@ struct ContentView: View {
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { newValue in  // Single parameter for watchOS 9 compatibility
-            let oldValue = previousCrownPosition  // Manually get "old" from stored state
-            
+        
+        .onChange(of: crownPosition) { newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
-                // Skip update if just clamping (prevents invalid calls)
+                previousCrownPosition = newValue
                 return
             }
             
-            let maxCrown = Double(AppConstants.numZoomLevels - 1)
-            let clampedValue = Swift.max(0, Swift.min(newValue, maxCrown))
-            if clampedValue != newValue {
-                ignoreNextCrownChange = true  // Prevent feedback loop on set
-                crownPosition = clampedValue
-                previousCrownPosition = clampedValue  // Update previous immediately for clamping
-                return
-            }
-            
-            // Pause simulation on crown interaction (longer delay for stability)
-            viewModel.model.stopSimulation()
+            let oldOffset = offset
+            print("Crown changed from \(previousCrownPosition) to \(newValue), pausing simulation")
             isZooming = true
             resumeTimer?.invalidate()
-            
-            // Explicitly typed closure to fix inference
-            let resumeBlock: (Timer) -> Void = { [self] _ in  // Discard timer if unused
-                self.isZooming = false
-                self.viewModel.model.startSimulation()  // Use startSimulation (safe to call multiple times)
-            }
-            resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: resumeBlock)  // Extended to 1s
-            
-            // Integrated updates here
-            let oldOffset = offset  // For logging
-            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
-            clampOffset()  // Clamp after zoom adjustment
-            if selectedNodeID == nil && selectedEdgeID == nil {
-                centerGraph()
-            }
-            if logOffsetChanges && oldOffset != offset {
-                print("Offset changed during zoom: from \(oldOffset) to \(offset)")
+            viewModel.model.pauseSimulation()  // Proper pause call
+            resumeTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { _ in
+                print("Resuming simulation after delay")
+                isZooming = false
+                viewModel.model.resumeSimulation()  // Proper resume call
             }
             
-            previousCrownPosition = newValue  // Update previous at end
+            updateZoomScale(oldCrown: previousCrownPosition, adjustOffset: false)  // Changed to false
+            previousCrownPosition = newValue
+            // clampOffset()  // Commented out for test
+            // if selectedNodeID == nil && selectedEdgeID == nil {
+            //     centerGraph()  // Commented out for test
+            // }
+            
+            let newOffset = offset
+            if newOffset != oldOffset && logOffsetChanges {
+                print("Offset changed during zoom: from \(oldOffset) to \(newOffset)")
+            }
         }
         .onReceive(viewModel.model.$nodes) { _ in
             onUpdateZoomRanges()
@@ -289,7 +278,6 @@ struct ContentView: View {
     
     // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
-        // Clamp oldCrown to valid range (prevents invalid oldScale)
         let clampedOldCrown = Swift.max(0, Swift.min(oldCrown, Double(AppConstants.numZoomLevels - 1)))
         
         let oldProgress = clampedOldCrown / Double(AppConstants.numZoomLevels - 1)
@@ -299,32 +287,39 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            // Default focus: screen center
-            var focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let currentCentroid = graphCentroid()
+            var focus: CGPoint? = nil
+            
+            if let centroid = currentCentroid {
+                let centroidScreenX = centroid.x * oldScale + offset.width
+                let centroidScreenY = centroid.y * oldScale + offset.height
+                focus = CGPoint(x: centroidScreenX, y: centroidScreenY)
+            }
+            if focus == nil {
+                focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            }
             
             // Override with selected node if present
             if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                // Convert selected node model pos to old screen pos
                 let selectedScreenX = selectedNode.position.x * oldScale + offset.width
                 let selectedScreenY = selectedNode.position.y * oldScale + offset.height
-                focus = CGPoint(x: selectedScreenX, y: selectedScreenY)
+                focus = CGPoint(x: selectedScreenX, y: selectedScreenY)  // Assignment, no 'let'
             } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
                       let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }), let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                // For edge, focus on midpoint
                 let midX = (fromNode.position.x + toNode.position.x) / 2
                 let midY = (fromNode.position.y + toNode.position.y) / 2
                 let midScreenX = midX * oldScale + offset.width
                 let midScreenY = midY * oldScale + offset.height
-                focus = CGPoint(x: midScreenX, y: midScreenY)
+                focus = CGPoint(x: midScreenX, y: midScreenY)  // Assignment, no 'let'
             }
             
             let worldFocus = CGPoint(
-                x: (focus.x - offset.width) / oldScale,
-                y: (focus.y - offset.height) / oldScale
+                x: (focus!.x - offset.width) / oldScale,
+                y: (focus!.y - offset.height) / oldScale
             )
             offset = CGSize(
-                width: focus.x - worldFocus.x * newScale,
-                height: focus.y - worldFocus.y * newScale
+                width: focus!.x - worldFocus.x * newScale,
+                height: focus!.y - worldFocus.y * newScale
             )
         }
         
@@ -360,33 +355,34 @@ struct ContentView: View {
     
     // Updated: Center on selected if present, else centroid
     private func centerGraph() {
-        guard !viewModel.model.nodes.isEmpty else { return }
-        
-        var centerPoint: CGPoint
+        guard let currentCentroid = graphCentroid() else { return }
+        var centerPoint = currentCentroid
         
         if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            centerPoint = selectedNode.position  // Center on selected node
+            centerPoint = selectedNode.position
         } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
                   let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }), let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-            // Center on edge midpoint
             centerPoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-        } else {
-            // Default: Centroid
-            let totalX = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.x }
-            let totalY = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.y }
-            centerPoint = CGPoint(x: totalX / CGFloat(viewModel.model.nodes.count), y: totalY / CGFloat(viewModel.model.nodes.count))
         }
         
-        // Set offset to center the point
         offset = CGSize(
             width: viewSize.width / 2 - centerPoint.x * zoomScale,
             height: viewSize.height / 2 - centerPoint.y * zoomScale
         )
         
-        clampOffset()  // Clamp after centering
+        print("Post-center offset: \(offset), centroid screen x: \(currentCentroid.x * zoomScale + offset.width), y: \(currentCentroid.y * zoomScale + offset.height)")
     }
     
+    private func graphCentroid() -> CGPoint? {
+        let visibleNodes = viewModel.model.visibleNodes()
+        guard !visibleNodes.isEmpty else { return nil }
+        
+        let totalX = visibleNodes.reduce(0.0) { $0 + $1.position.x }
+        let totalY = visibleNodes.reduce(0.0) { $0 + $1.position.y }
+        return CGPoint(x: totalX / CGFloat(visibleNodes.count), y: totalY / CGFloat(visibleNodes.count))
+    }
 }
+
 
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
