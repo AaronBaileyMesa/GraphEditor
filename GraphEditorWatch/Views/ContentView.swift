@@ -38,6 +38,8 @@ struct ContentView: View {
     @State private var logOffsetChanges = true  // Toggle for console logs
 
     @State private var isPanning: Bool = false  // New: Track panning to pause clamping/simulation
+
+    @State private var showOverlay: Bool = true  // New: Toggle for overlays (can bind to menu later)
     
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
@@ -45,12 +47,12 @@ struct ContentView: View {
         _viewModel = StateObject(wrappedValue: GraphViewModel(model: model))
     }
     
-    // New: Define the shared closure here (incorporates your existing logic + offset clamping)
-    // In ContentView, update the onUpdateZoomRanges closure:
+    // Updated: Always recenter after updates unless panning
     private var onUpdateZoomRanges: () -> Void {
         return {
             self.updateZoomRanges()
             if !self.isPanning {
+                self.centerGraph()  // Recenters on centroid or selected
                 self.clampOffset()
             }
         }
@@ -58,7 +60,39 @@ struct ContentView: View {
     
     var body: some View {
         GeometryReader { geo in
-            graphCanvasView(geo: geo)
+            ZStack {  // New: Use ZStack for overlays
+                graphCanvasView(geo: geo)
+                
+                // New: Overlays (conditional on showOverlay)
+                if showOverlay {
+                    // Zoom level text at top-center
+                    Text("Zoom: \(zoomScale, specifier: "%.1f")x")
+                        .font(.caption2)  // Small font for Watch
+                        .foregroundColor(.white)
+                        .background(Color.black.opacity(0.5))  // Semi-transparent bg for readability
+                        .position(x: geo.size.width / 2, y: 20)  // Top-center
+                    
+                    // Model space borders (bounding box outline)
+                    if !viewModel.model.nodes.isEmpty {
+                        let modelBBox = viewModel.model.boundingBox()
+                        let screenMinX = modelBBox.minX * zoomScale + offset.width
+                        let screenMinY = modelBBox.minY * zoomScale + offset.height
+                        let screenWidth = modelBBox.width * zoomScale
+                        let screenHeight = modelBBox.height * zoomScale
+                        
+                        Rectangle()
+                            .stroke(Color.blue, lineWidth: 1)  // Blue outline
+                            .frame(width: screenWidth, height: screenHeight)
+                            .position(x: screenMinX + screenWidth / 2, y: screenMinY + screenHeight / 2)
+                    }
+                    
+                    // Future overlays can go here, e.g.:
+                    // if someCondition {
+                    //     Text("Node Count: \(viewModel.model.nodes.count)")
+                    //         .position(x: geo.size.width / 2, y: geo.size.height - 20)  // Bottom-center
+                    // }
+                }
+            }
         }
         .ignoresSafeArea()  // New: Ignore safe area insets to fill screen top/bottom
         .sheet(isPresented: $showMenu) {
@@ -84,7 +118,7 @@ struct ContentView: View {
                 return
             }
             
-            // Pause simulation on crown interaction
+            // Pause simulation on crown interaction (longer delay for stability)
             viewModel.model.stopSimulation()
             isZooming = true
             resumeTimer?.invalidate()
@@ -94,12 +128,15 @@ struct ContentView: View {
                 self.isZooming = false
                 self.viewModel.model.startSimulation()  // Use startSimulation (safe to call multiple times)
             }
-            resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: resumeBlock)
+            resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: resumeBlock)  // Extended to 1s
             
             // Integrated updates here
             let oldOffset = offset  // For logging
             updateZoomScale(oldCrown: oldValue, adjustOffset: true)
             clampOffset()  // Clamp after zoom adjustment
+            if selectedNodeID == nil && selectedEdgeID == nil {
+                centerGraph()
+            }
             if logOffsetChanges && oldOffset != offset {
                 print("Offset changed during zoom: from \(oldOffset) to \(offset)")
             }
@@ -118,7 +155,7 @@ struct ContentView: View {
                 let block: (Timer) -> Void = { [self] _ in
                     self.viewModel.model.startSimulation()
                 }
-                resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: block)
+                resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false, block: block)  // Extended to 1s
             }
         }
         .onChange(of: scenePhase) { newPhase in
@@ -162,7 +199,7 @@ struct ContentView: View {
         }
     }
     
-    // Completed menuView with node/edge delete logic
+    // Completed menuView with node/edge delete logic (add toggle for simulation lock if desired)
     private var menuView: some View {
         VStack {
             if let selectedID = selectedNodeID,
@@ -250,7 +287,7 @@ struct ContentView: View {
         }
     }
     
-    // Updates the zoom scale and adjusts offset if needed.
+    // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
         // Clamp oldCrown to valid range (prevents invalid oldScale)
         let clampedOldCrown = Swift.max(0, Swift.min(oldCrown, Double(AppConstants.numZoomLevels - 1)))
@@ -262,8 +299,25 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            // Center focus without bias
-            let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height * 0.5)
+            // Default focus: screen center
+            var focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            
+            // Override with selected node if present
+            if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                // Convert selected node model pos to old screen pos
+                let selectedScreenX = selectedNode.position.x * oldScale + offset.width
+                let selectedScreenY = selectedNode.position.y * oldScale + offset.height
+                focus = CGPoint(x: selectedScreenX, y: selectedScreenY)
+            } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                      let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }), let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                // For edge, focus on midpoint
+                let midX = (fromNode.position.x + toNode.position.x) / 2
+                let midY = (fromNode.position.y + toNode.position.y) / 2
+                let midScreenX = midX * oldScale + offset.width
+                let midScreenY = midY * oldScale + offset.height
+                focus = CGPoint(x: midScreenX, y: midScreenY)
+            }
+            
             let worldFocus = CGPoint(
                 x: (focus.x - offset.width) / oldScale,
                 y: (focus.y - offset.height) / oldScale
@@ -277,9 +331,11 @@ struct ContentView: View {
         zoomScale = newScale
     }
     
+    // Updated: More padding at high zoom for better panning
     private func clampOffset() {
-        let paddingX = viewSize.width * 0.25
-        let paddingY = viewSize.height * 0.25
+        let paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25  // More room at high zoom
+        let paddingX = viewSize.width * paddingFactor
+        let paddingY = viewSize.height * paddingFactor
         
         let bbox = self.viewModel.model.physicsEngine.boundingBox(nodes: self.viewModel.model.visibleNodes())
         
@@ -288,10 +344,10 @@ struct ContentView: View {
         let scaledMinY = bbox.minY * self.zoomScale
         let scaledMaxY = bbox.maxY * self.zoomScale
         
-        let minOffsetX = -scaledMinX - paddingX
-        let maxOffsetX = self.viewSize.width - scaledMaxX + paddingX
-        let minOffsetY = -scaledMinY - paddingY
-        let maxOffsetY = self.viewSize.height - scaledMaxY + paddingY
+        let minOffsetX = viewSize.width - scaledMaxX - paddingX
+        let maxOffsetX = -scaledMinX + paddingX
+        let minOffsetY = viewSize.height - scaledMaxY - paddingY
+        let maxOffsetY = -scaledMinY + paddingY
         
         let clampedMinX = Swift.min(minOffsetX, maxOffsetX)
         let clampedMaxX = Swift.max(minOffsetX, maxOffsetX)
@@ -302,19 +358,29 @@ struct ContentView: View {
         self.offset.height = Swift.max(Swift.min(self.offset.height, clampedMaxY), clampedMinY)
     }
     
-    
+    // Updated: Center on selected if present, else centroid
     private func centerGraph() {
         guard !viewModel.model.nodes.isEmpty else { return }
         
-        // Compute centroid
-        let totalX = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.x }
-        let totalY = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.y }
-        let centroid = CGPoint(x: totalX / CGFloat(viewModel.model.nodes.count), y: totalY / CGFloat(viewModel.model.nodes.count))
+        var centerPoint: CGPoint
         
-        // Set offset to center centroid
+        if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+            centerPoint = selectedNode.position  // Center on selected node
+        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                  let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }), let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+            // Center on edge midpoint
+            centerPoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
+        } else {
+            // Default: Centroid
+            let totalX = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.x }
+            let totalY = viewModel.model.nodes.reduce(0.0) { $0 + $1.position.y }
+            centerPoint = CGPoint(x: totalX / CGFloat(viewModel.model.nodes.count), y: totalY / CGFloat(viewModel.model.nodes.count))
+        }
+        
+        // Set offset to center the point
         offset = CGSize(
-            width: viewSize.width / 2 - centroid.x * zoomScale,
-            height: viewSize.height / 2 - centroid.y * zoomScale
+            width: viewSize.width / 2 - centerPoint.x * zoomScale,
+            height: viewSize.height / 2 - centerPoint.y * zoomScale
         )
         
         clampOffset()  // Clamp after centering
