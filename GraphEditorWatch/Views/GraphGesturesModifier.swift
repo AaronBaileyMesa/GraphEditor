@@ -1,10 +1,3 @@
-//
-//  GraphGesturesModifier.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
-//
-
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -25,51 +18,61 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     
-    @State private var dragStartNode: (any NodeProtocol)? = nil  // New: Track node at drag start
-    @State private var isMovingSelectedNode: Bool = false  // New: Flag for moving selected node
+    @State private var dragStartNode: (any NodeProtocol)? = nil
+    @State private var isMovingSelectedNode: Bool = false
+    
+    // New: Helper to convert screen coords to model coords (full inverse transform)
+    private func screenToModel(_ screenPos: CGPoint) -> CGPoint {
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        
+        let visibleNodes = viewModel.model.visibleNodes()
+        var effectiveCentroid = visibleNodes.centroid() ?? .zero
+        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
+            effectiveCentroid = selected.position
+        } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            effectiveCentroid = (from.position + to.position) / 2
+        }
+        
+        let translated = screenPos - viewCenter - panOffset
+        let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+        return unscaled + effectiveCentroid
+    }
     
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
-                let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                let inverseTransform = transform.inverted()
-                let touchPos = value.location.applying(inverseTransform)
+                let touchPos = screenToModel(value.location)  // Updated: Use full inverse
                 
                 if dragStartNode == nil {
-                    // Detect start on node
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, value.startLocation.applying(inverseTransform)) < AppConstants.hitScreenRadius / zoomScale }) {
+                    let startModelPos = screenToModel(value.startLocation)  // Updated: Use full inverse for initial hit
+                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
                         dragStartNode = hitNode
                         isMovingSelectedNode = (hitNode.id == selectedNodeID)
                     }
                 }
                 
                 if isMovingSelectedNode, let node = dragStartNode {
-                    // Update dragOffset for moving
                     dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                    draggedNode = node  // Set for rendering
+                    draggedNode = node
                 } else {
-                    // Pan if not moving node
                     if panStartOffset == nil {
                         panStartOffset = offset
                     }
                     offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
                 }
                 
-                // Update potential target for edge creation
                 potentialEdgeTarget = viewModel.model.nodes.first {
-                    dragStartNode?.id != $0.id && distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale
+                    dragStartNode?.id != $0.id && distance($0.position, touchPos) < Constants.App.hitScreenRadius / zoomScale
                 }
             }
             .onEnded { value in
                 let dragDistance = hypot(value.translation.width, value.translation.height)
-                let transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale).translatedBy(x: offset.width, y: offset.height)
-                let inverseTransform = transform.inverted()
-                // Removed unused endPos
                 
-                if dragDistance < AppConstants.tapThreshold {
-                    // Tap: Select/deselect
-                    let touchPos = value.startLocation.applying(inverseTransform)
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, touchPos) < AppConstants.hitScreenRadius / zoomScale }) {
+                if dragDistance < Constants.App.tapThreshold {
+                    let tapModelPos = screenToModel(value.startLocation)  // Updated: Use full inverse for tap
+                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, tapModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
                         if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
                             viewModel.snapshot()
                             viewModel.model.nodes[index] = hitNode.handlingTap()
@@ -81,7 +84,7 @@ struct GraphGesturesModifier: ViewModifier {
                     } else if let hitEdge = viewModel.model.edges.first(where: { edge in
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                           pointToLineDistance(point: touchPos, from: from.position, to: to.position) < AppConstants.hitScreenRadius / zoomScale {
+                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {  // Updated: Use tapModelPos
                             return true
                         }
                         return false
@@ -94,29 +97,23 @@ struct GraphGesturesModifier: ViewModifier {
                         selectedEdgeID = nil
                     }
                 } else {
-                    // Drag: Create edge or move
                     viewModel.snapshot()
                     if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id,
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                        // Create edge
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
                         WKInterfaceDevice.current().play(.success)
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                        // Move selected node
                         var updatedNode = viewModel.model.nodes[index]
                         updatedNode.position.x += value.translation.width / zoomScale
                         updatedNode.position.y += value.translation.height / zoomScale
                         viewModel.model.nodes[index] = updatedNode
                         viewModel.model.startSimulation()
                         WKInterfaceDevice.current().play(.success)
-                    } else {
-                        // Pan completed (offset already updated)
                     }
                 }
                 
-                // Reset states
                 dragStartNode = nil
                 isMovingSelectedNode = false
                 draggedNode = nil
@@ -137,13 +134,18 @@ struct GraphGesturesModifier: ViewModifier {
             .highPriorityGesture(longPressGesture)
     }
     
+    // Existing pointToLineDistance and distance functions (ensure they're defined or imported)
+    private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
+        hypot(p1.x - p2.x, p1.y - p2.y)
+    }
+    
     private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
         let lineVec = to - from
         let pointVec = point - from
-        let lineLen = lineVec.magnitude
+        let lineLen = hypot(lineVec.x, lineVec.y)
         if lineLen == 0 { return distance(point, from) }
         let t = max(0, min(1, (pointVec.x * lineVec.x + pointVec.y * lineVec.y) / (lineLen * lineLen)))
-        let projection = from + lineVec * t
+        let projection = from + CGPoint(x: lineVec.x * t, y: lineVec.y * t)
         return distance(point, projection)
     }
 }
