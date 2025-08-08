@@ -50,4 +50,22 @@ class GraphViewModel: ObservableObject {
     func deleteSelectedEdge(id: UUID?) {
         model.deleteSelectedEdge(id: id)
     }
+    
+    func addNode(at position: CGPoint) {
+        model.addNode(at: position)
+    }
+
+    func addToggleNode(at position: CGPoint) {
+        model.addToggleNode(at: position)
+    }
+
+    func addChild(to parentID: NodeID) {
+        model.addChild(to: parentID)
+    }
+
+    func clearGraph() {
+        model.clearGraph()
+    }
+    
+    
 }
