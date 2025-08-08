@@ -9,6 +9,7 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import Foundation
 
 struct ContentView: View {
     @StateObject var viewModel: GraphViewModel
@@ -25,10 +26,18 @@ struct ContentView: View {
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
-    @State private var previousCrownPosition: Double = 2.5  // Match initial crownPosition
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @State private var selectedEdgeID: UUID? = nil  // New state
     @Environment(\.scenePhase) private var scenePhase
+    @State private var previousCrownPosition: Double = 2.5
+
+    
+    // New: Timer for debouncing simulation resume
+    @State private var resumeTimer: Timer? = nil
+    
+    @State private var logOffsetChanges = true  // Toggle for console logs
+
+    @State private var isPanning: Bool = false  // New: Track panning to pause clamping/simulation
     
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
@@ -37,23 +46,13 @@ struct ContentView: View {
     }
     
     // New: Define the shared closure here (incorporates your existing logic + offset clamping)
+    // In ContentView, update the onUpdateZoomRanges closure:
     private var onUpdateZoomRanges: () -> Void {
         return {
-            // Directly use self (safe for struct)
             self.updateZoomRanges()
-            
-            // Add improved offset clamping (allows positive for zoom-out centering)
-            let bbox = self.viewModel.model.physicsEngine.boundingBox(nodes: self.viewModel.model.visibleNodes())
-            let scaledWidth = bbox.width * self.zoomScale
-            let scaledHeight = bbox.height * self.zoomScale
-            
-            let minOffsetX = min(0.0, self.viewSize.width - scaledWidth)
-            let maxOffsetX = max(0.0, self.viewSize.width - scaledWidth)
-            let minOffsetY = min(0.0, self.viewSize.height - scaledHeight)
-            let maxOffsetY = max(0.0, self.viewSize.height - scaledHeight)
-            
-            self.offset.width = max(min(self.offset.width, maxOffsetX), minOffsetX)
-            self.offset.height = max(min(self.offset.height, maxOffsetY), minOffsetY)
+            if !self.isPanning {
+                self.clampOffset()
+            }
         }
     }
     
@@ -67,31 +66,77 @@ struct ContentView: View {
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { oldValue, newValue in
+        .onChange(of: crownPosition) { newValue in  // Single parameter for watchOS 9 compatibility
+            let oldValue = previousCrownPosition  // Manually get "old" from stored state
+            
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
-                updateZoomScale(oldCrown: oldValue, adjustOffset: false)
+                // Skip update if just clamping (prevents invalid calls)
                 return
             }
             
             let maxCrown = Double(AppConstants.numZoomLevels - 1)
-            let clampedValue = max(0, min(newValue, maxCrown))
+            let clampedValue = Swift.max(0, Swift.min(newValue, maxCrown))
             if clampedValue != newValue {
+                ignoreNextCrownChange = true  // Prevent feedback loop on set
                 crownPosition = clampedValue
+                previousCrownPosition = clampedValue  // Update previous immediately for clamping
                 return
             }
             
-            // Integrated updates here
-            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
-            previousCrownPosition = newValue
+            // Pause simulation on crown interaction
+            viewModel.model.stopSimulation()
+            isZooming = true
+            resumeTimer?.invalidate()
             
-            // Debounce simulation resume
-            if isZooming {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.isZooming = false
+            // Explicitly typed closure to fix inference
+            let resumeBlock: (Timer) -> Void = { [self] _ in  // Discard timer if unused
+                self.isZooming = false
+                self.viewModel.model.startSimulation()  // Use startSimulation (safe to call multiple times)
+            }
+            resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: resumeBlock)
+            
+            // Integrated updates here
+            let oldOffset = offset  // For logging
+            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
+            clampOffset()  // Clamp after zoom adjustment
+            if logOffsetChanges && oldOffset != offset {
+                print("Offset changed during zoom: from \(oldOffset) to \(offset)")
+            }
+            
+            previousCrownPosition = newValue  // Update previous at end
+        }
+        .onReceive(viewModel.model.$nodes) { _ in
+            onUpdateZoomRanges()
+        }
+        .onChange(of: panStartOffset) { newValue in
+            isPanning = newValue != nil
+            if isPanning {
+                viewModel.model.stopSimulation()
+            } else {
+                resumeTimer?.invalidate()
+                let block: (Timer) -> Void = { [self] _ in
                     self.viewModel.model.startSimulation()
                 }
+                resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: block)
             }
+        }
+        .onChange(of: scenePhase) { newPhase in
+            switch newPhase {
+            case .active:
+                viewModel.model.startSimulation()
+            case .inactive, .background:
+                viewModel.model.stopSimulation()
+            @unknown default:
+                break
+            }
+        }
+        .onAppear {
+            viewSize = WKInterfaceDevice.current().screenBounds.size
+            onUpdateZoomRanges()
+            viewModel.model.startSimulation()
+            centerGraph()
+            previousCrownPosition = crownPosition  // New: Init previous
         }
     }
     
@@ -175,18 +220,18 @@ struct ContentView: View {
         }
         
         let bbox = viewModel.model.boundingBox()
-        let graphWidth = max(bbox.width, CGFloat(20)) + CGFloat(20)
-        let graphHeight = max(bbox.height, CGFloat(20)) + CGFloat(20)
-        let graphDia = max(graphWidth, graphHeight)
-        let targetDia = min(viewSize.width, viewSize.height) / CGFloat(3)
+        let graphWidth = Swift.max(bbox.width, CGFloat(20)) + CGFloat(20)
+        let graphHeight = Swift.max(bbox.height, CGFloat(20)) + CGFloat(20)
+        let graphDia = Swift.max(graphWidth, graphHeight)
+        let targetDia = Swift.min(viewSize.width, viewSize.height) / CGFloat(3)
         let newMinZoom = targetDia / graphDia
         
         let nodeDia = 2 * AppConstants.nodeModelRadius
-        let targetNodeDia = min(viewSize.width, viewSize.height) * (CGFloat(2) / CGFloat(3))
+        let targetNodeDia = Swift.min(viewSize.width, viewSize.height) * (CGFloat(2) / CGFloat(3))
         let newMaxZoom = targetNodeDia / nodeDia
         
         minZoom = newMinZoom
-        maxZoom = max(newMaxZoom, newMinZoom * CGFloat(2))
+        maxZoom = Swift.max(newMaxZoom, newMinZoom * CGFloat(2))
         
         let currentScale = zoomScale
         var progress: CGFloat = 0.5
@@ -207,39 +252,56 @@ struct ContentView: View {
     
     // Updates the zoom scale and adjusts offset if needed.
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
-        let oldProgress = oldCrown / Double(AppConstants.numZoomLevels - 1)
-        let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), oldProgress))
+        // Clamp oldCrown to valid range (prevents invalid oldScale)
+        let clampedOldCrown = Swift.max(0, Swift.min(oldCrown, Double(AppConstants.numZoomLevels - 1)))
+        
+        let oldProgress = clampedOldCrown / Double(AppConstants.numZoomLevels - 1)
+        let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(oldProgress)))
         
         let newProgress = crownPosition / Double(AppConstants.numZoomLevels - 1)
-        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
+        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            var focus: CGPoint  // Screen focus point (use view center for gray circle)
-            var worldFocus: CGPoint  // Corresponding world point
-            
-            if let selectedID = selectedNodeID,
-               let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                worldFocus = node.position
-                focus = CGPoint(
-                    x: worldFocus.x * oldScale + offset.width,
-                    y: worldFocus.y * oldScale + offset.height
-                )
-            } else {
-                // Always focus on view center (gray circle)
-                focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
-            }
-            
-            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)
+            // Center focus without bias
+            let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height * 0.5)
+            let worldFocus = CGPoint(
+                x: (focus.x - offset.width) / oldScale,
+                y: (focus.y - offset.height) / oldScale
+            )
+            offset = CGSize(
+                width: focus.x - worldFocus.x * newScale,
+                height: focus.y - worldFocus.y * newScale
+            )
         }
         
         zoomScale = newScale
-        
-        // New: Recenter if no selection after zoom
-        if selectedNodeID == nil {
-            centerGraph()
-        }
     }
+    
+    private func clampOffset() {
+        let paddingX = viewSize.width * 0.25
+        let paddingY = viewSize.height * 0.25
+        
+        let bbox = self.viewModel.model.physicsEngine.boundingBox(nodes: self.viewModel.model.visibleNodes())
+        
+        let scaledMinX = bbox.minX * self.zoomScale
+        let scaledMaxX = bbox.maxX * self.zoomScale
+        let scaledMinY = bbox.minY * self.zoomScale
+        let scaledMaxY = bbox.maxY * self.zoomScale
+        
+        let minOffsetX = -scaledMinX - paddingX
+        let maxOffsetX = self.viewSize.width - scaledMaxX + paddingX
+        let minOffsetY = -scaledMinY - paddingY
+        let maxOffsetY = self.viewSize.height - scaledMaxY + paddingY
+        
+        let clampedMinX = Swift.min(minOffsetX, maxOffsetX)
+        let clampedMaxX = Swift.max(minOffsetX, maxOffsetX)
+        let clampedMinY = Swift.min(minOffsetY, maxOffsetY)
+        let clampedMaxY = Swift.max(minOffsetY, maxOffsetY)
+        
+        self.offset.width = Swift.max(Swift.min(self.offset.width, clampedMaxX), clampedMinX)
+        self.offset.height = Swift.max(Swift.min(self.offset.height, clampedMaxY), clampedMinY)
+    }
+    
     
     private func centerGraph() {
         guard !viewModel.model.nodes.isEmpty else { return }
@@ -255,9 +317,15 @@ struct ContentView: View {
             height: viewSize.height / 2 - centroid.y * zoomScale
         )
         
-        onUpdateZoomRanges()  // Clamp after centering
+        clampOffset()  // Clamp after centering
     }
     
+}
+
+extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
 }
 
 #Preview {

@@ -15,7 +15,7 @@ struct AppConstants {
     static let tapThreshold: CGFloat = 10.0
     
     // Zooming
-    static let numZoomLevels = 6
+    static let numZoomLevels = 10
     static let defaultMinZoom: CGFloat = 0.2
     static let defaultMaxZoom: CGFloat = 5.0
 }

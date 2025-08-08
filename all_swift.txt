@@ -103,7 +103,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-07 11:11:58
+Last modified: 2025-08-07 22:11:02
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -1823,7 +1823,7 @@ struct GraphEditorWatchApp: App {
 --------------------------------------------------
 File: AppConstants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Models/AppConstants.swift
-Last modified: 2025-08-03 18:26:04
+Last modified: 2025-08-07 18:42:52
 
 Contents:
 //
@@ -1843,10 +1843,11 @@ struct AppConstants {
     static let tapThreshold: CGFloat = 10.0
     
     // Zooming
-    static let numZoomLevels = 6
+    static let numZoomLevels = 10
     static let defaultMinZoom: CGFloat = 0.2
     static let defaultMaxZoom: CGFloat = 5.0
 }
+
 --------------------------------------------------
 --------------------------------------------------
 File: GraphViewModel.swift
@@ -1912,7 +1913,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-07 15:59:44
+Last modified: 2025-08-07 22:25:08
 
 Contents:
 //
@@ -1926,6 +1927,7 @@ Contents:
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import Foundation
 
 struct ContentView: View {
     @StateObject var viewModel: GraphViewModel
@@ -1942,10 +1944,16 @@ struct ContentView: View {
     @State private var ignoreNextCrownChange: Bool = false
     @State private var selectedNodeID: NodeID? = nil
     @State private var showMenu = false
-    @State private var previousCrownPosition: Double = 2.5  // Match initial crownPosition
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @State private var selectedEdgeID: UUID? = nil  // New state
     @Environment(\.scenePhase) private var scenePhase
+    @State private var previousCrownPosition: Double = 2.5
+
+    
+    // New: Timer for debouncing simulation resume
+    @State private var resumeTimer: Timer? = nil
+    
+    @State private var logOffsetChanges = true  // Toggle for console logs
     
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
@@ -1954,23 +1962,33 @@ struct ContentView: View {
     }
     
     // New: Define the shared closure here (incorporates your existing logic + offset clamping)
+    // In ContentView, update the onUpdateZoomRanges closure:
     private var onUpdateZoomRanges: () -> Void {
         return {
-            // Directly use self (safe for struct)
             self.updateZoomRanges()
             
-            // Add improved offset clamping (allows positive for zoom-out centering)
+            // Improved clamping using full bbox (minX, minY, etc.)
             let bbox = self.viewModel.model.physicsEngine.boundingBox(nodes: self.viewModel.model.visibleNodes())
-            let scaledWidth = bbox.width * self.zoomScale
-            let scaledHeight = bbox.height * self.zoomScale
             
-            let minOffsetX = min(0.0, self.viewSize.width - scaledWidth)
-            let maxOffsetX = max(0.0, self.viewSize.width - scaledWidth)
-            let minOffsetY = min(0.0, self.viewSize.height - scaledHeight)
-            let maxOffsetY = max(0.0, self.viewSize.height - scaledHeight)
+            let scaledMinX = bbox.minX * self.zoomScale
+            let scaledMaxX = bbox.maxX * self.zoomScale
+            let scaledMinY = bbox.minY * self.zoomScale
+            let scaledMaxY = bbox.maxY * self.zoomScale
             
-            self.offset.width = max(min(self.offset.width, maxOffsetX), minOffsetX)
-            self.offset.height = max(min(self.offset.height, maxOffsetY), minOffsetY)
+            // Allow full visibility: graph edges can't go outside view
+            let minOffsetX = -scaledMinX  // To align left edge to view left
+            let maxOffsetX = self.viewSize.width - scaledMaxX  // To align right edge to view right
+            let minOffsetY = -scaledMinY  // To align top edge to view top
+            let maxOffsetY = self.viewSize.height - scaledMaxY  // To align bottom edge to view bottom
+            
+            // Ensure min <= max (handles very large/small cases)
+            let clampedMinX = min(minOffsetX, maxOffsetX)
+            let clampedMaxX = max(minOffsetX, maxOffsetX)
+            let clampedMinY = min(minOffsetY, maxOffsetY)
+            let clampedMaxY = max(minOffsetY, maxOffsetY)
+            
+            //self.offset.width = max(min(self.offset.width, clampedMaxX), clampedMinX)
+            //self.offset.height = max(min(self.offset.height, clampedMaxY), clampedMinY)
         }
     }
     
@@ -1984,32 +2002,50 @@ struct ContentView: View {
         }
         .focusable()
         .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
-        .onChange(of: crownPosition) { oldValue, newValue in
+        // Add or ensure this @State is present (matches initial crownPosition)
+        // In body:
+        .focusable()
+        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(AppConstants.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
+        .onChange(of: crownPosition) { newValue in  // Single parameter for watchOS 9 compatibility
+            let oldValue = previousCrownPosition  // Manually get "old" from stored state
+            
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
-                updateZoomScale(oldCrown: oldValue, adjustOffset: false)
+                // Skip update if just clamping (prevents invalid calls)
                 return
             }
             
             let maxCrown = Double(AppConstants.numZoomLevels - 1)
             let clampedValue = max(0, min(newValue, maxCrown))
             if clampedValue != newValue {
+                ignoreNextCrownChange = true  // Prevent feedback loop on set
                 crownPosition = clampedValue
+                previousCrownPosition = clampedValue  // Update previous immediately for clamping
                 return
             }
             
-            // Integrated updates here
-            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
-            previousCrownPosition = newValue
+            // Pause simulation on crown interaction
+            viewModel.model.stopSimulation()
+            isZooming = true
+            resumeTimer?.invalidate()
             
-            // Debounce simulation resume
-            if isZooming {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.isZooming = false
-                    self.viewModel.model.startSimulation()
-                }
+            // Explicitly typed closure to fix inference
+            let resumeBlock: (Timer) -> Void = { [weak self] _ in  // Discard timer if unused
+                self?.isZooming = false
+                self?.viewModel.model.startSimulationIfNeeded()  // Use ifNeeded to avoid unnecessary starts
             }
+            resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false, block: resumeBlock)
+            
+            // Integrated updates here
+            let oldOffset = offset  // For logging
+            updateZoomScale(oldCrown: oldValue, adjustOffset: true)
+            if logOffsetChanges && oldOffset != offset {
+                print("Offset changed during zoom: from \(oldOffset) to \(offset)")
+            }
+            
+            previousCrownPosition = newValue  // Update previous at end
         }
+        
     }
     
     private func graphCanvasView(geo: GeometryProxy) -> some View {
@@ -2124,39 +2160,31 @@ struct ContentView: View {
     
     // Updates the zoom scale and adjusts offset if needed.
     private func updateZoomScale(oldCrown: Double, adjustOffset: Bool) {
-        let oldProgress = oldCrown / Double(AppConstants.numZoomLevels - 1)
-        let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), oldProgress))
+        // Clamp oldCrown to valid range (prevents invalid oldScale)
+        let clampedOldCrown = max(0, min(oldCrown, Double(AppConstants.numZoomLevels - 1)))
+        
+        let oldProgress = clampedOldCrown / Double(AppConstants.numZoomLevels - 1)
+        let oldScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(oldProgress)))
         
         let newProgress = crownPosition / Double(AppConstants.numZoomLevels - 1)
-        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), newProgress))
+        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
         if adjustOffset && oldScale != newScale && viewSize != .zero {
-            var focus: CGPoint  // Screen focus point (use view center for gray circle)
-            var worldFocus: CGPoint  // Corresponding world point
-            
-            if let selectedID = selectedNodeID,
-               let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                worldFocus = node.position
-                focus = CGPoint(
-                    x: worldFocus.x * oldScale + offset.width,
-                    y: worldFocus.y * oldScale + offset.height
-                )
-            } else {
-                // Always focus on view center (gray circle)
-                focus = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                worldFocus = CGPoint(x: (focus.x - offset.width) / oldScale, y: (focus.y - offset.height) / oldScale)
-            }
-            
-            offset = CGSize(width: focus.x - worldFocus.x * newScale, height: focus.y - worldFocus.y * newScale)
+            // Slight downward bias to counter top UI (e.g., time); adjust 0.55 to 0.5 if no shift
+            let focus = CGPoint(x: viewSize.width / 2, y: viewSize.height * 0.55)
+            let worldFocus = CGPoint(
+                x: (focus.x - offset.width) / oldScale,
+                y: (focus.y - offset.height) / oldScale
+            )
+            offset = CGSize(
+                width: focus.x - worldFocus.x * newScale,
+                height: focus.y - worldFocus.y * newScale
+            )
         }
         
         zoomScale = newScale
-        
-        // New: Recenter if no selection after zoom
-        if selectedNodeID == nil {
-            centerGraph()
-        }
     }
+    
     
     private func centerGraph() {
         guard !viewModel.model.nodes.isEmpty else { return }
