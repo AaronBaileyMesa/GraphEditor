@@ -26,12 +26,20 @@ struct GraphCanvasView: View {
     @State private var previousZoomScale: CGFloat = 1.0
     @State private var zoomTimer: Timer? = nil
     @Binding var selectedEdgeID: UUID?
+    @Binding var showOverlays: Bool  // New binding for overlays
     
     private var canvasBase: some View {
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let visibleNodes = viewModel.model.visibleNodes()
-        let centroid = visibleNodes.centroid() ?? .zero
+        
+        var effectiveCentroid = visibleNodes.centroid() ?? .zero
+        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
+            effectiveCentroid = selected.position
+        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            effectiveCentroid = (from.position + to.position) / 2.0
+        }
         
         return ZStack {
             Circle()
@@ -47,8 +55,8 @@ struct GraphCanvasView: View {
                         let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
                         let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
                         
-                        let fromDisplay = (fromPos - centroid) * zoomScale + viewCenter + panOffset
-                        let toDisplay = (toPos - centroid) * zoomScale + viewCenter + panOffset
+                        let fromDisplay = (fromPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
+                        let toDisplay = (toPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
                         
                         let direction = toDisplay - fromDisplay
                         let length = hypot(direction.x, direction.y)
@@ -92,8 +100,8 @@ struct GraphCanvasView: View {
                 if let dragged = draggedNode, let target = potentialEdgeTarget {
                     let fromPos = dragged.position + dragOffset
                     let toPos = target.position
-                    let fromDisplay = (fromPos - centroid) * zoomScale + viewCenter + panOffset
-                    let toDisplay = (toPos - centroid) * zoomScale + viewCenter + panOffset
+                    let fromDisplay = (fromPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
+                    let toDisplay = (toPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
                     context.stroke(Path { path in
                         path.move(to: fromDisplay)
                         path.addLine(to: toDisplay)
@@ -103,7 +111,7 @@ struct GraphCanvasView: View {
                 for node in visibleNodes {
                     let isDragged = draggedNode?.id == node.id
                     let worldPos = isDragged ? node.position + dragOffset : node.position
-                    let relative = worldPos - centroid
+                    let relative = worldPos - effectiveCentroid
                     let scaled = relative * zoomScale
                     let displayPos = scaled + viewCenter + panOffset
                     let isSelected = node.id == selectedNodeID
@@ -111,20 +119,45 @@ struct GraphCanvasView: View {
                     node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
                 }
             }
-            .drawingGroup()
+            .drawingGroup()  // Moved here, attached to Canvas
             
-            if let centroid = visibleNodes.centroid() {
-                let relative = centroid - centroid  // Zero
-                let scaled = relative * zoomScale
-                let displayPos = scaled + viewCenter + panOffset  // Moves with pan, fixed during zoom
+            if showOverlays {
+                if !visibleNodes.isEmpty {
+                    // Compute model BBox (reuse existing method)
+                    let modelBBox = viewModel.model.boundingBox()
+                    
+                    // Compute relative corners (to effectiveCentroid)
+                    let minRel = CGPoint(x: modelBBox.minX, y: modelBBox.minY) - effectiveCentroid
+                    let maxRel = CGPoint(x: modelBBox.maxX, y: modelBBox.maxY) - effectiveCentroid
+                    
+                    // Scale and position on screen
+                    let minDisplay = minRel * zoomScale + viewCenter + panOffset
+                    let maxDisplay = maxRel * zoomScale + viewCenter + panOffset
+                    
+                    let displayWidth = maxDisplay.x - minDisplay.x
+                    let displayHeight = maxDisplay.y - minDisplay.y
+                    let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
+                    
+                    Rectangle()
+                        .stroke(Color.blue, lineWidth: 1.0)  // Keep thin, unscaled
+                        .frame(width: displayWidth, height: displayHeight)
+                        .position(displayCenter)
+                }
                 
-                Circle()
-                    .fill(Color.yellow)
-                    .frame(width: 4, height: 4)
-                    .position(displayPos)
+                if let centroid = visibleNodes.centroid() {
+                    let relative = centroid - effectiveCentroid  // Adjust for effective
+                    let scaled = relative * zoomScale
+                    let displayPos = scaled + viewCenter + panOffset
+                    
+                    Circle()
+                        .fill(Color.yellow)
+                        .frame(width: 4, height: 4)
+                        .position(displayPos)
+                }
             }
         }
     }
+    
     private var interactiveCanvas: some View {
         canvasBase
     }
