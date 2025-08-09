@@ -103,7 +103,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-09 09:22:21
+Last modified: 2025-08-09 13:21:26
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -137,8 +137,8 @@ public class GraphModel: ObservableObject {
     
     private lazy var simulator: GraphSimulator = {
         GraphSimulator(
-            getNodes: { [weak self] in self?.nodes ?? [] },  // [any NodeProtocol]
-            setNodes: { [weak self] nodes in self?.nodes = nodes },  // [any NodeProtocol]
+            getNodes: { [weak self] in self?.nodes ?? [] },
+            setNodes: { [weak self] nodes in self?.nodes = nodes },
             getEdges: { [weak self] in self?.edges ?? [] },
             physicsEngine: self.physicsEngine,
             onStable: { [weak self] in
@@ -186,13 +186,21 @@ public class GraphModel: ObservableObject {
             } catch {
                 os_log("Save defaults failed: %{public}s", log: logger, type: .error, error.localizedDescription)
             }
-        } else {
-            // NO save here; loaded data doesn't need immediate save
         }
         
         self.nodes = tempNodes
         self.edges = tempEdges
-        self.nextNodeLabel = tempNextLabel
+        self.nextNodeLabel = tempNextLabel  // Always set (computed above)
+    }
+
+    public func clearGraph() {
+        snapshot()
+        nodes = []
+        edges = []
+        nextNodeLabel = 1  // Explicit reset
+        physicsEngine.resetSimulation()
+        startSimulation()
+        try? storage.clear()
     }
     
     // Static factory for default graph creation.
@@ -240,7 +248,7 @@ public class GraphModel: ObservableObject {
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
 #if os(watchOS)
-        WKInterfaceDevice.current().play(.success)
+        WKInterfaceDevice.current().play(.click)
 #endif
         do {
             try storage.save(nodes: nodes, edges: edges)
@@ -263,7 +271,7 @@ public class GraphModel: ObservableObject {
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
 #if os(watchOS)
-        WKInterfaceDevice.current().play(.success)
+        WKInterfaceDevice.current().play(.click)
 #endif
         do {
             try storage.save(nodes: nodes, edges: edges)
@@ -308,16 +316,13 @@ public class GraphModel: ObservableObject {
     }
     
     public func startSimulation() {
-        simulationTimer?.invalidate()
-        isSimulating = true
-        simulationTimer = Timer.scheduledTimer(withTimeInterval: Constants.Physics.timeStep, repeats: true) { _ in
-            let (updatedNodes, isActive) = self.physicsEngine.simulationStep(nodes: self.nodes, edges: self.edges)
-            self.nodes = updatedNodes
-            if !isActive {
-                self.stopSimulation()
-            }
-            self.objectWillChange.send()  // Notify observers of changes
+        simulator.startSimulation { [weak self] in
+            self?.objectWillChange.send()
         }
+    }
+
+    public func stopSimulation() {
+        simulator.stopSimulation()
     }
 
     public func pauseSimulation() {
@@ -330,10 +335,6 @@ public class GraphModel: ObservableObject {
         startSimulation()
     }
 
-    public func stopSimulation() {
-        simulationTimer?.invalidate()
-        isSimulating = false
-    }
     
     public func boundingBox() -> CGRect {
         self.physicsEngine.boundingBox(nodes: nodes)
@@ -342,25 +343,23 @@ public class GraphModel: ObservableObject {
     // Visibility methods
     public func visibleNodes() -> [any NodeProtocol] {
         var visible: [any NodeProtocol] = []
-            let adjacency = buildAdjacencyList()  // from -> [to]
-            let incoming = Set(edges.map { $0.to })
-            let roots = nodes.filter { !incoming.contains($0.id) }
-            var visited = Set<NodeID>()
-            for root in roots {
-                if root.isVisible {
-                    dfsVisible(node: root, adjacency: adjacency, visited: &visited, visible: &visible)
-                }
-            }
+        let adjacency = buildAdjacencyList()
+        let incoming = Set(edges.map { $0.to })
+        let roots = nodes.filter { !incoming.contains($0.id) }
+        var visited = Set<NodeID>()
+        for root in roots {
+            dfsVisible(node: root, adjacency: adjacency, visited: &visited, visible: &visible)  // Removed isVisible check here; always start from roots
+        }
         return visible
     }
     
     private func dfsVisible(node: any NodeProtocol, adjacency: [NodeID: [NodeID]], visited: inout Set<NodeID>, visible: inout [any NodeProtocol]) {
         visited.insert(node.id)
-        visible.append(node)
-        if !node.isExpanded { return }  // Updated: Use protocol property (no cast)
+        visible.append(node)  // Always append (even if collapsed)
+        if !node.isExpanded { return }
         if let children = adjacency[node.id] {
             for childID in children {
-                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID }), child.isVisible {
+                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID }) {
                     dfsVisible(node: child, adjacency: adjacency, visited: &visited, visible: &visible)
                 }
             }
@@ -396,16 +395,6 @@ public class GraphModel: ObservableObject {
         edges.append(GraphEdge(from: parentID, to: child.id))
         physicsEngine.resetSimulation()
         startSimulation()
-    }
-    
-    public func clearGraph() {
-        snapshot()
-        nodes = []
-        edges = []
-        nextNodeLabel = 1
-        physicsEngine.resetSimulation()
-        startSimulation()
-        try? storage.clear()  // New: Reset persistence
     }
 }
 
@@ -718,7 +707,7 @@ public enum NodeWrapper: Codable {
 --------------------------------------------------
 File: NodeProtocol.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-09 09:56:01
+Last modified: 2025-08-09 12:40:41
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -831,19 +820,18 @@ public extension NodeProtocol {
         let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
         context.fill(innerPath, with: .color(.red))
         
-        if isSelected {  // NEW: Only draw label if selected
-            let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-            let labelKey = "\(label)-\(fontSize)"
-            let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
-                if let cached = nodeTextCache[labelKey] { return cached }
-                let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
-                let resolved = context.resolve(text)
-                nodeCacheQueue.async(flags: .barrier) { nodeTextCache[labelKey] = resolved }
-                return resolved
-            }
-            let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))  // NEW: Offset above node for "overlay" feel
-            context.draw(resolved, at: labelPosition, anchor: .center)
+        // Always draw label (removed if isSelected)
+        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+        let labelKey = "\(label)-\(fontSize)"
+        let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
+            if let cached = nodeTextCache[labelKey] { return cached }
+            let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
+            let resolved = context.resolve(text)
+            nodeCacheQueue.async(flags: .barrier) { nodeTextCache[labelKey] = resolved }
+            return resolved
         }
+        let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))
+        context.draw(resolved, at: labelPosition, anchor: .center)
     }
 }
 
@@ -851,7 +839,7 @@ public extension NodeProtocol {
 --------------------------------------------------
 File: PersistenceManager.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-09 09:09:10
+Last modified: 2025-08-09 13:16:47
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -924,16 +912,20 @@ public class PersistenceManager: GraphStorage {
         let nodesExist = fm.fileExists(atPath: nodeURL.path)
         let edgesExist = fm.fileExists(atPath: edgeURL.path)
         
-        // If both missing, return empty (initial state)
         if !nodesExist && !edgesExist {
             return ([], [])
         }
         
-        // If only one exists, throw as inconsistent
+        // Handle inconsistency: Delete orphan and return empty
         if nodesExist != edgesExist {
-            let message = nodesExist ? "Edges file missing but nodes exist" : "Nodes file missing but edges exist"
+            let message = nodesExist ? "Edges file missing but nodes exist; deleting orphan nodes file" : "Nodes file missing but edges exist; deleting orphan edges file"
             os_log("%{public}s", log: logger, type: .error, message)
-            throw GraphStorageError.inconsistentFiles(message)
+            if nodesExist {
+                try? fm.removeItem(at: nodeURL)
+            } else {
+                try? fm.removeItem(at: edgeURL)
+            }
+            return ([], [])  // Graceful empty return
         }
         
         // Both exist: Load and decode
@@ -972,7 +964,6 @@ public class PersistenceManager: GraphStorage {
         
         return (loadedNodes, loadedEdges)
     }
-    
     public func clear() throws {
         let fm = FileManager.default
         let nodeURL = baseURL.appendingPathComponent(nodesFileName)
@@ -991,7 +982,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-09 10:05:07
+Last modified: 2025-08-09 13:28:07
 
 Contents:
 //
@@ -1022,8 +1013,7 @@ public class PhysicsEngine {
         simulationSteps = 0
     }
     
-    public var useAsymmetricAttraction: Bool = true
-    
+    public var useAsymmetricAttraction: Bool = false  // Default to false for stability
     public var isPaused: Bool = false
     
     @discardableResult
@@ -1078,14 +1068,18 @@ public class PhysicsEngine {
             let forceX = forceDirectionX * forceMagnitude
             let forceY = forceDirectionY * forceMagnitude
             
+            let symmetricFactor: CGFloat = 0.2  // Small symmetric pull for damping
+            let symForceX = forceX * symmetricFactor
+            let symForceY = forceY * symmetricFactor
+            
+            let currentForceFrom = updatedForces[fromNode.id] ?? .zero
+            updatedForces[fromNode.id] = CGPoint(x: currentForceFrom.x + symForceX, y: currentForceFrom.y + symForceY)
+            
+            let currentForceTo = updatedForces[toNode.id] ?? .zero
             if useAsymmetricAttraction {
-                let currentForceTo = updatedForces[toNode.id] ?? .zero
-                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * 2, y: currentForceTo.y - forceY * 2)
+                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * (1 + symmetricFactor), y: currentForceTo.y - forceY * (1 + symmetricFactor))
             } else {
-                let currentForceFrom = updatedForces[fromNode.id] ?? .zero
-                updatedForces[fromNode.id] = CGPoint(x: currentForceFrom.x + forceX, y: currentForceFrom.y + forceY)
-                let currentForceTo = updatedForces[toNode.id] ?? .zero
-                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX, y: currentForceTo.y - forceY)
+                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX + symForceX, y: currentForceTo.y - forceY + symForceY)  // Symmetric with damping
             }
         }
         return updatedForces
@@ -1115,34 +1109,47 @@ public class PhysicsEngine {
             newVelocity = CGPoint(x: newVelocity.x * Constants.Physics.damping, y: newVelocity.y * Constants.Physics.damping)
             var newPosition = CGPoint(x: node.position.x + newVelocity.x * Constants.Physics.timeStep, y: node.position.y + newVelocity.y * Constants.Physics.timeStep)
             
-            // Tentative bounds clamp and bounce
+            // Tentative bounds clamp and softer bounce
             let oldPosition = newPosition
             newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
             newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
             if newPosition.x != oldPosition.x {
-                newVelocity.x = -newVelocity.x * Constants.Physics.damping
+                newVelocity.x = -newVelocity.x * 0.8  // Softer: 0.8 instead of full damping
             }
             if newPosition.y != oldPosition.y {
-                newVelocity.y = -newVelocity.y * Constants.Physics.damping
+                newVelocity.y = -newVelocity.y * 0.8
             }
             
             tentativeUpdates[node.id] = (newPosition, newVelocity)
         }
         
+        // Build multi-parent map: child -> [parents]
+        var parentMap = [NodeID: [NodeID]]()
+        for edge in edges {
+            parentMap[edge.to, default: []].append(edge.from)
+        }
+        
         // Second pass: Apply clamping using tentative parent updates and create final updated nodes
         var updatedNodes: [any NodeProtocol] = []
-        let parentMap = edges.reduce(into: [NodeID: NodeID]()) { $0[$1.to] = $1.from }  // Child to parent (assume single parent)
         var totalVelocity: CGFloat = 0.0
         for node in nodes {
             var newPosition = tentativeUpdates[node.id]!.position
             var newVelocity = tentativeUpdates[node.id]!.velocity
             
-            if let parentID = parentMap[node.id],
-               let parent = nodes.first(where: { $0.id == parentID }),
-               !parent.isExpanded {
-                // Clamp to parent's tentative new position
-                newPosition = tentativeUpdates[parentID]!.position
-                newVelocity = .zero
+            if let parents = parentMap[node.id], !parents.isEmpty {
+                let collapsedParents = parents.filter { parentID in
+                    nodes.first(where: { $0.id == parentID })?.isExpanded == false
+                }
+                if !collapsedParents.isEmpty {
+                    // Average tentative positions of collapsed parents
+                    var avgPos = CGPoint.zero
+                    for parentID in collapsedParents {
+                        avgPos = avgPos + tentativeUpdates[parentID]!.position
+                    }
+                    avgPos = avgPos / CGFloat(collapsedParents.count)
+                    newPosition = avgPos
+                    newVelocity = .zero
+                }
             }
             
             let updatedNode = node.with(position: newPosition, velocity: newVelocity)
@@ -1155,6 +1162,7 @@ public class PhysicsEngine {
         
         return (updatedNodes, isActive)
     }
+    
     public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
         if nodes.isEmpty { return .zero }
         let xs = nodes.map { $0.position.x }
@@ -1374,23 +1382,25 @@ public class Quadtree {  // Made public for consistency/test access
 --------------------------------------------------
 File: ToggleNode.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-08-07 09:14:12
+Last modified: 2025-08-09 12:29:06
 
 Contents:
-import Foundation
+// Sources/GraphEditorShared/ToggleNode.swift
+
 import SwiftUI
+import Foundation
 
 @available(iOS 13.0, *)
 @available(watchOS 9.0, *)
 public struct ToggleNode: NodeProtocol {
     public let id: NodeID
-    public var label: Int
+    public let label: Int
     public var position: CGPoint
     public var velocity: CGPoint = .zero
     public var radius: CGFloat = 10.0
-    public var isExpanded: Bool = true  // Default expanded (green, children visible)
-    
-    public init(id: NodeID = UUID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true) {
+    public var isExpanded: Bool = true  // Mutable for toggle
+
+    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true) {
         self.id = id
         self.label = label
         self.position = position
@@ -1398,32 +1408,68 @@ public struct ToggleNode: NodeProtocol {
         self.radius = radius
         self.isExpanded = isExpanded
     }
-    
-    // Codable conformance (for persistence in Step 3)
-    enum CodingKeys: String, CodingKey {
-        case id, label, positionX, positionY, velocityX, velocityY, radius, isExpanded
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let decodedID = try container.decode(NodeID.self, forKey: .id)
-        let decodedLabel = try container.decode(Int.self, forKey: .label)
-        let decodedRadius = try container.decode(CGFloat.self, forKey: .radius)
-        let decodedIsExpanded = try container.decode(Bool.self, forKey: .isExpanded)
-        let posX = try container.decode(CGFloat.self, forKey: .positionX)
-        let posY = try container.decode(CGFloat.self, forKey: .positionY)
-        let decodedPosition = CGPoint(x: posX, y: posY)
-        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
-        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
-        let decodedVelocity = CGPoint(x: velX, y: velY)
-        
-        self.init(id: decodedID, label: decodedLabel, position: decodedPosition, velocity: decodedVelocity, radius: decodedRadius, isExpanded: decodedIsExpanded)
-    }
-    
+
     public func with(position: CGPoint, velocity: CGPoint) -> Self {
         ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded)
     }
-    
+
+    public func handlingTap() -> Self {
+        var updated = self
+        updated.isExpanded.toggle()
+        return updated
+    }
+
+    // Custom drawing: Square shape, blue color, +/- indicator
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
+        let scaledRadius = radius * zoomScale
+        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+        let borderRadius = scaledRadius + borderWidth / 2
+
+        if borderWidth > 0 {
+            let borderPath = Path(roundedRect: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius), cornerRadius: 4 * zoomScale)
+            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        }
+
+        let innerPath = Path(roundedRect: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius), cornerRadius: 4 * zoomScale)
+        context.fill(innerPath, with: .color(.blue))  // Distinct color
+
+        // +/- indicator (small text inside)
+        let indicator = isExpanded ? "+" : "-"  // Reversed for intuition: + when collapsed (to expand)
+        let fontSize = 10 * zoomScale
+        let text = Text(indicator).foregroundColor(.white).font(.system(size: fontSize, weight: .bold))
+        let resolved = context.resolve(text)
+        context.draw(resolved, at: position, anchor: .center)
+
+        // Always draw label above (fix "disappearing")
+        let labelFontSize = 12 * zoomScale
+        let labelText = Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize))
+        let labelResolved = context.resolve(labelText)
+        let labelPos = CGPoint(x: position.x, y: position.y - (scaledRadius + 8 * zoomScale))
+        context.draw(labelResolved, at: labelPos, anchor: .center)
+    }
+
+    // Coding support (mirror Node's, add isExpanded)
+    enum CodingKeys: String, CodingKey {
+        case id, label, radius, isExpanded
+        case positionX, positionY, velocityX, velocityY
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(NodeID.self, forKey: .id)
+        label = try container.decode(Int.self, forKey: .label)
+        radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0
+        isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
+        let posX = try container.decode(CGFloat.self, forKey: .positionX)
+        let posY = try container.decode(CGFloat.self, forKey: .positionY)
+        position = CGPoint(x: posX, y: posY)
+        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
+        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
+        velocity = CGPoint(x: velX, y: velY)
+    }
+
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(id, forKey: .id)
@@ -1434,75 +1480,6 @@ public struct ToggleNode: NodeProtocol {
         try container.encode(position.y, forKey: .positionY)
         try container.encode(velocity.x, forKey: .velocityX)
         try container.encode(velocity.y, forKey: .velocityY)
-    }
-    
-    // Equatable (manual, since protocol requires it)
-    public static func == (lhs: ToggleNode, rhs: ToggleNode) -> Bool {
-        lhs.id == rhs.id && lhs.label == rhs.label && lhs.position == rhs.position &&
-        lhs.velocity == rhs.velocity && lhs.radius == rhs.radius && lhs.isExpanded == rhs.isExpanded
-    }
-    
-    // Overrides
-    @available(iOS 13.0, *)
-    @available(watchOS 9.0, *)
-    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        let color = isExpanded ? Color.green : Color.red
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-        
-        return AnyView(
-            ZStack {
-                Circle()
-                    .fill(color)
-                    .frame(width: 2 * scaledRadius, height: 2 * scaledRadius)
-                if isSelected {
-                    Circle()
-                        .stroke(Color.white, lineWidth: borderWidth)
-                        .frame(width: 2 * borderRadius, height: 2 * borderRadius)
-                }
-                Text("\(label)")
-                    .foregroundColor(.white)
-                    .font(.system(size: UIFontMetrics.default.scaledValue(for: 12) * zoomScale))
-            }
-        )
-    }
-    
-    @available(iOS 13.0, *)
-    @available(watchOS 9.0, *)
-    public func handlingTap() -> Self {
-        var mutated = self
-        mutated.isExpanded.toggle()
-        return mutated
-    }
-    
-    @available(iOS 13.0, *)
-    @available(watchOS 9.0, *)
-    public func shouldHideChildren() -> Bool {
-        !isExpanded
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let color = isExpanded ? Color.green : Color.red
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-        
-        // Draw filled circle with custom color
-        context.fill(Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(color))
-        
-        // Draw border if selected
-        if isSelected {
-            context.stroke(Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
-        }
-        
-        // Draw label (with resolve for GraphicsContext compatibility)
-        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-        let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
-        let resolved = context.resolve(text)
-        context.draw(resolved, at: position, anchor: .center)
     }
 }
 
@@ -2414,7 +2391,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-09 11:39:24
+Last modified: 2025-08-09 12:46:29
 
 Contents:
 //
@@ -2593,19 +2570,28 @@ struct GraphCanvasView: View {
     }
     
     private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
-        for node in culledNodes {
+        var nodesToDraw = culledNodes
+        var isFallback = false  // New flag
+        if nodesToDraw.isEmpty {
+            nodesToDraw = viewModel.model.nodes  // Fallback to all
+            isFallback = true  // Set flag
+            // Draw overlay text
+            let text = Text("Graph Collapsed").foregroundColor(.gray).font(.system(size: 16))
+            let resolved = context.resolve(text)
+            context.draw(resolved, at: viewCenter, anchor: .center)
+        }
+        for node in nodesToDraw {
             let isDragged = draggedNode?.id == node.id
             let worldPos = isDragged ? node.position + dragOffset : node.position
             let displayPos = displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
             let isSelected = node.id == selectedNodeID
             
-            // Compute locally per node
             let scaledRadius = node.radius * zoomScale
             let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
             let borderRadius = scaledRadius + borderWidth / 2
             
             let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
+            context.fill(circlePath, with: .color(isFallback ? .gray : .red), style: FillStyle(antialiased: true))  // Use flag instead of ==
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
@@ -2613,14 +2599,6 @@ struct GraphCanvasView: View {
             }
             
             node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
-            
-            if isSelected {
-                let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
-                let resolved = context.resolve(text)
-                let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
-                context.draw(resolved, at: labelPosition, anchor: .center)
-            }
         }
     }
     
@@ -2719,7 +2697,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-08 15:35:12
+Last modified: 2025-08-09 12:27:56
 
 Contents:
 import SwiftUI
@@ -2826,7 +2804,7 @@ struct GraphGesturesModifier: ViewModifier {
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.success)
+                        WKInterfaceDevice.current().play(.click)
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
@@ -2834,7 +2812,7 @@ struct GraphGesturesModifier: ViewModifier {
                         updatedNode.position.y += value.translation.height / zoomScale
                         viewModel.model.nodes[index] = updatedNode
                         viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.success)
+                        WKInterfaceDevice.current().play(.click)
                     }
                 }
                 
@@ -2878,7 +2856,7 @@ struct GraphGesturesModifier: ViewModifier {
 --------------------------------------------------
 File: GraphEditorWatchTests.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-08-09 09:32:13
+Last modified: 2025-08-09 13:10:10
 
 Contents:
 import Testing
@@ -3345,6 +3323,8 @@ struct PhysicsEngineTests {
                 }
             }
             
+            engine.resetSimulation()  // NEW: Reset counter for this seeded run
+            
             let subSteps = nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1)
             var isActive = true
             var ticks = 0
@@ -3365,7 +3345,8 @@ struct PhysicsEngineTests {
             let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
             #expect(totalVel < 0.5 * CGFloat(nodes.count), "Velocities near zero for seeded graph \(seed)")  // Relaxed threshold
         }
-    }}
+    }
+}
 
 struct PersistenceManagerTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {

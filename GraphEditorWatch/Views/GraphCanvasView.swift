@@ -174,15 +174,11 @@ struct GraphCanvasView: View {
     }
     
     private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
-        var nodesToDraw = culledNodes
-        var isFallback = false  // New flag
+        let nodesToDraw = culledNodes
         if nodesToDraw.isEmpty {
-            nodesToDraw = viewModel.model.nodes  // Fallback to all
-            isFallback = true  // Set flag
-            // Draw overlay text
-            let text = Text("Graph Collapsed").foregroundColor(.gray).font(.system(size: 16))
-            let resolved = context.resolve(text)
-            context.draw(resolved, at: viewCenter, anchor: .center)
+            let text = Text("No Visible Nodes").foregroundColor(.gray).font(.system(size: 16))
+            context.draw(context.resolve(text), at: viewCenter, anchor: .center)
+            return
         }
         for node in nodesToDraw {
             let isDragged = draggedNode?.id == node.id
@@ -195,7 +191,7 @@ struct GraphCanvasView: View {
             let borderRadius = scaledRadius + borderWidth / 2
             
             let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(isFallback ? .gray : .red), style: FillStyle(antialiased: true))  // Use flag instead of ==
+            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))  // Removed unused ternary
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
