@@ -462,6 +462,8 @@ struct PhysicsEngineTests {
                 }
             }
             
+            engine.resetSimulation()  // NEW: Reset counter for this seeded run
+            
             let subSteps = nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1)
             var isActive = true
             var ticks = 0
@@ -482,7 +484,8 @@ struct PhysicsEngineTests {
             let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
             #expect(totalVel < 0.5 * CGFloat(nodes.count), "Velocities near zero for seeded graph \(seed)")  // Relaxed threshold
         }
-    }}
+    }
+}
 
 struct PersistenceManagerTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
