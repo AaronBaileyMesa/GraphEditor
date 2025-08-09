@@ -53,6 +53,48 @@ final class GraphEditorWatchUITests: XCTestCase {
         // Simulate tap on startPoint to select, then check label includes "outgoing to: <label>"
     }
     
+    func testUndoAfterAddNode() throws {
+            let app = XCUIApplication()
+            app.launch()
+            
+            let canvas = app.otherElements["GraphCanvas"]  // Assume identifier set
+            XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+            
+            // Simulate add node: Assume menu button "Add Node" exists
+            app.buttons["Show Menu"].tap()  // Or long press if using gestures
+            app.buttons["Add Node"].tap()
+            
+            // Assert: Graph description updates (e.g., nodes increase)
+            let updatedLabel = app.staticTexts["Graph with 4 nodes"]  // Adjust based on defaults +1
+            XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Node added")
+            
+            // Undo via button
+            app.buttons["Undo"].tap()  // Assume undo button in menu or UI
+            let revertedLabel = app.staticTexts["Graph with 3 nodes"]  // Back to defaults
+            XCTAssertTrue(revertedLabel.waitForExistence(timeout: 2), "Undo reverts add")
+        }
+        
+        func testMenuDisplayAndAction() throws {
+            let app = XCUIApplication()
+            app.launch()
+            
+            let canvas = app.otherElements["GraphCanvas"]
+            XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+            
+            // Long press to show menu (if using sheet)
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.0)
+            
+            // Assert menu appears with buttons
+            let addButton = app.buttons["Add Node"]
+            XCTAssertTrue(addButton.waitForExistence(timeout: 2), "Menu shows with actions")
+            
+            addButton.tap()
+            // Assert action effect (e.g., via label)
+            let updatedLabel = app.staticTexts["Graph with 4 nodes"]
+            XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Menu action adds node")
+        }
+    
+    
     @MainActor
     func testExample() throws {
         // UI tests must launch the application that they test.

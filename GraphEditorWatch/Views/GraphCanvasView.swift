@@ -29,27 +29,27 @@ struct GraphCanvasView: View {
     @Binding var showOverlays: Bool  // New binding for overlays
     
     private var canvasBase: some View {
-            let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-            let panOffset = CGPoint(x: offset.width, y: offset.height)
-            let visibleNodes = viewModel.model.visibleNodes()
-            
-            // Precompute effectiveCentroid outside Canvas to avoid recomputes
-            let effectiveCentroid: CGPoint = {
-                if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-                    return selected.position
-                } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                          let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-                    return (from.position + to.position) / 2.0
-                }
-                return visibleNodes.centroid() ?? .zero
-            }()
-            
-            return ZStack {
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                           height: min(viewSize.width, viewSize.height) * 0.4)
-                    .position(viewCenter)
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        let visibleNodes = viewModel.model.visibleNodes()
+        
+        // Precompute effectiveCentroid outside Canvas to avoid recomputes
+        let effectiveCentroid: CGPoint = {
+            if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
+                return selected.position
+            } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                      let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+                return (from.position + to.position) / 2.0
+            }
+            return visibleNodes.centroid() ?? .zero
+        }()
+        
+        return ZStack {
+            Circle()
+                .fill(Color.gray.opacity(0.2))
+                .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                       height: min(viewSize.width, viewSize.height) * 0.4)
+                .position(viewCenter)
             
             Canvas { context, size in
                 for edge in viewModel.model.visibleEdges() {
@@ -75,7 +75,7 @@ struct GraphCanvasView: View {
                             context.stroke(Path { path in
                                 path.move(to: fromDisplay)
                                 path.addLine(to: lineEnd)
-                            }, with: .color(color), lineWidth: lineWidth)
+                            }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                             
                             let arrowSize: CGFloat = 10.0
                             let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
@@ -83,12 +83,13 @@ struct GraphCanvasView: View {
                             let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
                             let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
                             
-                            context.fill(Path { path in
+                            let arrowPath = Path { path in
                                 path.move(to: arrowTip)
                                 path.addLine(to: arrowBase1)
                                 path.addLine(to: arrowBase2)
                                 path.closeSubpath()
-                            }, with: .color(color))
+                            }
+                            context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
                         }
                         
                         let midpoint = (fromDisplay + toDisplay) / 2
@@ -119,10 +120,23 @@ struct GraphCanvasView: View {
                     let displayPos = scaled + viewCenter + panOffset
                     let isSelected = node.id == selectedNodeID
                     
+                    // Compute locally per node
+                    let scaledRadius = node.radius * zoomScale
+                    let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+                    let borderRadius = scaledRadius + borderWidth / 2
+                    
+                    let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+                    context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
+                    
+                    if isSelected {
+                        let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+                        context.stroke(borderPath, with: .color(.white), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
+                    }
+                    
                     node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
                 }
             }
-            .drawingGroup()  // Moved here, attached to Canvas
+            .drawingGroup()
             
             if showOverlays {
                 if !visibleNodes.isEmpty {
@@ -160,7 +174,6 @@ struct GraphCanvasView: View {
             }
         }
     }
-    
     private var interactiveCanvas: some View {
         canvasBase
     }
