@@ -102,7 +102,9 @@ struct GraphGesturesModifier: ViewModifier {
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.click)
+                        #if os(watchOS)
+                        WKInterfaceDevice.current().play(.success)  // Haptic on edge creation
+                        #endif
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
