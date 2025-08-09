@@ -25,12 +25,12 @@ struct ContentView: View {
     @State private var showOverlays = false
     @State private var minZoom: CGFloat = 0.2
     @State private var maxZoom: CGFloat = 5.0
-    @State private var crownPosition: Double = 2.5
+    @State private var crownPosition: Double = 0.5
     @State private var viewSize: CGSize = .zero
     @State private var ignoreNextCrownChange: Bool = false
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
-    @State private var previousCrownPosition: Double = 2.5
+    @State private var previousCrownPosition: Double = 0.5
     
     
     // New: Timer for debouncing simulation resume
@@ -108,7 +108,7 @@ struct ContentView: View {
             }
         }
         .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(Constants.App.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -206,7 +206,7 @@ struct ContentView: View {
             progress = 1.0
         }
         progress = progress.clamped(to: 0.0...1.0)  // Explicit clamp to [0,1] with CGFloat range
-        let newCrown = Double(progress * CGFloat(Constants.App.numZoomLevels - 1))
+        let newCrown = progress
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
             crownPosition = newCrown
@@ -215,10 +215,16 @@ struct ContentView: View {
     
     // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
-        let newProgress = crownPosition / Double(Constants.App.numZoomLevels - 1)
+        let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
+        let oldScale = zoomScale  // Capture old
         zoomScale = newScale
+        
+        // NEW: Adjust pan to keep screen center fixed (prevents drift off-screen)
+        let zoomRatio = newScale / oldScale
+        offset.width *= zoomRatio
+        offset.height *= zoomRatio
     }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {

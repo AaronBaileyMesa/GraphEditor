@@ -92,12 +92,14 @@ struct GraphCanvasView: View {
                             context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
                         }
                         
-                        let midpoint = (fromDisplay + toDisplay) / 2
-                        let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                        let fontSize = UIFontMetrics.default.scaledValue(for: 12)
-                        let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                        let resolvedText = context.resolve(text)
-                        context.draw(resolvedText, at: midpoint, anchor: .center)
+                        if edge.id == selectedEdgeID {
+                            let midpoint = (fromDisplay + toDisplay) / 2
+                            let edgeLabel = "\(fromNode.label)→\(toNode.label)"
+                            let fontSize = UIFontMetrics.default.scaledValue(for: 12)
+                            let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                            let resolvedText = context.resolve(text)
+                            context.draw(resolvedText, at: midpoint, anchor: .center)
+                        }
                     }
                 }
                 
@@ -134,6 +136,14 @@ struct GraphCanvasView: View {
                     }
                     
                     node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
+                    
+                    if isSelected {
+                        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                        let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
+                        let resolved = context.resolve(text)
+                        let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
+                        context.draw(resolved, at: labelPosition, anchor: .center)
+                    }
                 }
             }
             .drawingGroup()
