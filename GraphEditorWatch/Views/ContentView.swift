@@ -142,6 +142,7 @@ struct ContentView: View {
             if isPanning {
                 viewModel.model.stopSimulation()
             } else {
+                clampOffset()  // New: Immediate clamp on pan end (no delay snap)
                 resumeTimer?.invalidate()
                 resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
                     self.viewModel.model.startSimulation()
@@ -221,14 +222,13 @@ struct ContentView: View {
     }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
-        let paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25  // More room at high zoom
-        let paddingX = viewSize.width * paddingFactor
-        let paddingY = viewSize.height * paddingFactor
+        // Initial padding factor (may be adjusted below)
+        var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
         
         let visibleNodes = viewModel.model.visibleNodes()
         guard !visibleNodes.isEmpty else { return }
         
-        // Compute effective centroid (matches GraphCanvasView)
+        // Compute effective centroid (unchanged)
         var effectiveCentroid = visibleNodes.reduce(CGPoint.zero) { acc, node in acc + node.position } / CGFloat(visibleNodes.count)
         if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
             effectiveCentroid = selected.position
@@ -237,7 +237,7 @@ struct ContentView: View {
             effectiveCentroid = (from.position + to.position) / 2.0
         }
         
-        // Compute relative BBox min/max from effective centroid
+        // Compute relative BBox min/max from effective centroid (unchanged)
         var minRel = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
         var maxRel = CGPoint(x: -CGFloat.greatestFiniteMagnitude, y: -CGFloat.greatestFiniteMagnitude)
         for node in visibleNodes {
@@ -248,20 +248,39 @@ struct ContentView: View {
             maxRel.y = max(maxRel.y, rel.y)
         }
         
-        // Scale relative extents
+        // Now compute scaledHeight after minRel and maxRel are available
+        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
+        
+        // Adjust padding for small graphs
+        if scaledHeight < viewSize.height * 0.5 {
+            paddingFactor *= 0.5  // Halve padding → double pan range for small graphs
+        }
+        
+        // Compute final padding (after possible adjustment)
+        let paddingX = viewSize.width * paddingFactor
+        let paddingY = viewSize.height * paddingFactor
+        
+        // Scale relative extents (unchanged)
         let scaledMinX = minRel.x * zoomScale
         let scaledMaxX = maxRel.x * zoomScale
         let scaledMinY = minRel.y * zoomScale
         let scaledMaxY = maxRel.y * zoomScale
         
-        // Clamp offsets to keep BBox within view with padding
-        let minOffsetX = (viewSize.width / 2 - paddingX) - scaledMaxX
-        let maxOffsetX = (viewSize.width / 2 + paddingX) - scaledMinX
-        let minOffsetY = (viewSize.height / 2 - paddingY) - scaledMaxY
-        let maxOffsetY = (viewSize.height / 2 + paddingY) - scaledMinY
+        let viewCenterX = viewSize.width / 2
+        let viewCenterY = viewSize.height / 2
         
-        offset.width = max(min(offset.width, maxOffsetX), minOffsetX)
-        offset.height = max(min(offset.height, maxOffsetY), minOffsetY)
+        // Fixed: Correct symmetric clamping (accounts for y-down; allows negative offsets)
+        // X (left/right)
+        let minOffsetX = paddingX - viewCenterX - scaledMinX
+        let maxOffsetX = viewSize.width - paddingX - viewCenterX - scaledMaxX
+        
+        // Y (top/bottom)
+        let minOffsetY = paddingY - viewCenterY - scaledMinY
+        let maxOffsetY = viewSize.height - paddingY - viewCenterY - scaledMaxY
+        
+        // Clamp (handle case where min > max for large graphs by centering)
+        offset.width = max(min(offset.width, max(maxOffsetX, minOffsetX)), minOffsetX)
+        offset.height = max(min(offset.height, max(maxOffsetY, minOffsetY)), minOffsetY)
     }
 }
 
