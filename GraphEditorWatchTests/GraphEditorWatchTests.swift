@@ -18,6 +18,11 @@ class MockGraphStorage: GraphStorage {
     func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
         (nodes, edges)
     }
+    
+    func clear() throws {
+        nodes = []
+        edges = []
+    }
 }
 
 // Add this helper function at the top of the test file or in the test struct
