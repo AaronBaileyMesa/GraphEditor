@@ -29,24 +29,27 @@ struct GraphCanvasView: View {
     @Binding var showOverlays: Bool  // New binding for overlays
     
     private var canvasBase: some View {
-        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let visibleNodes = viewModel.model.visibleNodes()
-        
-        var effectiveCentroid = visibleNodes.centroid() ?? .zero
-        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-            effectiveCentroid = selected.position
-        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            effectiveCentroid = (from.position + to.position) / 2.0
-        }
-        
-        return ZStack {
-            Circle()
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                       height: min(viewSize.width, viewSize.height) * 0.4)
-                .position(viewCenter)
+            let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let panOffset = CGPoint(x: offset.width, y: offset.height)
+            let visibleNodes = viewModel.model.visibleNodes()
+            
+            // Precompute effectiveCentroid outside Canvas to avoid recomputes
+            let effectiveCentroid: CGPoint = {
+                if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
+                    return selected.position
+                } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                          let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+                    return (from.position + to.position) / 2.0
+                }
+                return visibleNodes.centroid() ?? .zero
+            }()
+            
+            return ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                           height: min(viewSize.width, viewSize.height) * 0.4)
+                    .position(viewCenter)
             
             Canvas { context, size in
                 for edge in viewModel.model.visibleEdges() {
