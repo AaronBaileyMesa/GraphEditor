@@ -51,7 +51,7 @@ struct GraphCanvasView: View {
                        height: min(viewSize.width, viewSize.height) * 0.4)
                 .position(viewCenter)
             
-            Canvas { context, size in
+            Canvas { context, _ in
                 for edge in viewModel.model.visibleEdges() {
                     if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
