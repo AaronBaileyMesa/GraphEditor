@@ -174,19 +174,28 @@ struct GraphCanvasView: View {
     }
     
     private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
-        for node in culledNodes {
+        var nodesToDraw = culledNodes
+        var isFallback = false  // New flag
+        if nodesToDraw.isEmpty {
+            nodesToDraw = viewModel.model.nodes  // Fallback to all
+            isFallback = true  // Set flag
+            // Draw overlay text
+            let text = Text("Graph Collapsed").foregroundColor(.gray).font(.system(size: 16))
+            let resolved = context.resolve(text)
+            context.draw(resolved, at: viewCenter, anchor: .center)
+        }
+        for node in nodesToDraw {
             let isDragged = draggedNode?.id == node.id
             let worldPos = isDragged ? node.position + dragOffset : node.position
             let displayPos = displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
             let isSelected = node.id == selectedNodeID
             
-            // Compute locally per node
             let scaledRadius = node.radius * zoomScale
             let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
             let borderRadius = scaledRadius + borderWidth / 2
             
             let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
+            context.fill(circlePath, with: .color(isFallback ? .gray : .red), style: FillStyle(antialiased: true))  // Use flag instead of ==
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
@@ -194,14 +203,6 @@ struct GraphCanvasView: View {
             }
             
             node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
-            
-            if isSelected {
-                let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
-                let resolved = context.resolve(text)
-                let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
-                context.draw(resolved, at: labelPosition, anchor: .center)
-            }
         }
     }
     
