@@ -103,7 +103,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-08 22:43:43
+Last modified: 2025-08-08 23:16:19
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -325,14 +325,13 @@ public class GraphModel: ObservableObject {
     }
 
     public func pauseSimulation() {
-        simulationTimer?.invalidate()
-        isSimulating = false
+        stopSimulation()  // UPDATED: Use existing stop
+        physicsEngine.isPaused = true  // If you add isPaused to PhysicsEngine
     }
 
     public func resumeSimulation() {
-        if !isSimulating {
-            startSimulation()
-        }
+        physicsEngine.isPaused = false
+        startSimulation()
     }
 
     public func stopSimulation() {
@@ -680,7 +679,7 @@ public struct GraphState: Codable {
 --------------------------------------------------
 File: NodeProtocol.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-08 21:40:41
+Last modified: 2025-08-08 23:12:33
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -787,24 +786,19 @@ public extension NodeProtocol {
         
         context.fill(Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
         
-        if isSelected {
-            context.stroke(Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius)), with: .color(.white), lineWidth: borderWidth)
-        }
-        
-        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-        let labelKey = "\(label)-\(fontSize)"  // Unique key per label and size
-        let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
-            if let cached = nodeTextCache[labelKey] {
-                return cached
+        if isSelected {  // NEW: Only draw label if selected
+            let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+            let labelKey = "\(label)-\(fontSize)"
+            let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
+                if let cached = nodeTextCache[labelKey] { return cached }
+                let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
+                let resolved = context.resolve(text)
+                nodeCacheQueue.async(flags: .barrier) { nodeTextCache[labelKey] = resolved }
+                return resolved
             }
-            let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
-            let resolved = context.resolve(text)
-            nodeCacheQueue.async(flags: .barrier) {
-                nodeTextCache[labelKey] = resolved
-            }
-            return resolved
+            let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))  // NEW: Offset above node for "overlay" feel
+            context.draw(resolved, at: labelPosition, anchor: .center)
         }
-        context.draw(resolved, at: position, anchor: .center)
     }
 }
 
@@ -1951,7 +1945,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-08 17:47:43
+Last modified: 2025-08-08 23:28:51
 
 Contents:
 //
@@ -1981,12 +1975,12 @@ struct ContentView: View {
     @State private var showOverlays = false
     @State private var minZoom: CGFloat = 0.2
     @State private var maxZoom: CGFloat = 5.0
-    @State private var crownPosition: Double = 2.5
+    @State private var crownPosition: Double = 0.5
     @State private var viewSize: CGSize = .zero
     @State private var ignoreNextCrownChange: Bool = false
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
-    @State private var previousCrownPosition: Double = 2.5
+    @State private var previousCrownPosition: Double = 0.5
     
     
     // New: Timer for debouncing simulation resume
@@ -2064,7 +2058,7 @@ struct ContentView: View {
             }
         }
         .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: Double(Constants.App.numZoomLevels - 1), sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: false)
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -2162,7 +2156,7 @@ struct ContentView: View {
             progress = 1.0
         }
         progress = progress.clamped(to: 0.0...1.0)  // Explicit clamp to [0,1] with CGFloat range
-        let newCrown = Double(progress * CGFloat(Constants.App.numZoomLevels - 1))
+        let newCrown = progress
         if abs(newCrown - crownPosition) > 1e-6 {
             ignoreNextCrownChange = true
             crownPosition = newCrown
@@ -2171,10 +2165,16 @@ struct ContentView: View {
     
     // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
-        let newProgress = crownPosition / Double(Constants.App.numZoomLevels - 1)
+        let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         
+        let oldScale = zoomScale  // Capture old
         zoomScale = newScale
+        
+        // NEW: Adjust pan to keep screen center fixed (prevents drift off-screen)
+        let zoomRatio = newScale / oldScale
+        offset.width *= zoomRatio
+        offset.height *= zoomRatio
     }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
@@ -2365,7 +2365,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-08 22:23:32
+Last modified: 2025-08-08 23:28:51
 
 Contents:
 //
@@ -2421,7 +2421,7 @@ struct GraphCanvasView: View {
                        height: min(viewSize.width, viewSize.height) * 0.4)
                 .position(viewCenter)
             
-            Canvas { context, size in
+            Canvas { context, _ in
                 for edge in viewModel.model.visibleEdges() {
                     if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
@@ -2462,12 +2462,14 @@ struct GraphCanvasView: View {
                             context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
                         }
                         
-                        let midpoint = (fromDisplay + toDisplay) / 2
-                        let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                        let fontSize = UIFontMetrics.default.scaledValue(for: 12)
-                        let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                        let resolvedText = context.resolve(text)
-                        context.draw(resolvedText, at: midpoint, anchor: .center)
+                        if edge.id == selectedEdgeID {
+                            let midpoint = (fromDisplay + toDisplay) / 2
+                            let edgeLabel = "\(fromNode.label)→\(toNode.label)"
+                            let fontSize = UIFontMetrics.default.scaledValue(for: 12)
+                            let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                            let resolvedText = context.resolve(text)
+                            context.draw(resolvedText, at: midpoint, anchor: .center)
+                        }
                     }
                 }
                 
@@ -2504,6 +2506,14 @@ struct GraphCanvasView: View {
                     }
                     
                     node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
+                    
+                    if isSelected {
+                        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                        let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
+                        let resolved = context.resolve(text)
+                        let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
+                        context.draw(resolved, at: labelPosition, anchor: .center)
+                    }
                 }
             }
             .drawingGroup()
