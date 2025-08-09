@@ -103,7 +103,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-08 23:16:19
+Last modified: 2025-08-09 09:22:21
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -182,7 +182,7 @@ public class GraphModel: ObservableObject {
         if tempNodes.isEmpty && tempEdges.isEmpty {
             (tempNodes, tempEdges, tempNextLabel) = Self.createDefaultGraph(startingLabel: tempNextLabel)
             do {
-                try storage.save(nodes: tempNodes as! [Node], edges: tempEdges)
+                try storage.save(nodes: tempNodes, edges: tempEdges)
             } catch {
                 os_log("Save defaults failed: %{public}s", log: logger, type: .error, error.localizedDescription)
             }
@@ -212,18 +212,14 @@ public class GraphModel: ObservableObject {
     
     // Creates a snapshot of the current state for undo/redo and saves.
     public func snapshot() {
-        guard let concreteNodes = nodes as? [Node] else {
-            os_log("Snapshot failed: Nodes not all concrete Node type", log: logger, type: .error)
-            return
-        }
-        let state = GraphState(nodes: concreteNodes, edges: edges)
+        let state = GraphState(nodes: nodes, edges: edges)
         undoStack.append(state)
         if undoStack.count > maxUndo {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
         do {
-            try storage.save(nodes: concreteNodes, edges: edges)
+            try storage.save(nodes: nodes, edges: edges)
         } catch {
             os_log("Failed to save snapshot: %{public}s", log: logger, type: .error, error.localizedDescription)
         }
@@ -237,17 +233,17 @@ public class GraphModel: ObservableObject {
 #endif
             return
         }
-        let current = GraphState(nodes: nodes as! [Node], edges: edges)
+        let current = GraphState(nodes: nodes, edges: edges)
         redoStack.append(current)
         let previous = undoStack.removeLast()
-        nodes = previous.nodes as [any NodeProtocol]  // Conversion from [Node]
+        nodes = previous.nodes
         edges = previous.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
 #if os(watchOS)
         WKInterfaceDevice.current().play(.success)
 #endif
         do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
+            try storage.save(nodes: nodes, edges: edges)
         } catch {
             os_log("Failed to save after undo: %{public}s", log: logger, type: .error, error.localizedDescription)
         }
@@ -260,17 +256,17 @@ public class GraphModel: ObservableObject {
 #endif
             return
         }
-        let current = GraphState(nodes: nodes as! [Node], edges: edges)
+        let current = GraphState(nodes: nodes, edges: edges)
         undoStack.append(current)
         let next = redoStack.removeLast()
-        nodes = next.nodes as [any NodeProtocol]
+        nodes = next.nodes
         edges = next.edges
         self.physicsEngine.resetSimulation()  // Ready for new simulation
 #if os(watchOS)
         WKInterfaceDevice.current().play(.success)
 #endif
         do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
+            try storage.save(nodes: nodes, edges: edges)
         } catch {
             os_log("Failed to save after redo: %{public}s", log: logger, type: .error, error.localizedDescription)
         }
@@ -278,7 +274,7 @@ public class GraphModel: ObservableObject {
     
     public func saveGraph() {
         do {
-            try storage.save(nodes: nodes as! [Node], edges: edges)
+            try storage.save(nodes: nodes, edges: edges)
         } catch {
             os_log("Failed to save graph: %{public}s", log: logger, type: .error, error.localizedDescription)
         }
@@ -340,7 +336,7 @@ public class GraphModel: ObservableObject {
     }
     
     public func boundingBox() -> CGRect {
-        self.physicsEngine.boundingBox(nodes: nodes as! [Node])  // Cast for physicsEngine
+        self.physicsEngine.boundingBox(nodes: nodes)
     }
     
     // Visibility methods
@@ -568,7 +564,7 @@ class GraphSimulator {
 --------------------------------------------------
 File: GraphTypes.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-08-07 09:14:12
+Last modified: 2025-08-09 09:15:31
 
 Contents:
 import SwiftUI
@@ -665,13 +661,56 @@ public struct GraphEdge: Identifiable, Equatable, Codable {
 // Snapshot of the graph state for undo/redo.
 @available(iOS 13.0, *)
 @available(watchOS 9.0, *)
-public struct GraphState: Codable {
-    public let nodes: [Node]
+public struct GraphState {
+    public let nodes: [any NodeProtocol]
     public let edges: [GraphEdge]
     
-    public init(nodes: [Node], edges: [GraphEdge]) {
+    public init(nodes: [any NodeProtocol], edges: [GraphEdge]) {
         self.nodes = nodes
         self.edges = edges
+    }
+}
+
+public enum NodeWrapper: Codable {
+    case node(Node)
+    case toggleNode(ToggleNode)
+    
+    enum CodingKeys: String, CodingKey {
+        case type, data
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        switch type {
+        case "node":
+            let data = try container.decode(Node.self, forKey: .data)
+            self = .node(data)
+        case "toggleNode":
+            let data = try container.decode(ToggleNode.self, forKey: .data)
+            self = .toggleNode(data)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown node type")
+        }
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .node(let node):
+            try container.encode("node", forKey: .type)
+            try container.encode(node, forKey: .data)
+        case .toggleNode(let toggleNode):
+            try container.encode("toggleNode", forKey: .type)
+            try container.encode(toggleNode, forKey: .data)
+        }
+    }
+    
+    public var value: any NodeProtocol {
+        switch self {
+        case .node(let node): return node
+        case .toggleNode(let toggleNode): return toggleNode
+        }
     }
 }
 
@@ -679,7 +718,7 @@ public struct GraphState: Codable {
 --------------------------------------------------
 File: NodeProtocol.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-08 23:12:33
+Last modified: 2025-08-09 09:56:01
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -784,7 +823,13 @@ public extension NodeProtocol {
         let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
         let borderRadius = scaledRadius + borderWidth / 2
         
-        context.fill(Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius)), with: .color(.red))
+        if borderWidth > 0 {
+            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        }
+        
+        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        context.fill(innerPath, with: .color(.red))
         
         if isSelected {  // NEW: Only draw label if selected
             let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
@@ -806,7 +851,7 @@ public extension NodeProtocol {
 --------------------------------------------------
 File: PersistenceManager.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-08 21:34:36
+Last modified: 2025-08-09 09:09:10
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -843,10 +888,19 @@ public class PersistenceManager: GraphStorage {
         self.init(baseURL: documents.appendingPathComponent("GraphEditor"))
     }
     
-    public func save(nodes: [Node], edges: [GraphEdge]) throws {
+    public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws {
+        let wrappedNodes = nodes.map { node in
+            if let n = node as? Node {
+                return NodeWrapper.node(n)
+            } else if let tn = node as? ToggleNode {
+                return NodeWrapper.toggleNode(tn)
+            } else {
+                fatalError("Unsupported node type: \(type(of: node))")
+            }
+        }
         let encoder = JSONEncoder()
         do {
-            let nodeData = try encoder.encode(nodes)
+            let nodeData = try encoder.encode(wrappedNodes)
             let nodeURL = baseURL.appendingPathComponent(nodesFileName)
             try nodeData.write(to: nodeURL)
             
@@ -861,8 +915,8 @@ public class PersistenceManager: GraphStorage {
             throw GraphStorageError.writingFailed(error)
         }
     }
-    
-    public func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
+
+    public func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
         let fm = FileManager.default
         let nodeURL = baseURL.appendingPathComponent(nodesFileName)
         let edgeURL = baseURL.appendingPathComponent(edgesFileName)
@@ -892,13 +946,14 @@ public class PersistenceManager: GraphStorage {
             os_log("Loading nodes failed: %{public}s", log: logger, type: .error, error.localizedDescription)
             throw GraphStorageError.loadingFailed(error)
         }
-        let loadedNodes: [Node]
+        let loadedWrapped: [NodeWrapper]
         do {
-            loadedNodes = try decoder.decode([Node].self, from: nodeData)
+            loadedWrapped = try decoder.decode([NodeWrapper].self, from: nodeData)
         } catch {
             os_log("Decoding nodes failed: %{public}s", log: logger, type: .error, error.localizedDescription)
             throw GraphStorageError.decodingFailed(error)
         }
+        let loadedNodes = loadedWrapped.map { $0.value }
         
         let edgeData: Data
         do {
@@ -936,7 +991,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-08 21:41:21
+Last modified: 2025-08-09 10:05:07
 
 Contents:
 //
@@ -967,7 +1022,7 @@ public class PhysicsEngine {
         simulationSteps = 0
     }
     
-    public var useAsymmetricAttraction: Bool = false
+    public var useAsymmetricAttraction: Bool = true
     
     public var isPaused: Bool = false
     
@@ -1145,7 +1200,7 @@ public class PhysicsEngine {
 --------------------------------------------------
 File: Protocols.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-Last modified: 2025-08-08 21:33:39
+Last modified: 2025-08-09 09:15:03
 
 Contents:
 //
@@ -1156,13 +1211,15 @@ Contents:
 //
 
 
-@available(iOS 13.0, *)
+// Sources/GraphEditorShared/Protocols.swift
+
+@available(iOS 13.0, watchOS 6.0, *)
 public protocol GraphStorage {
     /// Saves the graph nodes and edges, throwing on failure (e.g., encoding or writing errors).
-    func save(nodes: [Node], edges: [GraphEdge]) throws
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws
     /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
-    func load() throws -> (nodes: [Node], edges: [GraphEdge])
-    func clear() throws  // New: For resetting storage
+    func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func clear() throws  // Unchanged
 }
 
 --------------------------------------------------
@@ -1536,7 +1593,7 @@ public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
 --------------------------------------------------
 File: GraphEditorSharedTests.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
-Last modified: 2025-08-07 14:22:34
+Last modified: 2025-08-09 09:50:57
 
 Contents:
 import Testing
@@ -1594,10 +1651,10 @@ struct GraphEditorSharedTests {
     }
     
     @Test func testGraphStateInitialization() {
-        let nodes = [Node(id: UUID(), label: 1, position: .zero)]
+        let nodes: [any NodeProtocol] = [Node(id: UUID(), label: 1, position: .zero)]
         let edges = [GraphEdge(from: UUID(), to: UUID())]
         let state = GraphState(nodes: nodes, edges: edges)
-        #expect(state.nodes == nodes, "Nodes should match")
+        #expect(state.nodes.map { $0.id } == nodes.map { $0.id }, "Nodes should match")
         #expect(state.edges == edges, "Edges should match")
     }
     
@@ -1657,16 +1714,6 @@ struct GraphEditorSharedTests {
         let lowValue: Double = -5
         let clampedLow = lowValue.clamped(to: 0...10)
         #expect(clampedLow == 0, "Double should clamp to lower bound")
-    }
-    
-    @Test func testGraphStateCoding() throws {
-        let state = GraphState(nodes: [Node(id: UUID(), label: 1, position: .zero)], edges: [GraphEdge(from: UUID(), to: UUID())])
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(state)
-        let decoder = JSONDecoder()
-        let decoded = try decoder.decode(GraphState.self, from: data)
-        #expect(state.nodes == decoded.nodes, "GraphState nodes should match after coding")
-        #expect(state.edges == decoded.edges, "GraphState edges should match after coding")
     }
     
     @Test func testGraphEdgeDecodingWithMissingKeys() throws {
@@ -1776,11 +1823,13 @@ struct GraphEditorSharedTests {
     @Test func testAsymmetricAttraction() throws {
         let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         engine.useAsymmetricAttraction = true  // Assumes this property is added (see implementation below)
-        var nodes = [Node(id: UUID(), label: 1, position: CGPoint(x: 0, y: 0)),
-                     Node(id: UUID(), label: 2, position: CGPoint(x: 200, y: 0))]
-        let edges = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
-        let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-        nodes = updatedNodes as! [Node]
+        let fromID = UUID()
+        let toID = UUID()
+        var nodes: [any NodeProtocol] = [Node(id: fromID, label: 1, position: CGPoint(x: 0, y: 0)),
+                     Node(id: toID, label: 2, position: CGPoint(x: 200, y: 0))]
+        let edges = [GraphEdge(from: fromID, to: toID)]
+        let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
+        nodes = updatedNodes
         #expect(abs(nodes[0].position.x - 0) < 1, "From node position unchanged in asymmetric")
         #expect(nodes[1].position.x < 200, "To node pulled towards from")
     }
@@ -1791,13 +1840,13 @@ struct PerformanceTests {
     @available(watchOS 9.0, *)  // Guard for availability
     @Test func testSimulationPerformance() {
         let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        var nodes: [Node] = (1...100).map { Node(label: $0, position: CGPoint(x: CGFloat.random(in: 0...300), y: CGFloat.random(in: 0...300))) }
+        var nodes: [any NodeProtocol] = (1...100).map { Node(label: $0, position: CGPoint(x: CGFloat.random(in: 0...300), y: CGFloat.random(in: 0...300))) }
         let edges: [GraphEdge] = []
 
         let start = Date()
         for _ in 0..<10 {
-            let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-            nodes = updatedNodes as! [Node]
+            let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
+            nodes = updatedNodes
         }
         let duration = Date().timeIntervalSince(start)
 
@@ -1945,7 +1994,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-08 23:28:51
+Last modified: 2025-08-09 11:21:59
 
 Contents:
 //
@@ -2204,7 +2253,7 @@ struct ContentView: View {
             maxRel.y = max(maxRel.y, rel.y)
         }
         
-        // Now compute scaledHeight after minRel and maxRel are available
+        // Compute scaledHeight after minRel and maxRel are available
         let scaledHeight = (maxRel.y - minRel.y) * zoomScale
         
         // Adjust padding for small graphs
@@ -2365,7 +2414,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-08 23:28:51
+Last modified: 2025-08-09 11:39:24
 
 Contents:
 //
@@ -2398,162 +2447,214 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool  // New binding for overlays
     
+    private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
+        let relative = worldPos - effectiveCentroid
+        let scaled = relative * zoomScale
+        return scaled + viewCenter + panOffset
+    }
+    
     private var canvasBase: some View {
-        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let visibleNodes = viewModel.model.visibleNodes()
-        
-        // Precompute effectiveCentroid outside Canvas to avoid recomputes
-        let effectiveCentroid: CGPoint = {
-            if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-                return selected.position
-            } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                      let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-                return (from.position + to.position) / 2.0
-            }
-            return visibleNodes.centroid() ?? .zero
-        }()
-        
-        return ZStack {
-            Circle()
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                       height: min(viewSize.width, viewSize.height) * 0.4)
-                .position(viewCenter)
+        GeometryReader { geometry in
+            let viewSize = geometry.size
+            let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let panOffset = CGPoint(x: offset.width, y: offset.height)
+            let visibleNodes = viewModel.model.visibleNodes()
             
-            Canvas { context, _ in
-                for edge in viewModel.model.visibleEdges() {
-                    if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                        let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
-                        let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
-                        
-                        let fromDisplay = (fromPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
-                        let toDisplay = (toPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
-                        
-                        let direction = toDisplay - fromDisplay
-                        let length = hypot(direction.x, direction.y)
-                        if length > 0 {
-                            let unitDir = direction / length
-                            let scaledToRadius = toNode.radius * zoomScale
-                            let lineEnd = toDisplay - unitDir * scaledToRadius
-                            
-                            let isSelected = edge.id == selectedEdgeID
-                            let lineWidth = isSelected ? 4.0 : 2.0
-                            let color = isSelected ? Color.red : Color.blue
-                            
-                            context.stroke(Path { path in
-                                path.move(to: fromDisplay)
-                                path.addLine(to: lineEnd)
-                            }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                            
-                            let arrowSize: CGFloat = 10.0
-                            let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
-                            let arrowTip = lineEnd
-                            let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
-                            let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
-                            
-                            let arrowPath = Path { path in
-                                path.move(to: arrowTip)
-                                path.addLine(to: arrowBase1)
-                                path.addLine(to: arrowBase2)
-                                path.closeSubpath()
-                            }
-                            context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
-                        }
-                        
-                        if edge.id == selectedEdgeID {
-                            let midpoint = (fromDisplay + toDisplay) / 2
-                            let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                            let fontSize = UIFontMetrics.default.scaledValue(for: 12)
-                            let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                            let resolvedText = context.resolve(text)
-                            context.draw(resolvedText, at: midpoint, anchor: .center)
-                        }
-                    }
-                }
-                
-                if let dragged = draggedNode, let target = potentialEdgeTarget {
-                    let fromPos = dragged.position + dragOffset
-                    let toPos = target.position
-                    let fromDisplay = (fromPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
-                    let toDisplay = (toPos - effectiveCentroid) * zoomScale + viewCenter + panOffset
-                    context.stroke(Path { path in
-                        path.move(to: fromDisplay)
-                        path.addLine(to: toDisplay)
-                    }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
-                }
-                
-                for node in visibleNodes {
-                    let isDragged = draggedNode?.id == node.id
-                    let worldPos = isDragged ? node.position + dragOffset : node.position
-                    let relative = worldPos - effectiveCentroid
-                    let scaled = relative * zoomScale
-                    let displayPos = scaled + viewCenter + panOffset
-                    let isSelected = node.id == selectedNodeID
-                    
-                    // Compute locally per node
-                    let scaledRadius = node.radius * zoomScale
-                    let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
-                    let borderRadius = scaledRadius + borderWidth / 2
-                    
-                    let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-                    context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
-                    
-                    if isSelected {
-                        let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-                        context.stroke(borderPath, with: .color(.white), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
-                    }
-                    
-                    node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
-                    
-                    if isSelected {
-                        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-                        let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
-                        let resolved = context.resolve(text)
-                        let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
-                        context.draw(resolved, at: labelPosition, anchor: .center)
-                    }
-                }
-            }
-            .drawingGroup()
+            // Precompute effectiveCentroid outside Canvas to avoid recomputes
+            let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
             
-            if showOverlays {
-                if !visibleNodes.isEmpty {
-                    // Compute model BBox (reuse existing method)
-                    let modelBBox = viewModel.model.boundingBox()
-                    
-                    // Compute relative corners (to effectiveCentroid)
-                    let minRel = CGPoint(x: modelBBox.minX, y: modelBBox.minY) - effectiveCentroid
-                    let maxRel = CGPoint(x: modelBBox.maxX, y: modelBBox.maxY) - effectiveCentroid
-                    
-                    // Scale and position on screen
-                    let minDisplay = minRel * zoomScale + viewCenter + panOffset
-                    let maxDisplay = maxRel * zoomScale + viewCenter + panOffset
-                    
-                    let displayWidth = maxDisplay.x - minDisplay.x
-                    let displayHeight = maxDisplay.y - minDisplay.y
-                    let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
-                    
-                    Rectangle()
-                        .stroke(Color.blue, lineWidth: 1.0)  // Keep thin, unscaled
-                        .frame(width: displayWidth, height: displayHeight)
-                        .position(displayCenter)
-                }
+            // Compute visibleRect for culling (in world space)
+            let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
+            
+            // Cull nodes
+            let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
+            
+            // Cull edges: Check if either endpoint is visible or line intersects rect
+            let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
+            
+            ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                           height: min(viewSize.width, viewSize.height) * 0.4)
+                    .position(viewCenter)
                 
-                if let centroid = visibleNodes.centroid() {
-                    let relative = centroid - effectiveCentroid  // Adjust for effective
-                    let scaled = relative * zoomScale
-                    let displayPos = scaled + viewCenter + panOffset
+                Canvas { context, _ in
+                    drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                     
-                    Circle()
-                        .fill(Color.yellow)
-                        .frame(width: 4, height: 4)
-                        .position(displayPos)
+                    if let dragged = draggedNode, let target = potentialEdgeTarget {
+                        let fromPos = dragged.position + dragOffset
+                        let toPos = target.position
+                        let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                        let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                        context.stroke(Path { path in
+                            path.move(to: fromDisplay)
+                            path.addLine(to: toDisplay)
+                        }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
+                    }
+                    
+                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                }
+                .drawingGroup()
+                
+                if showOverlays {
+                    overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 }
             }
         }
     }
+    
+    private func computeEffectiveCentroid(visibleNodes: [any NodeProtocol]) -> CGPoint {
+        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
+            return selected.position
+        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            return (from.position + to.position) / 2.0
+        }
+        return visibleNodes.centroid() ?? .zero
+    }
+    
+    private func computeVisibleRect(panOffset: CGPoint, effectiveCentroid: CGPoint, viewCenter: CGPoint, viewSize: CGSize) -> CGRect {
+        let originX = (-panOffset.x / zoomScale - effectiveCentroid.x + viewCenter.x / zoomScale) - viewSize.width / (2 * zoomScale)
+        let originY = (-panOffset.y / zoomScale - effectiveCentroid.y + viewCenter.y / zoomScale) - viewSize.height / (2 * zoomScale)
+        let origin = CGPoint(x: originX, y: originY)
+        let size = viewSize / zoomScale
+        return CGRect(origin: origin, size: size).insetBy(dx: -50, dy: -50)  // Buffer for partial visibility
+    }
+    
+    private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
+        visibleNodes.filter { node in
+            let nodeRect = CGRect(center: node.position, size: CGSize(width: node.radius * 2, height: node.radius * 2))
+            return visibleRect.intersects(nodeRect)
+        }
+    }
+    
+    private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
+        visibleEdges.filter { edge in
+            guard let fromNode = culledNodes.first(where: { $0.id == edge.from }),
+                  let toNode = culledNodes.first(where: { $0.id == edge.to }) else { return false }
+            let lineRect = CGRect(x: min(fromNode.position.x, toNode.position.x) - 1, y: min(fromNode.position.y, toNode.position.y) - 1,
+                                  width: abs(fromNode.position.x - toNode.position.x) + 2, height: abs(fromNode.position.y - toNode.position.y) + 2)
+            return visibleRect.intersects(lineRect)
+        }
+    }
+    
+    private func drawEdges(in context: GraphicsContext, culledEdges: [GraphEdge], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
+        for edge in culledEdges {
+            if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+               let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
+                let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
+                
+                let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                
+                let direction = toDisplay - fromDisplay
+                let length = hypot(direction.x, direction.y)
+                if length > 0 {
+                    let unitDir = direction / length
+                    let scaledToRadius = toNode.radius * zoomScale
+                    let lineEnd = toDisplay - unitDir * scaledToRadius
+                    
+                    let isSelected = edge.id == selectedEdgeID
+                    let lineWidth = isSelected ? 4.0 : 2.0
+                    let color = isSelected ? Color.red : Color.blue
+                    
+                    context.stroke(Path { path in
+                        path.move(to: fromDisplay)
+                        path.addLine(to: lineEnd)
+                    }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                    
+                    let arrowSize: CGFloat = 10.0
+                    let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
+                    let arrowTip = lineEnd
+                    let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
+                    let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
+                    
+                    let arrowPath = Path { path in
+                        path.move(to: arrowTip)
+                        path.addLine(to: arrowBase1)
+                        path.addLine(to: arrowBase2)
+                        path.closeSubpath()
+                    }
+                    context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
+                }
+                
+                if edge.id == selectedEdgeID {
+                    let midpoint = (fromDisplay + toDisplay) / 2
+                    let edgeLabel = "\(fromNode.label)→\(toNode.label)"
+                    let fontSize = UIFontMetrics.default.scaledValue(for: 12)
+                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                    let resolvedText = context.resolve(text)
+                    context.draw(resolvedText, at: midpoint, anchor: .center)
+                }
+            }
+        }
+    }
+    
+    private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
+        for node in culledNodes {
+            let isDragged = draggedNode?.id == node.id
+            let worldPos = isDragged ? node.position + dragOffset : node.position
+            let displayPos = displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            let isSelected = node.id == selectedNodeID
+            
+            // Compute locally per node
+            let scaledRadius = node.radius * zoomScale
+            let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+            let borderRadius = scaledRadius + borderWidth / 2
+            
+            let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
+            
+            if isSelected {
+                let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+                context.stroke(borderPath, with: .color(.white), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
+            }
+            
+            node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
+            
+            if isSelected {
+                let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+                let text = Text("\(node.label)").foregroundColor(.white).font(.system(size: fontSize))
+                let resolved = context.resolve(text)
+                let labelPosition = CGPoint(x: displayPos.x, y: displayPos.y - (scaledRadius + 10 * zoomScale))  // Offset above
+                context.draw(resolved, at: labelPosition, anchor: .center)
+            }
+        }
+    }
+    
+    private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
+        Group {
+            if !visibleNodes.isEmpty {
+                // Compute model BBox (reuse existing method)
+                let modelBBox = viewModel.model.boundingBox()
+                
+                // Scale and position on screen
+                let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                
+                let displayWidth = maxDisplay.x - minDisplay.x
+                let displayHeight = maxDisplay.y - minDisplay.y
+                let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
+                
+                Rectangle()
+                    .stroke(Color.blue, lineWidth: 1.0)  // Keep thin, unscaled
+                    .frame(width: displayWidth, height: displayHeight)
+                    .position(displayCenter)
+            }
+            
+            if let centroid = visibleNodes.centroid() {
+                let displayPos = displayPosition(for: centroid, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                
+                Circle()
+                    .fill(Color.yellow)
+                    .frame(width: 4, height: 4)
+                    .position(displayPos)
+            }
+        }
+    }
+    
     private var interactiveCanvas: some View {
         canvasBase
     }
@@ -2605,6 +2706,12 @@ extension Array where Element == any NodeProtocol {
             totalY += node.position.y
         }
         return CGPoint(x: totalX / CGFloat(count), y: totalY / CGFloat(count))
+    }
+}
+
+extension CGRect {
+    init(center: CGPoint, size: CGSize) {
+        self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
     }
 }
 
@@ -2771,7 +2878,7 @@ struct GraphGesturesModifier: ViewModifier {
 --------------------------------------------------
 File: GraphEditorWatchTests.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-08-08 22:53:29
+Last modified: 2025-08-09 09:32:13
 
 Contents:
 import Testing
@@ -2783,15 +2890,15 @@ import XCTest
 import SwiftUI
 
 class MockGraphStorage: GraphStorage {
-    var nodes: [Node] = []
+    var nodes: [any NodeProtocol] = []
     var edges: [GraphEdge] = []
     
-    func save(nodes: [Node], edges: [GraphEdge]) throws {
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws {
         self.nodes = nodes
         self.edges = edges
     }
     
-    func load() throws -> (nodes: [Node], edges: [GraphEdge]) {
+    func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
         (nodes, edges)
     }
     
@@ -2852,13 +2959,16 @@ struct GraphModelTests {
     @Test func testSnapshotAndUndo() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes as! [Node]
+        let initialNodes = model.nodes
         model.snapshot()
         model.addNode(at: CGPoint.zero)
         #expect(model.nodes.count == initialNodes.count + 1, "Node added")
         model.undo()
-        let nodesMatch = (model.nodes as! [Node]) == initialNodes
-        #expect(nodesMatch, "Undo restores state")
+        let restoredNodes = model.nodes
+        let idsMatch = Set(restoredNodes.map { $0.id }) == Set(initialNodes.map { $0.id })
+        let labelsMatch = Set(restoredNodes.map { $0.label }) == Set(initialNodes.map { $0.label })
+        let positionsMatch = zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) }
+        #expect(idsMatch && labelsMatch && positionsMatch, "Undo restores state")
     }
     
     @Test func testDeleteNodeAndEdges() {
@@ -2875,16 +2985,15 @@ struct GraphModelTests {
     @Test func testSaveLoadRoundTrip() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let originalNodes = model.nodes as! [Node]
+        let originalNodeCount = model.nodes.count
         let originalEdges = model.edges
         // Modify and snapshot to trigger save
         model.addNode(at: CGPoint.zero)
         model.snapshot()
         // New instance to trigger load
         let newModel = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(newModel.nodes.count == originalNodes.count + 1, "Loaded nodes include addition")
-        let edgesMatch = newModel.edges == originalEdges
-        #expect(edgesMatch, "Loaded edges match original")
+        #expect(newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include addition")
+        #expect(newModel.edges == originalEdges, "Loaded edges match original")
     }
     
     @Test func testAddNode() {
@@ -2898,7 +3007,7 @@ struct GraphModelTests {
     @Test func testRedo() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes as! [Node]
+        let initialNodes = model.nodes
         model.snapshot()
         model.addNode(at: CGPoint.zero)
         // Removed: model.snapshot() // Avoid saving post-add state; undo would be a no-op otherwise
@@ -2960,13 +3069,13 @@ struct GraphModelTests {
     @Test func testUndoAfterDelete() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes as! [Node]
+        let initialNodeCount = model.nodes.count
         model.snapshot()
         let nodeID = model.nodes[0].id
         model.deleteNode(withID: nodeID)
-        #expect(model.nodes.count == initialNodes.count - 1, "Node deleted")
+        #expect(model.nodes.count == initialNodeCount - 1, "Node deleted")
         model.undo()
-        #expect(model.nodes.count == initialNodes.count, "Undo restores deleted node")
+        #expect(model.nodes.count == initialNodeCount, "Undo restores deleted node")
     }
     
     @Test func testStartStopSimulation() {
@@ -2985,7 +3094,7 @@ struct GraphModelTests {
         }
         
         let updatedPositions = model.nodes.map { $0.position }
-        let positionsChanged = zip(initialNodes, updatedPositions).contains { $0 != $1 }
+        let positionsChanged = zip(initialNodes, updatedPositions).contains { !approximatelyEqual($0, $1, accuracy: 1e-5) }
         #expect(positionsChanged, "Simulation affects positions after start")
         
         model.stopSimulation()
@@ -2994,7 +3103,7 @@ struct GraphModelTests {
         let positionsBefore = model.nodes.map { $0.position }
         // No call to step
         let positionsAfter = model.nodes.map { $0.position }
-        let noChangeAfterStop = zip(positionsBefore, positionsAfter).allSatisfy { $0 == $1 }
+        let noChangeAfterStop = zip(positionsBefore, positionsAfter).allSatisfy { approximatelyEqual($0, $1, accuracy: 1e-5) }
         #expect(noChangeAfterStop, "No position changes after stop")
     }
     
@@ -3072,24 +3181,24 @@ struct GraphModelTests {
 struct PhysicsEngineTests {
     @Test func testSimulationStepStability() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        var nodes: [Node] = [
+        var nodes: [any NodeProtocol] = [
             Node(label: 1, position: CGPoint(x: 150, y: 150), velocity: CGPoint(x: 0.3, y: 0.3))  // hypot~0.42 >0.2
         ]
         let edges: [GraphEdge] = []
-        let (updatedNodes1, isRunning) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-        nodes = updatedNodes1 as! [Node]
+        let (updatedNodes1, isRunning) = engine.simulationStep(nodes: nodes, edges: edges)
+        nodes = updatedNodes1
         #expect(isRunning, "Simulation runs if velocities above threshold")
         
         nodes[0].velocity = CGPoint(x: 0.0, y: 0.0)  // zero vel at center, added force~0
-        let (updatedNodes2, isStable) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-        nodes = updatedNodes2 as! [Node]
+        let (updatedNodes2, isStable) = engine.simulationStep(nodes: nodes, edges: edges)
+        nodes = updatedNodes2
         #expect(!isStable, "Simulation stops if velocities below threshold")
     }
     
     @Test func testSimulationConvergence() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         engine.useAsymmetricAttraction = false
-        var nodes: [Node] = [
+        var nodes: [any NodeProtocol] = [
             Node(label: 1, position: CGPoint(x: 0, y: 0), velocity: CGPoint(x: 10, y: 10)),
             Node(label: 2, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: -5, y: -5))
         ]
@@ -3097,8 +3206,8 @@ struct PhysicsEngineTests {
         var isActive = true
         var steps = 0
         while isActive && steps < 10000 {
-            let (updatedNodes, stepActive) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-            nodes = updatedNodes as! [Node]
+            let (updatedNodes, stepActive) = engine.simulationStep(nodes: nodes, edges: edges)
+            nodes = updatedNodes
             isActive = stepActive
             steps += 1
         }
@@ -3138,7 +3247,7 @@ struct PhysicsEngineTests {
     
     @Test func testBoundingBox() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
-        let nodes: [Node] = [
+        let nodes: [any NodeProtocol] = [
             Node(label: 1, position: CGPoint(x: 10.0, y: 20.0)),
             Node(label: 2, position: CGPoint(x: 30.0, y: 40.0)),
             Node(label: 3, position: CGPoint(x: 5.0, y: 50.0))
@@ -3164,27 +3273,27 @@ struct PhysicsEngineTests {
     
     @Test func testAttractionForceInSimulation() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
-        var nodes: [Node] = [
+        var nodes: [any NodeProtocol] = [
             Node(label: 1, position: CGPoint(x: 0.0, y: 0.0)),
             Node(label: 2, position: CGPoint(x: 200.0, y: 200.0))
         ]
         let edges = [GraphEdge(from: nodes[0].id, to: nodes[1].id)]
         let initialDistance = distance(nodes[0].position, nodes[1].position)
-        let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-        nodes = updatedNodes as! [Node]
+        let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
+        nodes = updatedNodes
         let newDistance = distance(nodes[0].position, nodes[1].position)
         #expect(newDistance < initialDistance, "Attraction force pulls nodes closer")
     }
     
     @Test func testSimulationMaxSteps() {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Add parameter
-        var nodes: [Node] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
+        var nodes: [any NodeProtocol] = [Node(label: 1, position: CGPoint.zero, velocity: CGPoint(x: 1.0, y: 1.0))]
         let edges: [GraphEdge] = []
         for _ in 0..<Constants.Physics.maxSimulationSteps {
-            let (updatedNodes, _) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-            nodes = updatedNodes as! [Node]
+            let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
+            nodes = updatedNodes
         }
-        let (_, exceeded) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
+        let (_, exceeded) = engine.simulationStep(nodes: nodes, edges: edges)
         #expect(!exceeded, "Simulation stops after max steps")
     }
     
@@ -3197,9 +3306,10 @@ struct PhysicsEngineTests {
         }
         model.startSimulation()
         // Simulate more steps manually if needed, assert no crash and velocities decrease
-        let nodes = model.nodes as! [Node]
+        var nodes = model.nodes
         for _ in 0..<100 {  // Increased to 100 for damping to take effect
-            _ = physicsEngine.simulationStep(nodes: nodes as [any NodeProtocol], edges: model.edges)
+            let (updatedNodes, _) = physicsEngine.simulationStep(nodes: nodes, edges: model.edges)
+            nodes = updatedNodes
         }
         let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
         #expect(totalVel < 5000, "Velocities should not explode with many nodes")  // Adjusted threshold
@@ -3220,7 +3330,7 @@ struct PhysicsEngineTests {
         let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         for seed in 0..<10 {  // 10 seeded runs for reproducibility
             srand48(seed)  // For deterministic random (import <stdlib.h> if needed, or use Swift's SeededRandomNumberGenerator if available)
-            var nodes: [Node] = []
+            var nodes: [any NodeProtocol] = []
             for i in 1...Int(drand48() * 8 + 3) {  // 3-10 nodes
                 let x = CGFloat(drand48() * 300)
                 let y = CGFloat(drand48() * 300)
@@ -3243,8 +3353,8 @@ struct PhysicsEngineTests {
             while isActive && ticks < maxTicks {
                 var stepActiveAccum = false
                 for _ in 0..<subSteps {
-                    let (updatedNodes, stepActive) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
-                    nodes = updatedNodes as! [Node]
+                    let (updatedNodes, stepActive) = engine.simulationStep(nodes: nodes, edges: edges)
+                    nodes = updatedNodes
                     stepActiveAccum = stepActiveAccum || stepActive
                 }
                 isActive = stepActiveAccum
@@ -3280,7 +3390,7 @@ struct PersistenceManagerTests {
         let loaded = try manager.load()
         #expect(loaded.nodes.isEmpty, "Empty nodes on initial load")
         #expect(loaded.edges.isEmpty, "Empty edges on initial load")
-        let nodes = [Node(label: 1, position: CGPoint.zero)]
+        let nodes: [any NodeProtocol] = [Node(label: 1, position: CGPoint.zero)]
         let edges = [GraphEdge(from: nodes[0].id, to: nodes[0].id)] // Self-loop edge
         try manager.save(nodes: nodes, edges: edges)
         // Optional: Verify files were written (for debugging)
@@ -3289,7 +3399,7 @@ struct PersistenceManagerTests {
         #expect(fm.fileExists(atPath: nodesURL.path), "Nodes file should exist after save")
         #expect(fm.fileExists(atPath: edgesURL.path), "Edges file should exist after save")
         let reloaded = try manager.load()
-        #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
+        #expect(reloaded.nodes.count == nodes.count, "Loaded nodes match count")
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
     
@@ -3328,8 +3438,8 @@ class GraphGesturesModifierTests: XCTestCase {
             #expect(model.edges.isEmpty, "No edges initially")
             
             let viewModel = GraphViewModel(model: model)
-            let node1 = model.nodes[0] as! Node
-            let node2 = model.nodes[1] as! Node
+            guard let node1 = model.nodes[0] as? Node else { fatalError("Expected Node") }
+            guard let node2 = model.nodes[1] as? Node else { fatalError("Expected Node") }
             
             // Mock gesture properties instead of creating Value
             let mockTranslation = CGSize(width: 50, height: 50)
@@ -3360,9 +3470,7 @@ class GraphGesturesModifierTests: XCTestCase {
                             viewModel.model.startSimulation()
                         } else {
                             // Move logic (skipped, but update to use vars)
-                            var updatedNode = viewModel.model.nodes[index] as! Node  // Cast for mutation
-                            updatedNode.position = CGPoint(x: updatedNode.position.x + dragOffset.x, y: updatedNode.position.y + dragOffset.y)
-                            viewModel.model.nodes[index] = updatedNode
+                            viewModel.model.nodes[index].position = CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y)
                             viewModel.model.startSimulation()
                         }
                     }

@@ -102,7 +102,7 @@ struct GraphGesturesModifier: ViewModifier {
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.success)
+                        WKInterfaceDevice.current().play(.click)
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
@@ -110,7 +110,7 @@ struct GraphGesturesModifier: ViewModifier {
                         updatedNode.position.y += value.translation.height / zoomScale
                         viewModel.model.nodes[index] = updatedNode
                         viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.success)
+                        WKInterfaceDevice.current().play(.click)
                     }
                 }
                 
