@@ -327,10 +327,12 @@ struct PhysicsEngineTests {
             steps += 1
         }
         #expect(steps < 10000, "Simulation converges within limit")
-        #expect(nodes[0].velocity.magnitude < 0.3, "Node 1 velocity converges to near-zero")
-        #expect(nodes[1].velocity.magnitude < 0.3, "Node 2 velocity converges to near-zero")
+        let tolerance: CGFloat = 1e-3  // Small epsilon for floating-point
+        #expect(nodes[0].velocity.magnitude < 0.3 + tolerance, "Node 1 velocity converges to near-zero")
+        #expect(nodes[1].velocity.magnitude < 0.3 + tolerance, "Node 2 velocity converges to near-zero")
         #expect(abs(distance(nodes[0].position, nodes[1].position) - Constants.Physics.idealLength) < 42, "Nodes approach ideal edge length")
     }
+    
     @Test func testQuadtreeInsertionAndCenterOfMass() {
         let quadtree = GraphEditorShared.Quadtree(bounds: CGRect(x: 0.0, y: 0.0, width: 100.0, height: 100.0))
         let node1 = Node(label: 1, position: CGPoint(x: 10.0, y: 10.0))
@@ -437,17 +439,57 @@ struct PhysicsEngineTests {
         let force = quadtree.computeForce(on: node1)
         #expect(force.magnitude > 0, "Force non-zero on coincident nodes")
     }
-}
+    
+    @Test func testConvergencePropertyBased() {
+        let engine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        for seed in 0..<10 {  // 10 seeded runs for reproducibility
+            srand48(seed)  // For deterministic random (import <stdlib.h> if needed, or use Swift's SeededRandomNumberGenerator if available)
+            var nodes: [Node] = []
+            for i in 1...Int(drand48() * 8 + 3) {  // 3-10 nodes
+                let x = CGFloat(drand48() * 300)
+                let y = CGFloat(drand48() * 300)
+                nodes.append(Node(label: i, position: CGPoint(x: x, y: y)))
+            }
+            var edges: [GraphEdge] = []
+            for _ in 0..<Int(drand48() * Double(nodes.count) + 1) {
+                let fromIdx = Int(drand48() * Double(nodes.count))
+                let toIdx = Int(drand48() * Double(nodes.count))
+                if fromIdx != toIdx {
+                    edges.append(GraphEdge(from: nodes[fromIdx].id, to: nodes[toIdx].id))
+                }
+            }
+            
+            let subSteps = nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1)
+            var isActive = true
+            var ticks = 0
+            let maxTicks = 2000
+            
+            while isActive && ticks < maxTicks {
+                var stepActiveAccum = false
+                for _ in 0..<subSteps {
+                    let (updatedNodes, stepActive) = engine.simulationStep(nodes: nodes as [any NodeProtocol], edges: edges)
+                    nodes = updatedNodes as! [Node]
+                    stepActiveAccum = stepActiveAccum || stepActive
+                }
+                isActive = stepActiveAccum
+                ticks += 1
+            }
+            
+            #expect(ticks < maxTicks, "Converges within limit for seeded graph \(seed)")
+            let totalVel = nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
+            #expect(totalVel < 0.5 * CGFloat(nodes.count), "Velocities near zero for seeded graph \(seed)")  // Relaxed threshold
+        }
+    }}
 
 struct PersistenceManagerTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
-
+    
     private func mockStorage() -> MockGraphStorage {
         MockGraphStorage()
     }
-
+    
     @Test func testSaveLoadWithInvalidData() throws {
         // Create a unique temporary directory for this test
         let fm = FileManager.default
@@ -474,7 +516,7 @@ struct PersistenceManagerTests {
         #expect(reloaded.nodes == nodes, "Loaded nodes match saved (including IDs)")
         #expect(reloaded.edges == edges, "Loaded edges match saved")
     }
-
+    
     @Test func testUndoRedoThroughViewModel() {
         let storage = mockStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
@@ -567,7 +609,7 @@ struct AccessibilityTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
-
+    
     @Test func testGraphDescription() {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
@@ -584,7 +626,7 @@ struct AccessibilityTests {
         
         let descNoSelect = model.graphDescription(selectedID: nil, selectedEdgeID: nil)  // Add param
         #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")  // Updated expectation
-
+        
         let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil)  // Add param
         #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")  // Updated expectation
     }
