@@ -254,7 +254,7 @@ struct ContentView: View {
             maxRel.y = max(maxRel.y, rel.y)
         }
         
-        // Now compute scaledHeight after minRel and maxRel are available
+        // Compute scaledHeight after minRel and maxRel are available
         let scaledHeight = (maxRel.y - minRel.y) * zoomScale
         
         // Adjust padding for small graphs
