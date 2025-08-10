@@ -114,6 +114,7 @@ struct GraphModelTests {
     }
     
     // New: Basic convergence test with tightened threshold
+    // New: Basic convergence test with tightened threshold
     @Test func testSimulationConvergence() {
         let tolerance: CGFloat = 0.05  // Lenient for floating-point
         let model = GraphModel(storage: MockGraphStorage(), physicsEngine: mockPhysicsEngine())
@@ -126,17 +127,22 @@ struct GraphModelTests {
         model.startSimulation()
         // Simulate steps (since timer is async, run manual loop for test)
         for _ in 0..<Constants.Physics.maxSimulationSteps {
-            let nodes = model.nodes
-            let edges = model.edges
-            let (updatedNodes, active) = model.physicsEngine.simulationStep(nodes: nodes, edges: edges)
-            model.nodes = updatedNodes
-            if !active { break }
+            var nodes = model.nodes
+            var activeAccum = false
+            let subSteps = 5  // Match simulator for small graphs; adjust dynamically if needed
+            for _ in 0..<subSteps {
+                let edges = model.edges
+                let (updatedNodes, stepActive) = model.physicsEngine.simulationStep(nodes: nodes, edges: edges)
+                nodes = updatedNodes
+                activeAccum = activeAccum || stepActive
+            }
+            model.nodes = nodes
+            if !activeAccum { break }
         }
         
         #expect(model.nodes[0].velocity.magnitude < 0.2 + tolerance, "Node 1 velocity converges to near-zero")
         #expect(model.nodes[1].velocity.magnitude < 0.2 + tolerance, "Node 2 velocity converges to near-zero")
     }
-    
     // New/Fixed: Property-based convergence test with tightened threshold and proper parameterization
     @Test(arguments: 1..<5) func testConvergencePropertyBased(seed: Int) throws {
         let model = GraphModel(storage: MockGraphStorage(), physicsEngine: mockPhysicsEngine())

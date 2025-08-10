@@ -58,7 +58,7 @@ struct ContentView: View {
     }
     
     var body: some View {
-        GeometryReader { geo in
+        let geoReader: some View = GeometryReader { geo in
             GraphCanvasView(
                 viewModel: viewModel,
                 zoomScale: $zoomScale,
@@ -74,11 +74,13 @@ struct ContentView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
                 selectedEdgeID: $selectedEdgeID,
-                showOverlays: $showOverlays  // Pass the new binding
+                showOverlays: $showOverlays
             )
         }
-        .ignoresSafeArea()  // New: Ignore safe area insets to fill screen top/bottom
-        .sheet(isPresented: $showMenu) {
+        
+        let withIgnore: some View = geoReader.ignoresSafeArea()
+        
+        let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
             NavigationStack {
                 List {
                     AddSection(
@@ -93,8 +95,8 @@ struct ContentView: View {
                         onDismiss: { showMenu = false }
                     )
                     ViewSection(
-                        isSimulating: viewModel.model.isSimulating,  // Explicit pass from model
-                        toggleSimulation: toggleSimulation,  // Pass the function as closure
+                        isSimulating: viewModel.model.isSimulating,
+                        toggleSimulation: toggleSimulation,
                         showOverlays: $showOverlays,
                         onDismiss: { showMenu = false }
                     )
@@ -107,16 +109,19 @@ struct ContentView: View {
                 .navigationBarTitleDisplayMode(.inline)
             }
         }
-        .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
-        .onChange(of: crownPosition) { oldValue, newValue in
+        
+        let withFocus: some View = withSheet.focusable()
+        
+        let withCrown: some View = withFocus.digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
+        
+        let withCrownChange: some View = withCrown.onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
-                return  // No need to set previousCrownPosition
+                return
             }
             
             let oldOffset = offset
-            print("Crown changed from \(oldValue) to \(newValue), pausing simulation")  // Updated print
+            print("Crown changed from \(oldValue) to \(newValue), pausing simulation")
             isZooming = true
             resumeTimer?.invalidate()
             viewModel.model.pauseSimulation()
@@ -126,7 +131,7 @@ struct ContentView: View {
                 viewModel.model.resumeSimulation()
             }
             
-            updateZoomScale(oldCrown: oldValue)  // Pass oldValue directly
+            updateZoomScale(oldCrown: oldValue)
             clampOffset()
             
             let newOffset = offset
@@ -134,22 +139,25 @@ struct ContentView: View {
                 print("Offset changed during zoom: from \(oldOffset) to \(newOffset)")
             }
         }
-        .onReceive(viewModel.model.$nodes) { _ in
+        
+        let withNodesReceive: some View = withCrownChange.onReceive(viewModel.model.$nodes) { _ in
             onUpdateZoomRanges()
         }
-        .onChange(of: panStartOffset) {
+        
+        let withPanChange: some View = withNodesReceive.onChange(of: panStartOffset) {
             isPanning = panStartOffset != nil
             if isPanning {
                 viewModel.model.stopSimulation()
             } else {
-                clampOffset()  // New: Immediate clamp on pan end (no delay snap)
+                clampOffset()
                 resumeTimer?.invalidate()
                 resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
                     self.viewModel.model.startSimulation()
                 }
             }
         }
-        .onChange(of: scenePhase) {
+        
+        let withScene: some View = withPanChange.onChange(of: scenePhase) {
             switch scenePhase {
             case .active:
                 viewModel.model.startSimulation()
@@ -159,14 +167,34 @@ struct ContentView: View {
                 break
             }
         }
-        .onAppear {
+        
+        let withZoomChange: some View = withScene.onChange(of: zoomScale) {
+            clampOffset()  // Changed: Zero-parameter closure (dropped _ in)
+        }
+        
+        let withEdgesChange: some View = withZoomChange.onChange(of: viewModel.model.edges) {
+            clampOffset()  // Changed: Zero-parameter closure (dropped _ in)
+        }
+        
+        let withSelectedNode: some View = withEdgesChange.onChange(of: selectedNodeID) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                clampOffset()
+            }  // Changed: Zero-parameter closure (dropped _ in)
+        }
+        
+        let withSelectedEdge: some View = withSelectedNode.onChange(of: selectedEdgeID) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                clampOffset()
+            }  // Changed: Zero-parameter closure (dropped _ in)
+        }
+        
+        withSelectedEdge.onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
             onUpdateZoomRanges()
             viewModel.model.startSimulation()
-            previousCrownPosition = crownPosition  // New: Init previous
+            previousCrownPosition = crownPosition
         }
     }
-    
     private func toggleSimulation() {
         if viewModel.model.isSimulating {
             viewModel.model.pauseSimulation()
@@ -243,19 +271,24 @@ struct ContentView: View {
             effectiveCentroid = (from.position + to.position) / 2.0
         }
         
-        // Compute relative BBox min/max from effective centroid (unchanged)
-        var minRel = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
-        var maxRel = CGPoint(x: -CGFloat.greatestFiniteMagnitude, y: -CGFloat.greatestFiniteMagnitude)
+        // Compute relative BBox min/max from effective centroid (unchanged, but broken out)
+        var minRelX: CGFloat = .greatestFiniteMagnitude
+        var minRelY: CGFloat = .greatestFiniteMagnitude
+        var maxRelX: CGFloat = -.greatestFiniteMagnitude
+        var maxRelY: CGFloat = -.greatestFiniteMagnitude
         for node in visibleNodes {
             let rel = node.position - effectiveCentroid
-            minRel.x = min(minRel.x, rel.x)
-            minRel.y = min(minRel.y, rel.y)
-            maxRel.x = max(maxRel.x, rel.x)
-            maxRel.y = max(maxRel.y, rel.y)
+            minRelX = min(minRelX, rel.x)
+            minRelY = min(minRelY, rel.y)
+            maxRelX = max(maxRelX, rel.x)
+            maxRelY = max(maxRelY, rel.y)
         }
+        let minRel = CGPoint(x: minRelX, y: minRelY)
+        let maxRel = CGPoint(x: maxRelX, y: maxRelY)
         
         // Compute scaledHeight after minRel and maxRel are available
-        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
+        let graphHeight = maxRel.y - minRel.y
+        let scaledHeight = graphHeight * zoomScale
         
         // Adjust padding for small graphs
         if scaledHeight < viewSize.height * 0.5 {
@@ -266,7 +299,7 @@ struct ContentView: View {
         let paddingX = viewSize.width * paddingFactor
         let paddingY = viewSize.height * paddingFactor
         
-        // Scale relative extents (unchanged)
+        // Scale relative extents (broken out)
         let scaledMinX = minRel.x * zoomScale
         let scaledMaxX = maxRel.x * zoomScale
         let scaledMinY = minRel.y * zoomScale
@@ -276,19 +309,29 @@ struct ContentView: View {
         let viewCenterY = viewSize.height / 2
         
         // Fixed: Correct symmetric clamping (accounts for y-down; allows negative offsets)
-        // X (left/right)
-        let minOffsetX = paddingX - viewCenterX - scaledMinX
-        let maxOffsetX = viewSize.width - paddingX - viewCenterX - scaledMaxX
+        // X (left/right) - broken into steps
+        let baseMinX = paddingX - viewCenterX
+        let minOffsetX = baseMinX - scaledMinX
         
-        // Y (top/bottom)
-        let minOffsetY = paddingY - viewCenterY - scaledMinY
-        let maxOffsetY = viewSize.height - paddingY - viewCenterY - scaledMaxY
+        let baseMaxX = viewSize.width - paddingX - viewCenterX
+        let maxOffsetX = baseMaxX - scaledMaxX
         
-        // Clamp (handle case where min > max for large graphs by centering)
-        offset.width = max(min(offset.width, max(maxOffsetX, minOffsetX)), minOffsetX)
-        offset.height = max(min(offset.height, max(maxOffsetY, minOffsetY)), minOffsetY)
-    }
-}
+        // Y (top/bottom) - broken into steps
+        let baseMinY = paddingY - viewCenterY
+        let minOffsetY = baseMinY - scaledMinY
+        
+        let baseMaxY = viewSize.height - paddingY - viewCenterY
+        let maxOffsetY = baseMaxY - scaledMaxY
+        
+        // Clamp (handle case where min > max for large graphs by centering) - broken into steps
+        let upperX = max(maxOffsetX, minOffsetX)
+        let clampedX = min(offset.width, upperX)
+        offset.width = max(clampedX, minOffsetX)
+        
+        let upperY = max(maxOffsetY, minOffsetY)
+        let clampedY = min(offset.height, upperY)
+        offset.height = max(clampedY, minOffsetY)
+    }}
 
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {

@@ -96,26 +96,38 @@ struct GraphCanvasView: View {
     }
     
     private func computeVisibleRect(panOffset: CGPoint, effectiveCentroid: CGPoint, viewCenter: CGPoint, viewSize: CGSize) -> CGRect {
-        let originX = (-panOffset.x / zoomScale - effectiveCentroid.x + viewCenter.x / zoomScale) - viewSize.width / (2 * zoomScale)
-        let originY = (-panOffset.y / zoomScale - effectiveCentroid.y + viewCenter.y / zoomScale) - viewSize.height / (2 * zoomScale)
-        let origin = CGPoint(x: originX, y: originY)
-        let size = viewSize / zoomScale
-        return CGRect(origin: origin, size: size).insetBy(dx: -50, dy: -50)  // Buffer for partial visibility
+        // Corrected: Proper inverse transform for world-space min corner
+        let originX = effectiveCentroid.x + (-viewCenter.x - panOffset.x) / zoomScale
+        let originY = effectiveCentroid.y + (-viewCenter.y - panOffset.y) / zoomScale
+        let worldWidth = viewSize.width / zoomScale
+        let worldHeight = viewSize.height / zoomScale
+        let visibleRect = CGRect(x: originX, y: originY, width: worldWidth, height: worldHeight)
+        
+        // Zoom-aware buffer: Expand in world units equivalent to 50 screen pixels
+        let bufferWorld = 50.0 / zoomScale
+        return visibleRect.insetBy(dx: -bufferWorld, dy: -bufferWorld)
     }
-    
+
     private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
         visibleNodes.filter { node in
-            let nodeRect = CGRect(center: node.position, size: CGSize(width: node.radius * 2, height: node.radius * 2))
+            // Expanded node rect for tolerance
+            let buffer = node.radius / 2  // Half radius extra
+            let nodeRect = CGRect(center: node.position, size: CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2))
             return visibleRect.intersects(nodeRect)
         }
     }
-    
+
     private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
         visibleEdges.filter { edge in
             guard let fromNode = culledNodes.first(where: { $0.id == edge.from }),
                   let toNode = culledNodes.first(where: { $0.id == edge.to }) else { return false }
-            let lineRect = CGRect(x: min(fromNode.position.x, toNode.position.x) - 1, y: min(fromNode.position.y, toNode.position.y) - 1,
-                                  width: abs(fromNode.position.x - toNode.position.x) + 2, height: abs(fromNode.position.y - toNode.position.y) + 2)
+            // Expanded line rect: Add buffer equivalent to 10 screen pixels in world units
+            let bufferWorld = 10.0 / zoomScale
+            let minX = min(fromNode.position.x, toNode.position.x) - bufferWorld
+            let minY = min(fromNode.position.y, toNode.position.y) - bufferWorld
+            let width = abs(fromNode.position.x - toNode.position.x) + 2 * bufferWorld
+            let height = abs(fromNode.position.y - toNode.position.y) + 2 * bufferWorld
+            let lineRect = CGRect(x: minX, y: minY, width: width, height: height)
             return visibleRect.intersects(lineRect)
         }
     }
