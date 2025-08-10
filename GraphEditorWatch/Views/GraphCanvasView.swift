@@ -119,9 +119,8 @@ struct GraphCanvasView: View {
 
     private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
         visibleEdges.filter { edge in
-            guard let fromNode = culledNodes.first(where: { $0.id == edge.from }),
-                  let toNode = culledNodes.first(where: { $0.id == edge.to }) else { return false }
-            // Expanded line rect: Add buffer equivalent to 10 screen pixels in world units
+            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return false }
             let bufferWorld = 10.0 / zoomScale
             let minX = min(fromNode.position.x, toNode.position.x) - bufferWorld
             let minY = min(fromNode.position.y, toNode.position.y) - bufferWorld
