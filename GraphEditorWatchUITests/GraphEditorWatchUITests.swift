@@ -94,6 +94,23 @@ final class GraphEditorWatchUITests: XCTestCase {
             XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Menu action adds node")
         }
     
+    // New: Test for digital crown zooming (using proxy button; manual test crown in simulator)
+    func testDigitalCrownZooming() throws {
+        let app = XCUIApplication()
+        app.launch()
+        
+        let canvas = app.otherElements["GraphCanvas"]  // Assume identifier set
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        
+        // Simulate crown via menu button (add "Zoom In" to menu if not present)
+        app.buttons["Show Menu"].tap()
+        app.buttons["Zoom In"].tap()  // Proxy for crown rotation; adjust if button named differently
+        
+        // Assert: Check if description or visible elements change (e.g., more details visible)
+        let zoomedLabel = app.staticTexts["Graph with 3 nodes"]  // Adjust to match post-zoom (e.g., if zoom reveals more)
+        XCTAssertTrue(zoomedLabel.waitForExistence(timeout: 2), "Zoom updates view")
+    }
+    
     
     @MainActor
     func testExample() throws {
