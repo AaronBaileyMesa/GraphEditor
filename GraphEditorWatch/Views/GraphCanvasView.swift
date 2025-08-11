@@ -24,6 +24,7 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
+    
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
         let scaled = relative * zoomScale
@@ -53,6 +54,8 @@ struct GraphCanvasView: View {
                     .position(viewCenter)
                 
                 Canvas { context, _ in
+                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    
                     drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                     
                     if let dragged = draggedNode, let target = potentialEdgeTarget {
@@ -66,7 +69,6 @@ struct GraphCanvasView: View {
                         }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
                     }
                     
-                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 }
                 .drawingGroup()
                 
@@ -121,56 +123,94 @@ struct GraphCanvasView: View {
     }
     
     private func drawEdges(in context: GraphicsContext, culledEdges: [GraphEdge], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
+        var processedEdges = Set<UUID>()  // Avoid duplicate bidirectional draws
+        
         for edge in culledEdges {
-            if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-               let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
-                let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
+            if processedEdges.contains(edge.id) { continue }
+            processedEdges.insert(edge.id)
+            
+            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { continue }
+            
+            let fromPos = (draggedNode?.id == fromNode.id ? fromNode.position + dragOffset : fromNode.position)
+            let toPos = (draggedNode?.id == toNode.id ? toNode.position + dragOffset : toNode.position)
+            
+            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            
+            let direction = toDisplay - fromDisplay
+            let length = hypot(direction.x, direction.y)
+            if length <= 0 { continue }
+            
+            let unitDir = direction / length
+            let scaledFromRadius = fromNode.radius * zoomScale + 2  // Slight inset
+            let scaledToRadius = toNode.radius * zoomScale + 2
+            let lineStart = fromDisplay + unitDir * scaledFromRadius
+            let lineEnd = toDisplay - unitDir * scaledToRadius
+            
+            let isSelected = edge.id == selectedEdgeID
+            let lineWidth = isSelected ? 4.0 : 2.0
+            let color = isSelected ? Color.red : Color.blue
+            
+            // Bidirectional check
+            if let reverseEdge = viewModel.model.edges.first(where: { $0.from == edge.to && $0.to == edge.from }) {
+                processedEdges.insert(reverseEdge.id)  // Skip reverse
                 
-                let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                // Draw two curved lines
+                let midPoint = (fromDisplay + toDisplay) / 2
+                let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x) * (8.0 * zoomScale)  // Curve offset scaled
                 
-                let direction = toDisplay - fromDisplay
-                let length = hypot(direction.x, direction.y)
-                if length > 0 {
-                    let unitDir = direction / length
-                    let scaledToRadius = toNode.radius * zoomScale
-                    let lineEnd = toDisplay - unitDir * scaledToRadius
-                    
-                    let isSelected = edge.id == selectedEdgeID
-                    let lineWidth = isSelected ? 4.0 : 2.0
-                    let color = isSelected ? Color.red : Color.blue
-                    
-                    context.stroke(Path { path in
-                        path.move(to: fromDisplay)
-                        path.addLine(to: lineEnd)
-                    }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                    
-                    let arrowSize: CGFloat = 10.0
-                    let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
-                    let arrowTip = lineEnd
-                    let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
-                    let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
-                    
-                    let arrowPath = Path { path in
-                        path.move(to: arrowTip)
-                        path.addLine(to: arrowBase1)
-                        path.addLine(to: arrowBase2)
-                        path.closeSubpath()
-                    }
-                    context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
-                }
+                // Forward curve
+                let control1 = midPoint + perpDir
+                context.stroke(Path { path in
+                    path.move(to: lineStart)
+                    path.addQuadCurve(to: lineEnd, control: control1)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 
-                if edge.id == selectedEdgeID {
-                    let midpoint = (fromDisplay + toDisplay) / 2
-                    let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                    let fontSize = UIFontMetrics.default.scaledValue(for: 12)
-                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                    let resolvedText = context.resolve(text)
-                    context.draw(resolvedText, at: midpoint, anchor: .center)
-                }
+                // Reverse curve (opposite offset)
+                let control2 = midPoint + CGPoint(x: -perpDir.x, y: -perpDir.y)  // Proper negation
+                let revStart = toDisplay + CGPoint(x: -unitDir.x * scaledToRadius, y: -unitDir.y * scaledToRadius)  // Swap and negate
+                let revEnd = fromDisplay + unitDir * scaledFromRadius
+                let revDir = CGPoint(x: -unitDir.x, y: -unitDir.y)
+                context.stroke(Path { path in
+                    path.move(to: revStart)
+                    path.addQuadCurve(to: revEnd, control: control2)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
+            } else {
+                // Single straight line
+                context.stroke(Path { path in
+                    path.move(to: lineStart)
+                    path.addLine(to: lineEnd)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
+            }
+            
+            if isSelected {
+                let midpoint = (fromDisplay + toDisplay) / 2
+                let edgeLabel = "\(fromNode.label)→\(toNode.label)"
+                let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
+                let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                context.draw(context.resolve(text), at: midpoint, anchor: .center)
             }
         }
+    }
+    
+    private func drawArrowhead(in context: GraphicsContext, at point: CGPoint, direction: CGPoint, size: CGFloat, color: Color) {
+        let arrowSize = size * min(zoomScale, 1.0)  // Scale with zoom, cap at 1x
+        let perpDir = CGPoint(x: -direction.y, y: direction.x)
+        let arrowTip = point
+        let arrowBase1 = arrowTip - direction * arrowSize + perpDir * (arrowSize / 2)
+        let arrowBase2 = arrowTip - direction * arrowSize - perpDir * (arrowSize / 2)
+        
+        let arrowPath = Path { path in
+            path.move(to: arrowTip)
+            path.addLine(to: arrowBase1)
+            path.addLine(to: arrowBase2)
+            path.closeSubpath()
+        }
+        context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
     }
     
     private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
@@ -195,12 +235,14 @@ struct GraphCanvasView: View {
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-                context.stroke(borderPath, with: .color(.white), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
+                context.stroke(borderPath, with: .color(Color.yellow.opacity(0.8)), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
             }
             
             node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
         }
     }
+    
+
     
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {

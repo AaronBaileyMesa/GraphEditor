@@ -58,7 +58,7 @@ let package = Package(
 --------------------------------------------------
 File: Constants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-09 17:41:43
+Last modified: 2025-08-11 11:07:32
 
 Contents:
 //
@@ -76,7 +76,7 @@ import CoreGraphics
 public enum Constants {
     public enum Physics {
         public static let stiffness: CGFloat = 0.8
-        public static let repulsion: CGFloat = 1200  // Reduced for less spread/oscillation
+        public static let repulsion: CGFloat = 2200  // Reduced for less spread/oscillation
         public static let damping: CGFloat = 0.96    // Increased for faster stability
         public static let idealLength: CGFloat = 70
         public static let centeringForce: CGFloat = 0.06  // Increased for tighter layouts on small screens
@@ -992,7 +992,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-09 13:28:07
+Last modified: 2025-08-11 12:05:12
 
 Contents:
 //
@@ -1056,7 +1056,7 @@ public class PhysicsEngine {
                 repulsion = quadtree!.computeForce(on: node, theta: dynamicTheta)
             } else {
                 for otherNode in nodes where otherNode.id != node.id {
-                    repulsion += repulsionForce(from: otherNode.position, to: node.position)
+                    repulsion += repulsionForce(from: otherNode.position, to: node.position, nodeCount: nodes.count)
                 }
             }
             forces[node.id] = (forces[node.id] ?? .zero) + repulsion
@@ -1124,14 +1124,25 @@ public class PhysicsEngine {
             newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
             newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
             if newPosition.x != oldPosition.x {
-                newVelocity.x = -newVelocity.x * 0.8  // Softer: 0.8 instead of full damping
+                newVelocity.x = -newVelocity.x * 0.8
             }
             if newPosition.y != oldPosition.y {
                 newVelocity.y = -newVelocity.y * 0.8
             }
             
+            // Insert anti-collision separation here
+            let minDist: CGFloat = 35.0
+            for other in nodes where other.id != node.id {
+                let delta = newPosition - other.position
+                let d = hypot(delta.x, delta.y)
+                if d < minDist && d > 0 {
+                    newPosition += (delta / d) * (minDist - d) / 2
+                }
+            }
+            
             tentativeUpdates[node.id] = (newPosition, newVelocity)
         }
+        
         
         // Build multi-parent map: child -> [parents]
         var parentMap = [NodeID: [NodeID]]()
@@ -1202,14 +1213,15 @@ public class PhysicsEngine {
         }
     }
     
-    private func repulsionForce(from: CGPoint, to: CGPoint) -> CGPoint {
+    private func repulsionForce(from: CGPoint, to: CGPoint, nodeCount: Int) -> CGPoint {
         let delta = to - from
         let distSquared = delta.x * delta.x + delta.y * delta.y
         if distSquared < Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon {
             return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * Constants.Physics.repulsion
         }
         let dist = sqrt(distSquared)
-        let forceMagnitude = Constants.Physics.repulsion / distSquared
+        let factor = 1 + 0.15 * CGFloat(nodeCount) / 5
+        let forceMagnitude = (Constants.Physics.repulsion * factor) / distSquared
         return delta / dist * forceMagnitude
     }
 }
@@ -1244,7 +1256,7 @@ public protocol GraphStorage {
 --------------------------------------------------
 File: Quadtree.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-Last modified: 2025-08-08 22:42:34
+Last modified: 2025-08-10 13:17:00
 
 Contents:
 // Sources/GraphEditorShared/Quadtree.swift
@@ -1300,6 +1312,65 @@ public class Quadtree {  // Made public for consistency/test access
             // Empty leaf: Append
             nodes.append(node)
             updateCenterOfMass(with: node)
+        }
+    }
+    
+    public func batchInsert(_ batchNodes: [any NodeProtocol], depth: Int = 0) {
+        guard depth <= Constants.Physics.maxQuadtreeDepth,
+              bounds.width >= Constants.Physics.minQuadSize,
+              bounds.height >= Constants.Physics.minQuadSize else {
+            nodes.append(contentsOf: batchNodes)
+            for node in batchNodes {
+                updateCenterOfMass(with: node)  // Incremental updates
+            }
+            return
+        }
+        
+        if let children = children {
+            // Existing subdivided quad: Distribute to children, defer aggregation
+            var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
+            for node in batchNodes {
+                let quadrant = getQuadrant(for: node.position)
+                childBatches[quadrant].append(node)
+            }
+            for i in 0..<4 {
+                if !childBatches[i].isEmpty {
+                    children[i].batchInsert(childBatches[i], depth: depth + 1)
+                }
+            }
+            aggregateFromChildren()  // Aggregate once after all inserts
+        } else if !nodes.isEmpty || !batchNodes.isEmpty {
+            // Leaf: If needs subdivide, do so and redistribute all
+            let allNodes = nodes + batchNodes
+            if allNodes.count > 1 {  // Subdivide threshold (e.g., >1 for batch)
+                subdivide()
+                guard let children = children else {
+                    // Failed: Append to leaf
+                    nodes.append(contentsOf: batchNodes)
+                    for node in batchNodes {
+                        updateCenterOfMass(with: node)
+                    }
+                    return
+                }
+                var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
+                for node in allNodes {
+                    let quadrant = getQuadrant(for: node.position)
+                    childBatches[quadrant].append(node)
+                }
+                nodes = []
+                for i in 0..<4 {
+                    if !childBatches[i].isEmpty {
+                        children[i].batchInsert(childBatches[i], depth: depth + 1)
+                    }
+                }
+                aggregateFromChildren()  // Aggregate once
+            } else {
+                // No subdivide needed: Append and update
+                nodes.append(contentsOf: batchNodes)
+                for node in batchNodes {
+                    updateCenterOfMass(with: node)
+                }
+            }
         }
     }
 
@@ -1497,7 +1568,7 @@ public struct ToggleNode: NodeProtocol {
 --------------------------------------------------
 File: Utilities.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-08-01 13:35:26
+Last modified: 2025-08-11 10:37:37
 
 Contents:
 import Foundation
@@ -1516,6 +1587,11 @@ public extension CGFloat {
 }
 
 public extension CGPoint {
+    func normalized() -> CGPoint {
+            let len = hypot(x, y)
+            return len > 0 ? self / len : .zero
+        }
+    
     static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
         CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
     }
@@ -1902,7 +1978,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-08 16:37:28
+Last modified: 2025-08-11 08:49:10
 
 Contents:
 //
@@ -1974,6 +2050,18 @@ class GraphViewModel: ObservableObject {
         model.clearGraph()
     }
     
+    func pauseSimulation() {
+        model.pauseSimulation()
+    }
+    func resumeSimulation() {
+        model.resumeSimulation()
+    }
+    func handleTap() {  // Call this before/after selection in gesture
+        model.pauseSimulation()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {  // 0.5s delay for stability
+            self.model.resumeSimulation()
+        }
+    }
     
 }
 
@@ -1981,9 +2069,12 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-09 20:01:00
+Last modified: 2025-08-11 10:16:01
 
 Contents:
+// Fixed ContentView.swift
+// Changes: Replaced CGFloat.max/min with global max/min; simplified greatestFiniteMagnitude; fixed other minor issues.
+
 //
 //  ContentView.swift
 //  GraphEditor
@@ -2017,6 +2108,7 @@ struct ContentView: View {
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
     @State private var previousCrownPosition: Double = 0.5
+    @State private var clampTimer: Timer?
     
     
     // New: Timer for debouncing simulation resume
@@ -2231,25 +2323,31 @@ struct ContentView: View {
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
-        
-        let oldScale = zoomScale  // Capture old
+        let oldScale = zoomScale
         zoomScale = newScale
         
-        // NEW: Adjust pan to keep screen center fixed (prevents drift off-screen)
         let zoomRatio = newScale / oldScale
         offset.width *= zoomRatio
         offset.height *= zoomRatio
+        
+        // Debounce clamp to after zoom stops (prevents mid-zoom snaps)
+        clampTimer?.invalidate()
+        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
+            withAnimation(.easeOut(duration: 0.2)) {
+                clampOffset()
+            }
+        }
     }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
-        // Initial padding factor (may be adjusted below)
-        var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
-        
         let visibleNodes = viewModel.model.visibleNodes()
-        guard !visibleNodes.isEmpty else { return }
+        guard !visibleNodes.isEmpty else {
+            offset = .zero
+            return
+        }
         
         // Compute effective centroid (unchanged)
-        var effectiveCentroid = visibleNodes.reduce(CGPoint.zero) { acc, node in acc + node.position } / CGFloat(visibleNodes.count)
+        var effectiveCentroid = visibleNodes.reduce(CGPoint.zero) { $0 + $1.position } / CGFloat(visibleNodes.count)
         if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
             effectiveCentroid = selected.position
         } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
@@ -2257,67 +2355,58 @@ struct ContentView: View {
             effectiveCentroid = (from.position + to.position) / 2.0
         }
         
-        // Compute relative BBox min/max from effective centroid (unchanged, but broken out)
-        var minRelX: CGFloat = .greatestFiniteMagnitude
-        var minRelY: CGFloat = .greatestFiniteMagnitude
-        var maxRelX: CGFloat = -.greatestFiniteMagnitude
-        var maxRelY: CGFloat = -.greatestFiniteMagnitude
+        // Compute relative extents, expanded by node radius
+        var minRel = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
+        var maxRel = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
         for node in visibleNodes {
             let rel = node.position - effectiveCentroid
-            minRelX = min(minRelX, rel.x)
-            minRelY = min(minRelY, rel.y)
-            maxRelX = max(maxRelX, rel.x)
-            maxRelY = max(maxRelY, rel.y)
-        }
-        let minRel = CGPoint(x: minRelX, y: minRelY)
-        let maxRel = CGPoint(x: maxRelX, y: maxRelY)
-        
-        // Compute scaledHeight after minRel and maxRel are available
-        let graphHeight = maxRel.y - minRel.y
-        let scaledHeight = graphHeight * zoomScale
-        
-        // Adjust padding for small graphs
-        if scaledHeight < viewSize.height * 0.5 {
-            paddingFactor *= 0.5  // Halve padding → double pan range for small graphs
+            minRel.x = min(minRel.x, rel.x - node.radius)
+            minRel.y = min(minRel.y, rel.y - node.radius)
+            maxRel.x = max(maxRel.x, rel.x + node.radius)
+            maxRel.y = max(maxRel.y, rel.y + node.radius)
         }
         
-        // Compute final padding (after possible adjustment)
-        let paddingX = viewSize.width * paddingFactor
-        let paddingY = viewSize.height * paddingFactor
+        // Scaled half-extents
+        let scaledHalfWidth = (maxRel.x - minRel.x) * zoomScale / 2
+        let scaledHalfHeight = (maxRel.y - minRel.y) * zoomScale / 2
         
-        // Scale relative extents (broken out)
-        let scaledMinX = minRel.x * zoomScale
-        let scaledMaxX = maxRel.x * zoomScale
-        let scaledMinY = minRel.y * zoomScale
-        let scaledMaxY = maxRel.y * zoomScale
+        // Adjust padding for small graphs and high zoom
+        var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
+        let scaledGraphHeight = (maxRel.y - minRel.y) * zoomScale
+        if scaledGraphHeight < viewSize.height * 0.5 {
+            paddingFactor *= 0.5
+        }
+        let paddingX = viewSize.width * paddingFactor / 2
+        let paddingY = viewSize.height * paddingFactor / 2
         
-        let viewCenterX = viewSize.width / 2
-        let viewCenterY = viewSize.height / 2
+        // View half-sizes minus padding
+        let viewHalfWidth = viewSize.width / 2 - paddingX
+        let viewHalfHeight = viewSize.height / 2 - paddingY
         
-        // Fixed: Correct symmetric clamping (accounts for y-down; allows negative offsets)
-        // X (left/right) - broken into steps
-        let baseMinX = paddingX - viewCenterX
-        let minOffsetX = baseMinX - scaledMinX
+        // Compute strict pan room
+        let panRoomX = max(0, scaledHalfWidth - viewHalfWidth)
+        let panRoomY = max(0, scaledHalfHeight - viewHalfHeight)
+        let minOffsetX = -panRoomX
+        let maxOffsetX = panRoomX
+        let minOffsetY = -panRoomY
+        let maxOffsetY = panRoomY
         
-        let baseMaxX = viewSize.width - paddingX - viewCenterX
-        let maxOffsetX = baseMaxX - scaledMaxX
+        // Allow slight over-pan for bounce (uses panRoomX/Y defined above)
+        let bounceFactor: CGFloat = 0.1
+        let extendedMinX = minOffsetX - panRoomX * bounceFactor
+        let extendedMaxX = maxOffsetX + panRoomX * bounceFactor
+        let extendedMinY = minOffsetY - panRoomY * bounceFactor
+        let extendedMaxY = maxOffsetY + panRoomY * bounceFactor
         
-        // Y (top/bottom) - broken into steps
-        let baseMinY = paddingY - viewCenterY
-        let minOffsetY = baseMinY - scaledMinY
+        // Apply extended clamp (strict clamp happens in gesture animation)
+        offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
+        offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
         
-        let baseMaxY = viewSize.height - paddingY - viewCenterY
-        let maxOffsetY = baseMaxY - scaledMaxY
-        
-        // Clamp (handle case where min > max for large graphs by centering) - broken into steps
-        let upperX = max(maxOffsetX, minOffsetX)
-        let clampedX = min(offset.width, upperX)
-        offset.width = max(clampedX, minOffsetX)
-        
-        let upperY = max(maxOffsetY, minOffsetY)
-        let clampedY = min(offset.height, upperY)
-        offset.height = max(clampedY, minOffsetY)
-    }}
+        // Debug log
+        print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
+    }
+}
+
 
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
@@ -2440,19 +2529,16 @@ struct GraphSection: View {
     }
 }
 
+
 --------------------------------------------------
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-09 18:42:40
+Last modified: 2025-08-11 11:16:40
 
 Contents:
-//
-//  GraphCanvasView.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
-//
+// Revised GraphCanvasView.swift with animated offset handling
+// Changes: Added withAnimation to body for offset changes; ensured selection triggers animated recenter via onChange.
 
 import SwiftUI
 import WatchKit
@@ -2475,7 +2561,8 @@ struct GraphCanvasView: View {
     @State private var previousZoomScale: CGFloat = 1.0
     @State private var zoomTimer: Timer? = nil
     @Binding var selectedEdgeID: UUID?
-    @Binding var showOverlays: Bool  // New binding for overlays
+    @Binding var showOverlays: Bool
+    
     
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
@@ -2490,16 +2577,12 @@ struct GraphCanvasView: View {
             let panOffset = CGPoint(x: offset.width, y: offset.height)
             let visibleNodes = viewModel.model.visibleNodes()
             
-            // Precompute effectiveCentroid outside Canvas to avoid recomputes
             let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
             
-            // Compute visibleRect for culling (in world space)
             let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
             
-            // Cull nodes
             let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
             
-            // Cull edges: Check if either endpoint is visible or line intersects rect
             let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
             ZStack {
@@ -2510,6 +2593,8 @@ struct GraphCanvasView: View {
                     .position(viewCenter)
                 
                 Canvas { context, _ in
+                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    
                     drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                     
                     if let dragged = draggedNode, let target = potentialEdgeTarget {
@@ -2523,7 +2608,6 @@ struct GraphCanvasView: View {
                         }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
                     }
                     
-                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 }
                 .drawingGroup()
                 
@@ -2545,22 +2629,19 @@ struct GraphCanvasView: View {
     }
     
     private func computeVisibleRect(panOffset: CGPoint, effectiveCentroid: CGPoint, viewCenter: CGPoint, viewSize: CGSize) -> CGRect {
-        // Corrected: Proper inverse transform for world-space min corner
         let originX = effectiveCentroid.x + (-viewCenter.x - panOffset.x) / zoomScale
         let originY = effectiveCentroid.y + (-viewCenter.y - panOffset.y) / zoomScale
         let worldWidth = viewSize.width / zoomScale
         let worldHeight = viewSize.height / zoomScale
         let visibleRect = CGRect(x: originX, y: originY, width: worldWidth, height: worldHeight)
         
-        // Zoom-aware buffer: Expand in world units equivalent to 50 screen pixels
         let bufferWorld = 50.0 / zoomScale
         return visibleRect.insetBy(dx: -bufferWorld, dy: -bufferWorld)
     }
 
     private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
         visibleNodes.filter { node in
-            // Expanded node rect for tolerance
-            let buffer = node.radius / 2  // Half radius extra
+            let buffer = node.radius / 2
             let nodeRect = CGRect(center: node.position, size: CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2))
             return visibleRect.intersects(nodeRect)
         }
@@ -2568,9 +2649,8 @@ struct GraphCanvasView: View {
 
     private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
         visibleEdges.filter { edge in
-            guard let fromNode = culledNodes.first(where: { $0.id == edge.from }),
-                  let toNode = culledNodes.first(where: { $0.id == edge.to }) else { return false }
-            // Expanded line rect: Add buffer equivalent to 10 screen pixels in world units
+            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return false }
             let bufferWorld = 10.0 / zoomScale
             let minX = min(fromNode.position.x, toNode.position.x) - bufferWorld
             let minY = min(fromNode.position.y, toNode.position.y) - bufferWorld
@@ -2582,56 +2662,94 @@ struct GraphCanvasView: View {
     }
     
     private func drawEdges(in context: GraphicsContext, culledEdges: [GraphEdge], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
+        var processedEdges = Set<UUID>()  // Avoid duplicate bidirectional draws
+        
         for edge in culledEdges {
-            if let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-               let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
-                let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
+            if processedEdges.contains(edge.id) { continue }
+            processedEdges.insert(edge.id)
+            
+            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { continue }
+            
+            let fromPos = (draggedNode?.id == fromNode.id ? fromNode.position + dragOffset : fromNode.position)
+            let toPos = (draggedNode?.id == toNode.id ? toNode.position + dragOffset : toNode.position)
+            
+            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            
+            let direction = toDisplay - fromDisplay
+            let length = hypot(direction.x, direction.y)
+            if length <= 0 { continue }
+            
+            let unitDir = direction / length
+            let scaledFromRadius = fromNode.radius * zoomScale + 2  // Slight inset
+            let scaledToRadius = toNode.radius * zoomScale + 2
+            let lineStart = fromDisplay + unitDir * scaledFromRadius
+            let lineEnd = toDisplay - unitDir * scaledToRadius
+            
+            let isSelected = edge.id == selectedEdgeID
+            let lineWidth = isSelected ? 4.0 : 2.0
+            let color = isSelected ? Color.red : Color.blue
+            
+            // Bidirectional check
+            if let reverseEdge = viewModel.model.edges.first(where: { $0.from == edge.to && $0.to == edge.from }) {
+                processedEdges.insert(reverseEdge.id)  // Skip reverse
                 
-                let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                // Draw two curved lines
+                let midPoint = (fromDisplay + toDisplay) / 2
+                let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x) * (8.0 * zoomScale)  // Curve offset scaled
                 
-                let direction = toDisplay - fromDisplay
-                let length = hypot(direction.x, direction.y)
-                if length > 0 {
-                    let unitDir = direction / length
-                    let scaledToRadius = toNode.radius * zoomScale
-                    let lineEnd = toDisplay - unitDir * scaledToRadius
-                    
-                    let isSelected = edge.id == selectedEdgeID
-                    let lineWidth = isSelected ? 4.0 : 2.0
-                    let color = isSelected ? Color.red : Color.blue
-                    
-                    context.stroke(Path { path in
-                        path.move(to: fromDisplay)
-                        path.addLine(to: lineEnd)
-                    }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                    
-                    let arrowSize: CGFloat = 10.0
-                    let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x)
-                    let arrowTip = lineEnd
-                    let arrowBase1 = arrowTip - unitDir * arrowSize + perpDir * (arrowSize / 2)
-                    let arrowBase2 = arrowTip - unitDir * arrowSize - perpDir * (arrowSize / 2)
-                    
-                    let arrowPath = Path { path in
-                        path.move(to: arrowTip)
-                        path.addLine(to: arrowBase1)
-                        path.addLine(to: arrowBase2)
-                        path.closeSubpath()
-                    }
-                    context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
-                }
+                // Forward curve
+                let control1 = midPoint + perpDir
+                context.stroke(Path { path in
+                    path.move(to: lineStart)
+                    path.addQuadCurve(to: lineEnd, control: control1)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 
-                if edge.id == selectedEdgeID {
-                    let midpoint = (fromDisplay + toDisplay) / 2
-                    let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                    let fontSize = UIFontMetrics.default.scaledValue(for: 12)
-                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                    let resolvedText = context.resolve(text)
-                    context.draw(resolvedText, at: midpoint, anchor: .center)
-                }
+                // Reverse curve (opposite offset)
+                let control2 = midPoint + CGPoint(x: -perpDir.x, y: -perpDir.y)  // Proper negation
+                let revStart = toDisplay + CGPoint(x: -unitDir.x * scaledToRadius, y: -unitDir.y * scaledToRadius)  // Swap and negate
+                let revEnd = fromDisplay + unitDir * scaledFromRadius
+                let revDir = CGPoint(x: -unitDir.x, y: -unitDir.y)
+                context.stroke(Path { path in
+                    path.move(to: revStart)
+                    path.addQuadCurve(to: revEnd, control: control2)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
+            } else {
+                // Single straight line
+                context.stroke(Path { path in
+                    path.move(to: lineStart)
+                    path.addLine(to: lineEnd)
+                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
+                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
+            }
+            
+            if isSelected {
+                let midpoint = (fromDisplay + toDisplay) / 2
+                let edgeLabel = "\(fromNode.label)→\(toNode.label)"
+                let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
+                let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                context.draw(context.resolve(text), at: midpoint, anchor: .center)
             }
         }
+    }
+    
+    private func drawArrowhead(in context: GraphicsContext, at point: CGPoint, direction: CGPoint, size: CGFloat, color: Color) {
+        let arrowSize = size * min(zoomScale, 1.0)  // Scale with zoom, cap at 1x
+        let perpDir = CGPoint(x: -direction.y, y: direction.x)
+        let arrowTip = point
+        let arrowBase1 = arrowTip - direction * arrowSize + perpDir * (arrowSize / 2)
+        let arrowBase2 = arrowTip - direction * arrowSize - perpDir * (arrowSize / 2)
+        
+        let arrowPath = Path { path in
+            path.move(to: arrowTip)
+            path.addLine(to: arrowBase1)
+            path.addLine(to: arrowBase2)
+            path.closeSubpath()
+        }
+        context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
     }
     
     private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
@@ -2652,24 +2770,24 @@ struct GraphCanvasView: View {
             let borderRadius = scaledRadius + borderWidth / 2
             
             let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))  // Removed unused ternary
+            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-                context.stroke(borderPath, with: .color(.white), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
+                context.stroke(borderPath, with: .color(Color.yellow.opacity(0.8)), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
             }
             
             node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
         }
     }
     
+
+    
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {
             if !visibleNodes.isEmpty {
-                // Compute model BBox (reuse existing method)
                 let modelBBox = viewModel.model.boundingBox()
                 
-                // Scale and position on screen
                 let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 
@@ -2678,7 +2796,7 @@ struct GraphCanvasView: View {
                 let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
                 
                 Rectangle()
-                    .stroke(Color.blue, lineWidth: 1.0)  // Keep thin, unscaled
+                    .stroke(Color.blue, lineWidth: 1.0)
                     .frame(width: displayWidth, height: displayHeight)
                     .position(displayCenter)
             }
@@ -2732,6 +2850,9 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
+            .onChange(of: offset) {
+                withAnimation(.easeInOut(duration: 0.3)) { }  // Animate offset changes
+            }
     }
 }
 
@@ -2758,7 +2879,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-09 15:02:07
+Last modified: 2025-08-11 08:49:10
 
 Contents:
 import SwiftUI
@@ -2806,6 +2927,10 @@ struct GraphGesturesModifier: ViewModifier {
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // After handling, clamp with smooth animation
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
+                        onUpdateZoomRanges()  // This calls clampOffset()
+                    }
                 let touchPos = screenToModel(value.location)  // Updated: Use full inverse
                 
                 if dragStartNode == nil {
@@ -2823,7 +2948,9 @@ struct GraphGesturesModifier: ViewModifier {
                     if panStartOffset == nil {
                         panStartOffset = offset
                     }
-                    offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
+                    // Free update—no clamp here!
+                    offset = CGSize(width: panStartOffset!.width + value.translation.width,
+                                    height: panStartOffset!.height + value.translation.height)
                 }
                 
                 potentialEdgeTarget = viewModel.model.nodes.first {
@@ -2831,6 +2958,8 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             }
             .onEnded { value in
+                viewModel.resumeSimulation()
+                
                 let dragDistance = hypot(value.translation.width, value.translation.height)
                 
                 if dragDistance < Constants.App.tapThreshold {
@@ -2865,9 +2994,9 @@ struct GraphGesturesModifier: ViewModifier {
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
-                        #if os(watchOS)
+#if os(watchOS)
                         WKInterfaceDevice.current().play(.success)  // Haptic on edge creation
-                        #endif
+#endif
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
@@ -2877,6 +3006,12 @@ struct GraphGesturesModifier: ViewModifier {
                         viewModel.model.startSimulation()
                         WKInterfaceDevice.current().play(.click)
                     }
+                    viewModel.handleTap()
+                }
+                
+                // After handling, clamp with smooth animation
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
+                    onUpdateZoomRanges()  // This calls clampOffset()
                 }
                 
                 dragStartNode = nil
