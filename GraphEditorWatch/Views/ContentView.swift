@@ -31,6 +31,7 @@ struct ContentView: View {
     @State private var isZooming: Bool = false  // Track active zoom for pausing simulation
     @Environment(\.scenePhase) private var scenePhase
     @State private var previousCrownPosition: Double = 0.5
+    @State private var clampTimer: Timer?
     
     
     // New: Timer for debouncing simulation resume
@@ -245,14 +246,20 @@ struct ContentView: View {
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
-        
-        let oldScale = zoomScale  // Capture old
+        let oldScale = zoomScale
         zoomScale = newScale
         
-        // NEW: Adjust pan to keep screen center fixed (prevents drift off-screen)
         let zoomRatio = newScale / oldScale
         offset.width *= zoomRatio
         offset.height *= zoomRatio
+        
+        // Debounce clamp to after zoom stops (prevents mid-zoom snaps)
+        clampTimer?.invalidate()
+        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
+            withAnimation(.easeOut(duration: 0.2)) {
+                clampOffset()
+            }
+        }
     }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
