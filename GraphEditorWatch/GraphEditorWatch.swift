@@ -6,9 +6,12 @@
 //
 
 import SwiftUI
+import WatchKit  
 
 @main
-struct GraphEditorWatchApp: App {
+struct GraphEditorWatch: App {
+    @WKExtensionDelegateAdaptor(ExtensionDelegate.self) private var delegate: ExtensionDelegate  // Use adaptor here
+
     var body: some Scene {
         WindowGroup {
             ContentView()

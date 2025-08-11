@@ -12,15 +12,16 @@ Table of Contents:
 11. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 12. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 13. GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
-14. GraphEditorWatch/GraphEditorWatch.swift
-15. GraphEditorWatch/Models/AppConstants.swift
-16. GraphEditorWatch/ViewModels/GraphViewModel.swift
-17. GraphEditorWatch/Views/ContentView.swift
-18. GraphEditorWatch/Views/GraphCanvasView.swift
-19. GraphEditorWatch/Views/GraphGesturesModifier.swift
-20. GraphEditorWatchTests/GraphEditorWatchTests.swift
-21. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-22. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
+14. GraphEditorWatch/ExtensionDelegate.swift
+15. GraphEditorWatch/GraphEditorWatch.swift
+16. GraphEditorWatch/Models/AppConstants.swift
+17. GraphEditorWatch/ViewModels/GraphViewModel.swift
+18. GraphEditorWatch/Views/ContentView.swift
+19. GraphEditorWatch/Views/GraphCanvasView.swift
+20. GraphEditorWatch/Views/GraphGesturesModifier.swift
+21. GraphEditorWatchTests/GraphEditorWatchTests.swift
+22. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+23. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
 
 --------------------------------------------------
 File: Package.swift
@@ -717,7 +718,7 @@ public enum NodeWrapper: Codable {
 --------------------------------------------------
 File: NodeProtocol.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-09 12:40:41
+Last modified: 2025-08-11 13:17:45
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -726,6 +727,7 @@ import SwiftUI
 import Foundation
 
 private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
+private let maxCacheSize = 100  // Arbitrary limit; adjust based on testing
 private let nodeCacheQueue = DispatchQueue(label: "nodeTextCache", attributes: .concurrent)
 
 /// Protocol for graph nodes, enabling polymorphism for types like standard or toggleable nodes.
@@ -837,7 +839,12 @@ public extension NodeProtocol {
             if let cached = nodeTextCache[labelKey] { return cached }
             let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
             let resolved = context.resolve(text)
-            nodeCacheQueue.async(flags: .barrier) { nodeTextCache[labelKey] = resolved }
+            nodeCacheQueue.async(flags: .barrier) {
+                nodeTextCache[labelKey] = resolved
+                if nodeTextCache.count > maxCacheSize {
+                    nodeTextCache.removeAll()  // Or remove oldest: sort by key and drop first
+                }
+            }
             return resolved
         }
         let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))
@@ -992,7 +999,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-11 12:05:12
+Last modified: 2025-08-11 13:21:49
 
 Contents:
 //
@@ -1041,20 +1048,21 @@ public class PhysicsEngine {
     private func computeRepulsions(nodes: [any NodeProtocol]) -> [NodeID: CGPoint] {
         var forces: [NodeID: CGPoint] = [:]
         
-        let useQuadtree = nodes.count <= maxNodesForQuadtree
+        let useQuadtree = nodes.count <= maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
         let quadtree: Quadtree? = useQuadtree ? Quadtree(bounds: CGRect(origin: .zero, size: simulationBounds)) : nil
-        if useQuadtree {
+        if let quadtree = quadtree {
             for node in nodes {
-                quadtree?.insert(node, depth: 0)
+                quadtree.insert(node, depth: 0)
             }
         }
         
         for node in nodes {
             var repulsion: CGPoint = .zero
-            if useQuadtree {
+            if let quadtree = quadtree {
                 let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
-                repulsion = quadtree!.computeForce(on: node, theta: dynamicTheta)
+                repulsion = quadtree.computeForce(on: node, theta: dynamicTheta)
             } else {
+                // Brute-force fallback
                 for otherNode in nodes where otherNode.id != node.id {
                     repulsion += repulsionForce(from: otherNode.position, to: node.position, nodeCount: nodes.count)
                 }
@@ -1215,14 +1223,11 @@ public class PhysicsEngine {
     
     private func repulsionForce(from: CGPoint, to: CGPoint, nodeCount: Int) -> CGPoint {
         let delta = to - from
-        let distSquared = delta.x * delta.x + delta.y * delta.y
-        if distSquared < Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon {
-            return CGPoint(x: CGFloat.random(in: -0.01...0.01), y: CGFloat.random(in: -0.01...0.01)) * Constants.Physics.repulsion
-        }
+        let distSquared = max(delta.x * delta.x + delta.y * delta.y, Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon)
         let dist = sqrt(distSquared)
         let factor = 1 + 0.15 * CGFloat(nodeCount) / 5
         let forceMagnitude = (Constants.Physics.repulsion * factor) / distSquared
-        return delta / dist * forceMagnitude
+        return (delta / dist) * forceMagnitude  // Parens for clarity
     }
 }
 
@@ -1256,7 +1261,7 @@ public protocol GraphStorage {
 --------------------------------------------------
 File: Quadtree.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-Last modified: 2025-08-10 13:17:00
+Last modified: 2025-08-11 13:03:26
 
 Contents:
 // Sources/GraphEditorShared/Quadtree.swift
@@ -1278,9 +1283,12 @@ public class Quadtree {  // Made public for consistency/test access
     }
     
     public func insert(_ node: any NodeProtocol, depth: Int = 0) {
-        guard depth <= Constants.Physics.maxQuadtreeDepth,
-              bounds.width >= Constants.Physics.minQuadSize,
-              bounds.height >= Constants.Physics.minQuadSize else {
+        guard bounds.width >= Constants.Physics.minQuadSize && bounds.height >= Constants.Physics.minQuadSize else {
+            nodes.append(node)
+            updateCenterOfMass(with: node)
+            return
+        }
+        guard depth <= Constants.Physics.maxQuadtreeDepth else {
             nodes.append(node)
             updateCenterOfMass(with: node)
             return
@@ -1922,9 +1930,43 @@ struct PerformanceTests {
 
 --------------------------------------------------
 --------------------------------------------------
+File: ExtensionDelegate.swift
+Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/ExtensionDelegate.swift
+Last modified: 2025-08-11 13:37:09
+
+Contents:
+//
+//  ExtensionDelegate.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/11/25.
+//
+
+
+// ExtensionDelegate.swift
+import WatchKit
+import Foundation
+
+class ExtensionDelegate: NSObject, WKExtensionDelegate {
+    func applicationDidEnterBackground() {
+        NotificationCenter.default.post(name: .graphSimulationPause, object: nil)
+    }
+    
+    func applicationWillEnterForeground() {
+        NotificationCenter.default.post(name: .graphSimulationResume, object: nil)
+    }
+}
+
+// Define custom notifications (add to a shared file like AppConstants.swift if you prefer)
+extension Notification.Name {
+    static let graphSimulationPause = Notification.Name("GraphSimulationPause")
+    static let graphSimulationResume = Notification.Name("GraphSimulationResume")
+}
+--------------------------------------------------
+--------------------------------------------------
 File: GraphEditorWatch.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-08-02 22:15:14
+Last modified: 2025-08-11 13:42:40
 
 Contents:
 //
@@ -1938,6 +1980,11 @@ import SwiftUI
 
 @main
 struct GraphEditorWatchApp: App {
+    let delegate = ExtensionDelegate()  // Add this line
+        
+        init() {
+            WKExtension.shared().delegate = delegate  // Add this line
+        }
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -1978,7 +2025,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-11 08:49:10
+Last modified: 2025-08-11 13:43:33
 
 Contents:
 //
@@ -2007,10 +2054,31 @@ class GraphViewModel: ObservableObject {
         model.canRedo
     }
     
+    private var pauseObserver: NSObjectProtocol?
+    private var resumeObserver: NSObjectProtocol?
+    
     init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
+            
+        }
+        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+            self?.model.pauseSimulation()
+        }
+        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+            self?.model.resumeSimulation()
+            
+        }
+    }
+    
+    deinit {
+        // Clean up to avoid leaks
+        if let pauseObserver = pauseObserver {
+            NotificationCenter.default.removeObserver(pauseObserver)
+        }
+        if let resumeObserver = resumeObserver {
+            NotificationCenter.default.removeObserver(resumeObserver)
         }
     }
     
@@ -2037,15 +2105,15 @@ class GraphViewModel: ObservableObject {
     func addNode(at position: CGPoint) {
         model.addNode(at: position)
     }
-
+    
     func addToggleNode(at position: CGPoint) {
         model.addToggleNode(at: position)
     }
-
+    
     func addChild(to parentID: NodeID) {
         model.addChild(to: parentID)
     }
-
+    
     func clearGraph() {
         model.clearGraph()
     }

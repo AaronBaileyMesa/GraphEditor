@@ -24,10 +24,31 @@ class GraphViewModel: ObservableObject {
         model.canRedo
     }
     
+    private var pauseObserver: NSObjectProtocol?
+    private var resumeObserver: NSObjectProtocol?
+    
     init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
+            
+        }
+        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+            self?.model.pauseSimulation()
+        }
+        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+            self?.model.resumeSimulation()
+            
+        }
+    }
+    
+    deinit {
+        // Clean up to avoid leaks
+        if let pauseObserver = pauseObserver {
+            NotificationCenter.default.removeObserver(pauseObserver)
+        }
+        if let resumeObserver = resumeObserver {
+            NotificationCenter.default.removeObserver(resumeObserver)
         }
     }
     
@@ -54,15 +75,15 @@ class GraphViewModel: ObservableObject {
     func addNode(at position: CGPoint) {
         model.addNode(at: position)
     }
-
+    
     func addToggleNode(at position: CGPoint) {
         model.addToggleNode(at: position)
     }
-
+    
     func addChild(to parentID: NodeID) {
         model.addChild(to: parentID)
     }
-
+    
     func clearGraph() {
         model.clearGraph()
     }
