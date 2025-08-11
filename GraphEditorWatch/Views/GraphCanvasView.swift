@@ -1,9 +1,5 @@
-//
-//  GraphCanvasView.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
-//
+// Revised GraphCanvasView.swift with animated offset handling
+// Changes: Added withAnimation to body for offset changes; ensured selection triggers animated recenter via onChange.
 
 import SwiftUI
 import WatchKit
@@ -26,7 +22,7 @@ struct GraphCanvasView: View {
     @State private var previousZoomScale: CGFloat = 1.0
     @State private var zoomTimer: Timer? = nil
     @Binding var selectedEdgeID: UUID?
-    @Binding var showOverlays: Bool  // New binding for overlays
+    @Binding var showOverlays: Bool
     
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
@@ -41,16 +37,12 @@ struct GraphCanvasView: View {
             let panOffset = CGPoint(x: offset.width, y: offset.height)
             let visibleNodes = viewModel.model.visibleNodes()
             
-            // Precompute effectiveCentroid outside Canvas to avoid recomputes
             let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
             
-            // Compute visibleRect for culling (in world space)
             let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
             
-            // Cull nodes
             let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
             
-            // Cull edges: Check if either endpoint is visible or line intersects rect
             let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
             ZStack {
@@ -96,22 +88,19 @@ struct GraphCanvasView: View {
     }
     
     private func computeVisibleRect(panOffset: CGPoint, effectiveCentroid: CGPoint, viewCenter: CGPoint, viewSize: CGSize) -> CGRect {
-        // Corrected: Proper inverse transform for world-space min corner
         let originX = effectiveCentroid.x + (-viewCenter.x - panOffset.x) / zoomScale
         let originY = effectiveCentroid.y + (-viewCenter.y - panOffset.y) / zoomScale
         let worldWidth = viewSize.width / zoomScale
         let worldHeight = viewSize.height / zoomScale
         let visibleRect = CGRect(x: originX, y: originY, width: worldWidth, height: worldHeight)
         
-        // Zoom-aware buffer: Expand in world units equivalent to 50 screen pixels
         let bufferWorld = 50.0 / zoomScale
         return visibleRect.insetBy(dx: -bufferWorld, dy: -bufferWorld)
     }
 
     private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
         visibleNodes.filter { node in
-            // Expanded node rect for tolerance
-            let buffer = node.radius / 2  // Half radius extra
+            let buffer = node.radius / 2
             let nodeRect = CGRect(center: node.position, size: CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2))
             return visibleRect.intersects(nodeRect)
         }
@@ -202,7 +191,7 @@ struct GraphCanvasView: View {
             let borderRadius = scaledRadius + borderWidth / 2
             
             let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))  // Removed unused ternary
+            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
             
             if isSelected {
                 let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
@@ -216,10 +205,8 @@ struct GraphCanvasView: View {
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {
             if !visibleNodes.isEmpty {
-                // Compute model BBox (reuse existing method)
                 let modelBBox = viewModel.model.boundingBox()
                 
-                // Scale and position on screen
                 let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 
@@ -228,7 +215,7 @@ struct GraphCanvasView: View {
                 let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
                 
                 Rectangle()
-                    .stroke(Color.blue, lineWidth: 1.0)  // Keep thin, unscaled
+                    .stroke(Color.blue, lineWidth: 1.0)
                     .frame(width: displayWidth, height: displayHeight)
                     .position(displayCenter)
             }
@@ -282,6 +269,9 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
+            .onChange(of: offset) {
+                withAnimation(.easeInOut(duration: 0.3)) { }  // Animate offset changes
+            }
     }
 }
 

@@ -67,5 +67,17 @@ class GraphViewModel: ObservableObject {
         model.clearGraph()
     }
     
+    func pauseSimulation() {
+        model.pauseSimulation()
+    }
+    func resumeSimulation() {
+        model.resumeSimulation()
+    }
+    func handleTap() {  // Call this before/after selection in gesture
+        model.pauseSimulation()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {  // 0.5s delay for stability
+            self.model.resumeSimulation()
+        }
+    }
     
 }

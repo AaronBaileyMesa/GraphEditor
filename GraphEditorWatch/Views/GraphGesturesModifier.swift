@@ -43,6 +43,10 @@ struct GraphGesturesModifier: ViewModifier {
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
+                // After handling, clamp with smooth animation
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
+                        onUpdateZoomRanges()  // This calls clampOffset()
+                    }
                 let touchPos = screenToModel(value.location)  // Updated: Use full inverse
                 
                 if dragStartNode == nil {
@@ -60,7 +64,9 @@ struct GraphGesturesModifier: ViewModifier {
                     if panStartOffset == nil {
                         panStartOffset = offset
                     }
-                    offset = CGSize(width: panStartOffset!.width + value.translation.width, height: panStartOffset!.height + value.translation.height)
+                    // Free update—no clamp here!
+                    offset = CGSize(width: panStartOffset!.width + value.translation.width,
+                                    height: panStartOffset!.height + value.translation.height)
                 }
                 
                 potentialEdgeTarget = viewModel.model.nodes.first {
@@ -68,6 +74,8 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             }
             .onEnded { value in
+                viewModel.resumeSimulation()
+                
                 let dragDistance = hypot(value.translation.width, value.translation.height)
                 
                 if dragDistance < Constants.App.tapThreshold {
@@ -102,9 +110,9 @@ struct GraphGesturesModifier: ViewModifier {
                        !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
                         viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
                         viewModel.model.startSimulation()
-                        #if os(watchOS)
+#if os(watchOS)
                         WKInterfaceDevice.current().play(.success)  // Haptic on edge creation
-                        #endif
+#endif
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
@@ -114,6 +122,12 @@ struct GraphGesturesModifier: ViewModifier {
                         viewModel.model.startSimulation()
                         WKInterfaceDevice.current().play(.click)
                     }
+                    viewModel.handleTap()
+                }
+                
+                // After handling, clamp with smooth animation
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
+                    onUpdateZoomRanges()  // This calls clampOffset()
                 }
                 
                 dragStartNode = nil
