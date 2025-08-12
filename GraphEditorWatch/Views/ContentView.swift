@@ -97,14 +97,24 @@ struct ContentView: View {
                 }
                 
                 // Always show View (it has unconditional toggles)
-                ViewSection(isSimulating: viewModel.model.isSimulating, toggleSimulation: toggleSimulation, showOverlays: $showOverlays, onDismiss: { showMenu = false })
+                ViewSection(
+                    showOverlays: $showOverlays,
+                    isSimulating: $viewModel.model.isSimulating,
+                    onDismiss: { showMenu = false },
+                    onSimulationChange: { newValue in
+                        if newValue {
+                            viewModel.resumeSimulation()
+                        } else {
+                            viewModel.pauseSimulation()
+                        }
+                    }
+                )
                 
                 // Always show Graph (Clear is unconditional)
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
             .listStyle(.carousel)  // Ensures watchOS-friendly scrolling
         }
-        
         
         // Removed .focusable() here since moved inside GeometryReader
         
@@ -454,22 +464,25 @@ struct EditSection: View {
         }
     }
 }
+
 struct ViewSection: View {
-    let isSimulating: Bool
-    let toggleSimulation: () -> Void
-    let showOverlays: Binding<Bool>
+    @Binding var showOverlays: Bool
+    @Binding var isSimulating: Bool  // Now a Binding for direct Toggle control
     let onDismiss: () -> Void
+    let onSimulationChange: (Bool) -> Void  // New: Handles pause/resume logic
 
     var body: some View {
         Section(header: Text("View & Simulation")) {
-            Button(showOverlays.wrappedValue ? "Hide Overlays" : "Show Overlays") {
-                showOverlays.wrappedValue.toggle()
-                onDismiss()
-            }
-            Button(isSimulating ? "Pause Simulation" : "Resume Simulation") {
-                toggleSimulation()
-                onDismiss()
-            }
+            Toggle("Show Overlays", isOn: $showOverlays)
+                .onChange(of: showOverlays) { _ in  // Modern syntax: no 'perform:'
+                    onDismiss()
+                }
+            
+            Toggle("Run Simulation", isOn: $isSimulating)
+                .onChange(of: isSimulating) { newValue in  // Modern syntax
+                    onSimulationChange(newValue)
+                    onDismiss()
+                }
         }
     }
 }
