@@ -251,14 +251,13 @@ struct GraphCanvasView: View {
     
 
     
+    // In GraphCanvasView.swift, replace overlaysView with:
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {
             if !visibleNodes.isEmpty {
                 let modelBBox = viewModel.model.boundingBox()
-                
                 let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                
                 let displayWidth = maxDisplay.x - minDisplay.x
                 let displayHeight = maxDisplay.y - minDisplay.y
                 let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
@@ -271,11 +270,24 @@ struct GraphCanvasView: View {
             
             if let centroid = visibleNodes.centroid() {
                 let displayPos = displayPosition(for: centroid, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                
                 Circle()
                     .fill(Color.yellow)
                     .frame(width: 4, height: 4)
                     .position(displayPos)
+            }
+            
+            // New: Hierarchy indicators (dashed lines to hidden children)
+            ForEach(viewModel.model.nodes.filter { !$0.isVisible && ($0 as? ToggleNode)?.isExpanded == false }, id: \.id) { hiddenNode in
+                if let parentID = viewModel.model.edges.first(where: { $0.to == hiddenNode.id })?.from,
+                   let parent = viewModel.model.nodes.first(where: { $0.id == parentID }) {
+                    let fromDisplay = displayPosition(for: parent.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    let toDisplay = displayPosition(for: hiddenNode.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    Path { path in
+                        path.move(to: fromDisplay)
+                        path.addLine(to: toDisplay)
+                    }
+                    .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 1.0, dash: [5.0]))
+                }
             }
         }
     }

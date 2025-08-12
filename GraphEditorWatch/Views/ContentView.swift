@@ -298,55 +298,24 @@ struct ContentView: View {
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
         let visibleNodes = viewModel.model.visibleNodes()
-        guard !visibleNodes.isEmpty else {
-            offset = .zero
-            return
-        }
+        guard !visibleNodes.isEmpty else { return }
         
-        // Compute effective centroid (unchanged)
-        var effectiveCentroid = visibleNodes.reduce(CGPoint.zero) { $0 + $1.position } / CGFloat(visibleNodes.count)
-        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-            effectiveCentroid = selected.position
-        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            effectiveCentroid = (from.position + to.position) / 2.0
-        }
+        // Compute bbox using visible nodes (via physicsEngine for consistency)
+        let graphBBox = viewModel.model.physicsEngine.boundingBox(nodes: visibleNodes)
+        let nodeRadius = Constants.App.nodeModelRadius
+        let scaledWidth = graphBBox.width * zoomScale + 2 * nodeRadius * zoomScale
+        let scaledHeight = graphBBox.height * zoomScale + 2 * nodeRadius * zoomScale
         
-        // Compute relative extents, expanded by node radius
-        var minRel = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
-        var maxRel = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
-        for node in visibleNodes {
-            let rel = node.position - effectiveCentroid
-            minRel.x = min(minRel.x, rel.x - node.radius)
-            minRel.y = min(minRel.y, rel.y - node.radius)
-            maxRel.x = max(maxRel.x, rel.x + node.radius)
-            maxRel.y = max(maxRel.y, rel.y + node.radius)
-        }
+        let effectiveViewWidth = viewSize.width - 2 * nodeRadius * zoomScale
+        let effectiveViewHeight = viewSize.height - 2 * nodeRadius * zoomScale
         
-        // Scaled extents (full, not half)
-        let scaledWidth = (maxRel.x - minRel.x) * zoomScale
-        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
-        
-        // Adjust padding for small graphs and high zoom
-        var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
-        let scaledGraphHeight = scaledHeight
-        if scaledGraphHeight < viewSize.height * 0.5 {
-            paddingFactor *= 0.5
-        }
-        let paddingX = viewSize.width * paddingFactor / 2
-        let paddingY = viewSize.height * paddingFactor / 2
-        
-        // Effective view sizes minus padding
-        let effectiveViewWidth = viewSize.width - 2 * paddingX
-        let effectiveViewHeight = viewSize.height - 2 * paddingY
-        
-        // Compute pan room (positive direction)
         var panRoomX: CGFloat = 0
         if scaledWidth > effectiveViewWidth {
             panRoomX = (scaledWidth - effectiveViewWidth) / 2
         } else {
             panRoomX = (effectiveViewWidth - scaledWidth) / 2
         }
+        
         var panRoomY: CGFloat = 0
         if scaledHeight > effectiveViewHeight {
             panRoomY = (scaledHeight - effectiveViewHeight) / 2
@@ -359,21 +328,26 @@ struct ContentView: View {
         let minOffsetY = -panRoomY
         let maxOffsetY = panRoomY
         
-        // Allow slight over-pan for bounce
         let bounceFactor: CGFloat = 0.1
         let extendedMinX = minOffsetX - panRoomX * bounceFactor
         let extendedMaxX = maxOffsetX + panRoomX * bounceFactor
         let extendedMinY = minOffsetY - panRoomY * bounceFactor
         let extendedMaxY = maxOffsetY + panRoomY * bounceFactor
         
-        // Apply extended clamp (strict clamp happens in gesture animation)
-        offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
-        offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
+        // New: Only clamp if actually out of range (reduce unnecessary ops/logs)
+        if offset.width < extendedMinX || offset.width > extendedMaxX ||
+           offset.height < extendedMinY || offset.height > extendedMaxY {
+            offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
+            offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
+        } else {
+            return  // Skip log if no change
+        }
         
-        // Debug log
+        // Debug log (add condition to print only on change or debug mode)
+        #if DEBUG
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
-    }
-    // Updated: Center on selected if present and zoomed in; no y-bias
+        #endif
+    }    // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
