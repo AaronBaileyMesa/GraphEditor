@@ -178,7 +178,14 @@ struct GraphCanvasView: View {
                     path.addQuadCurve(to: revEnd, control: control2)
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
-            } else {
+                if isSelected {
+                        let midpoint = (fromDisplay + toDisplay) / 2
+                        let fromLabel = fromNode.label
+                        let toLabel = toNode.label
+                        let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
+                        // ... Draw text ...
+                    }
+                } else {
                 // Single straight line
                 context.stroke(Path { path in
                     path.move(to: lineStart)

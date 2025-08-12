@@ -88,15 +88,17 @@ struct ContentView: View {
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
             List {
-                // Always show Add (it has unconditional buttons)
-                AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
+                // Show Add only if no edge is selected (and optionally if a node is selected or none)
+                if selectedEdgeID == nil {
+                    AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
+                }
                 
                 // Show Edit only if it would have at least one button
                 if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
                     EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
                 }
                 
-                // Always show View (it has unconditional toggles)
+                // Always show View
                 ViewSection(
                     showOverlays: $showOverlays,
                     isSimulating: $viewModel.model.isSimulating,
@@ -110,10 +112,10 @@ struct ContentView: View {
                     }
                 )
                 
-                // Always show Graph (Clear is unconditional)
+                // Always show Graph
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
-            .listStyle(.carousel)  // Ensures watchOS-friendly scrolling
+            .listStyle(.carousel)
         }
         
         // Removed .focusable() here since moved inside GeometryReader
@@ -443,9 +445,21 @@ struct EditSection: View {
                     onDismiss()
                 }
             }
-            if let selectedEdgeID = selectedEdgeID {
-                Button("Delete Edge", role: .destructive) {
-                    viewModel.deleteSelectedEdge(id: selectedEdgeID)
+            if let selectedEdgeID = selectedEdgeID,
+               let selectedEdge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }) {
+                // Assignments moved inside (no 'if let' needed for non-optionals)
+                let fromID = selectedEdge.from
+                let toID = selectedEdge.to
+                let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
+                Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
+                    viewModel.snapshot()
+                    if isBi {
+                        let pair = viewModel.model.edgesBetween(fromID, toID)
+                        viewModel.model.edges.removeAll { pair.contains($0) }
+                    } else {
+                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    }
+                    viewModel.model.startSimulation()
                     onDismiss()
                 }
             }
@@ -464,7 +478,6 @@ struct EditSection: View {
         }
     }
 }
-
 struct ViewSection: View {
     @Binding var showOverlays: Bool
     @Binding var isSimulating: Bool  // Now a Binding for direct Toggle control

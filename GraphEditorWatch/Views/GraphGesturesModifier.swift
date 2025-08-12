@@ -90,6 +90,7 @@ struct GraphGesturesModifier: ViewModifier {
                         selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else if let hitEdge = viewModel.model.edges.first(where: { edge in
+                        
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
                            pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {  // Updated: Use tapModelPos

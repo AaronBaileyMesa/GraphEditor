@@ -213,7 +213,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-09 18:28:44
+Last modified: 2025-08-12 12:27:52
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -484,6 +484,15 @@ public class GraphModel: ObservableObject {
     public func visibleEdges() -> [GraphEdge] {
         let visibleIDs = Set(visibleNodes().map { $0.id })
         return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
+    }
+    
+    public func isBidirectionalBetween(_ id1: NodeID, _ id2: NodeID) -> Bool {
+        edges.contains { $0.from == id1 && $0.to == id2 } &&
+        edges.contains { $0.from == id2 && $0.to == id1 }
+    }
+
+    public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
+        edges.filter { ($0.from == id1 && $0.to == id2) || ($0.from == id2 && $0.to == id1) }
     }
     
     private func buildAdjacencyList() -> [NodeID: [NodeID]] {
@@ -2312,7 +2321,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-12 09:59:43
+Last modified: 2025-08-12 12:33:37
 
 Contents:
 //
@@ -2404,33 +2413,35 @@ struct ContentView: View {
         let withIgnore: some View = geoReader.ignoresSafeArea()
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
-            NavigationStack {
-                List {
-                    AddSection(
-                        viewModel: viewModel,
-                        selectedNodeID: selectedNodeID,
-                        onDismiss: { showMenu = false }
-                    )
-                    EditSection(
-                        viewModel: viewModel,
-                        selectedNodeID: selectedNodeID,
-                        selectedEdgeID: selectedEdgeID,
-                        onDismiss: { showMenu = false }
-                    )
-                    ViewSection(
-                        isSimulating: viewModel.model.isSimulating,
-                        toggleSimulation: toggleSimulation,
-                        showOverlays: $showOverlays,
-                        onDismiss: { showMenu = false }
-                    )
-                    GraphSection(
-                        viewModel: viewModel,
-                        onDismiss: { showMenu = false }
-                    )
+            List {
+                // Show Add only if no edge is selected (and optionally if a node is selected or none)
+                if selectedEdgeID == nil {
+                    AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
                 }
-                .navigationTitle("Actions")
-                .navigationBarTitleDisplayMode(.inline)
+                
+                // Show Edit only if it would have at least one button
+                if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
+                    EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
+                }
+                
+                // Always show View
+                ViewSection(
+                    showOverlays: $showOverlays,
+                    isSimulating: $viewModel.model.isSimulating,
+                    onDismiss: { showMenu = false },
+                    onSimulationChange: { newValue in
+                        if newValue {
+                            viewModel.resumeSimulation()
+                        } else {
+                            viewModel.pauseSimulation()
+                        }
+                    }
+                )
+                
+                // Always show Graph
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
+            .listStyle(.carousel)
         }
         
         // Removed .focusable() here since moved inside GeometryReader
@@ -2741,9 +2752,6 @@ struct AddSection: View {
                     viewModel.addChild(to: selectedID)
                     onDismiss()
                 }
-            } else {
-                Button("Add Child") { }
-                    .disabled(true)
             }
         }
     }
@@ -2762,57 +2770,58 @@ struct EditSection: View {
                     viewModel.deleteNode(withID: selectedID)
                     onDismiss()
                 }
-            } else {
-                Button("Delete Node", role: .destructive) { }
-                    .disabled(true)
             }
-            if let selectedEdgeID = selectedEdgeID {
-                Button("Delete Edge", role: .destructive) {
-                    viewModel.deleteSelectedEdge(id: selectedEdgeID)
+            if let selectedEdgeID = selectedEdgeID,
+               let selectedEdge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }) {
+                // Assignments moved inside (no 'if let' needed for non-optionals)
+                let fromID = selectedEdge.from
+                let toID = selectedEdge.to
+                let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
+                Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
+                    viewModel.snapshot()
+                    if isBi {
+                        let pair = viewModel.model.edgesBetween(fromID, toID)
+                        viewModel.model.edges.removeAll { pair.contains($0) }
+                    } else {
+                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    }
+                    viewModel.model.startSimulation()
                     onDismiss()
                 }
-            } else {
-                Button("Delete Edge", role: .destructive) { }
-                    .disabled(true)
             }
             if viewModel.canUndo {
                 Button("Undo") {
                     viewModel.undo()
                     onDismiss()
                 }
-            } else {
-                Button("Undo") { }
-                    .disabled(true)
             }
             if viewModel.canRedo {
                 Button("Redo") {
                     viewModel.redo()
                     onDismiss()
                 }
-            } else {
-                Button("Redo") { }
-                    .disabled(true)
             }
         }
     }
 }
-
 struct ViewSection: View {
-    let isSimulating: Bool
-    let toggleSimulation: () -> Void
-    let showOverlays: Binding<Bool>
+    @Binding var showOverlays: Bool
+    @Binding var isSimulating: Bool  // Now a Binding for direct Toggle control
     let onDismiss: () -> Void
+    let onSimulationChange: (Bool) -> Void  // New: Handles pause/resume logic
 
     var body: some View {
         Section(header: Text("View & Simulation")) {
-            Button(showOverlays.wrappedValue ? "Hide Overlays" : "Show Overlays") {
-                showOverlays.wrappedValue.toggle()
-                onDismiss()
-            }
-            Button(isSimulating ? "Pause Simulation" : "Resume Simulation") {
-                toggleSimulation()
-                onDismiss()
-            }
+            Toggle("Show Overlays", isOn: $showOverlays)
+                .onChange(of: showOverlays) {  // Zero-params: ignores value
+                    onDismiss()
+                }
+            
+            Toggle("Run Simulation", isOn: $isSimulating)
+                .onChange(of: isSimulating) { _, new in  // Two-params: ignore old, use new
+                    onSimulationChange(new)
+                    onDismiss()
+                }
         }
     }
 }
@@ -2835,7 +2844,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-11 22:53:57
+Last modified: 2025-08-12 12:14:25
 
 Contents:
 // Revised GraphCanvasView.swift with animated offset handling
@@ -3018,7 +3027,14 @@ struct GraphCanvasView: View {
                     path.addQuadCurve(to: revEnd, control: control2)
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
-            } else {
+                if isSelected {
+                        let midpoint = (fromDisplay + toDisplay) / 2
+                        let fromLabel = fromNode.label
+                        let toLabel = toNode.label
+                        let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
+                        // ... Draw text ...
+                    }
+                } else {
                 // Single straight line
                 context.stroke(Path { path in
                     path.move(to: lineStart)
@@ -3180,7 +3196,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-11 08:49:10
+Last modified: 2025-08-12 12:15:31
 
 Contents:
 import SwiftUI
@@ -3275,6 +3291,7 @@ struct GraphGesturesModifier: ViewModifier {
                         selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else if let hitEdge = viewModel.model.edges.first(where: { edge in
+                        
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
                            pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {  // Updated: Use tapModelPos
