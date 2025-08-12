@@ -88,21 +88,21 @@ struct ContentView: View {
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
             List {
-                if let selectedID = selectedNodeID {
-                    AddSection(viewModel: viewModel, selectedNodeID: selectedID, onDismiss: { showMenu = false })
-                } else {
-                    AddSection(viewModel: viewModel, selectedNodeID: nil, onDismiss: { showMenu = false })
-                }
+                // Always show Add (it has unconditional buttons)
+                AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
                 
+                // Show Edit only if it would have at least one button
                 if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
                     EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
                 }
                 
+                // Always show View (it has unconditional toggles)
                 ViewSection(isSimulating: viewModel.model.isSimulating, toggleSimulation: toggleSimulation, showOverlays: $showOverlays, onDismiss: { showMenu = false })
                 
+                // Always show Graph (Clear is unconditional)
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
-            .listStyle(.carousel)  // Optional: Improves watchOS scrolling
+            .listStyle(.carousel)  // Ensures watchOS-friendly scrolling
         }
         
         
@@ -414,9 +414,6 @@ struct AddSection: View {
                     viewModel.addChild(to: selectedID)
                     onDismiss()
                 }
-            } else {
-                Button("Add Child") { }
-                    .disabled(true)
             }
         }
     }
@@ -435,41 +432,28 @@ struct EditSection: View {
                     viewModel.deleteNode(withID: selectedID)
                     onDismiss()
                 }
-            } else {
-                Button("Delete Node", role: .destructive) { }
-                    .disabled(true)
             }
             if let selectedEdgeID = selectedEdgeID {
                 Button("Delete Edge", role: .destructive) {
                     viewModel.deleteSelectedEdge(id: selectedEdgeID)
                     onDismiss()
                 }
-            } else {
-                Button("Delete Edge", role: .destructive) { }
-                    .disabled(true)
             }
             if viewModel.canUndo {
                 Button("Undo") {
                     viewModel.undo()
                     onDismiss()
                 }
-            } else {
-                Button("Undo") { }
-                    .disabled(true)
             }
             if viewModel.canRedo {
                 Button("Redo") {
                     viewModel.redo()
                     onDismiss()
                 }
-            } else {
-                Button("Redo") { }
-                    .disabled(true)
             }
         }
     }
 }
-
 struct ViewSection: View {
     let isSimulating: Bool
     let toggleSimulation: () -> Void
