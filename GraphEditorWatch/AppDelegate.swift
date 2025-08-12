@@ -1,21 +1,19 @@
 //
-//  ExtensionDelegate.swift
-//  GraphEditor
+//  AppDelegate.swift  // Optional rename for clarity
+//  GraphEditorWatch
 //
 //  Created by handcart on 8/11/25.
 //
 
-
-// ExtensionDelegate.swift
 import WatchKit
 import Foundation
 
-class ExtensionDelegate: NSObject, WKExtensionDelegate {
-    func applicationDidEnterBackground() {
+class AppDelegate: NSObject, WKApplicationDelegate {
+    func didEnterBackground() {
         NotificationCenter.default.post(name: .graphSimulationPause, object: nil)
     }
     
-    func applicationWillEnterForeground() {
+    func willEnterForeground() {
         NotificationCenter.default.post(name: .graphSimulationResume, object: nil)
     }
 }

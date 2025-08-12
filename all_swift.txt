@@ -999,7 +999,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-11 13:21:49
+Last modified: 2025-08-12 00:08:21
 
 Contents:
 //
@@ -1017,8 +1017,9 @@ import CoreGraphics
 @available(watchOS 9.0, *)
 public class PhysicsEngine {
     let simulationBounds: CGSize
-    
+    private var stepCount: Int = 0
     private let maxNodesForQuadtree = 200
+    private let symmetricFactor: CGFloat = 0.2
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -1028,22 +1029,102 @@ public class PhysicsEngine {
     
     public func resetSimulation() {
         simulationSteps = 0
+        stepCount = 0
     }
     
     public var useAsymmetricAttraction: Bool = false  // Default to false for stability
     public var isPaused: Bool = false
     
     @discardableResult
-    public func simulationStep(nodes: [any NodeProtocol], edges: [GraphEdge]) -> ([any NodeProtocol], Bool) {
-        if isPaused || simulationSteps >= Constants.Physics.maxSimulationSteps { return (nodes, false) }
-        simulationSteps += 1
-        
-        var forces = computeRepulsions(nodes: nodes)
-        forces = applyAttractions(forces: forces, edges: edges, nodes: nodes)
-        forces = applyCentering(forces: forces, nodes: nodes)
-        
-        return updatePositionsAndVelocities(nodes: nodes, forces: forces, edges: edges)
-    }
+        public func simulationStep(nodes: [any NodeProtocol], edges: [GraphEdge]) -> ([any NodeProtocol], Bool) {
+            if isPaused { return (nodes, false) }
+            stepCount += 1
+            if stepCount > Constants.Physics.maxSimulationSteps { return (nodes, false) }
+
+            var forces: [CGPoint] = .init(repeating: .zero, count: nodes.count)
+            var isActive = false
+
+            let nodeCount = nodes.count
+            let quadtree: Quadtree? = nodeCount > Constants.Physics.maxNodesForQuadtree ? buildQuadtree(nodes: nodes) : nil
+
+            for i in 0..<nodes.count {
+                // Repulsion
+                if let quadtree = quadtree {
+                    forces[i] += quadtreeRepulsion(for: nodes[i], quadtree: quadtree)
+                } else {
+                    for j in 0..<nodes.count where i != j {
+                        forces[i] += repulsionForce(repellerPosition: nodes[j].position, queryPosition: nodes[i].position)
+                    }
+                }
+
+                // Springs
+                for edge in edges {
+                    if edge.from == nodes[i].id, let toNode = nodes.first(where: { $0.id == edge.to }) {
+                        let pullForce = springForce(from: nodes[i].position, to: toNode.position, idealLength: Constants.Physics.idealLength)
+                        let factor = useAsymmetricAttraction ? symmetricFactor : 1.0
+                        forces[i] += pullForce * factor
+                    }
+                    if edge.to == nodes[i].id, let fromNode = nodes.first(where: { $0.id == edge.from }) {
+                        let pullForce = springForce(from: nodes[i].position, to: fromNode.position, idealLength: Constants.Physics.idealLength)
+                        let factor = useAsymmetricAttraction ? (1.0 + symmetricFactor) : 1.0
+                        forces[i] += pullForce * factor
+                    }
+                }
+
+                // Centering
+                forces[i] += CGPoint(x: -nodes[i].position.x * Constants.Physics.centeringForce, y: -nodes[i].position.y * Constants.Physics.centeringForce)
+            }
+
+            var updatedNodes = nodes
+            for i in 0..<updatedNodes.count {
+                let newVelocity = (updatedNodes[i].velocity + forces[i]) * Constants.Physics.damping
+                let newPosition = updatedNodes[i].position + newVelocity * Constants.Physics.timeStep
+                isActive = isActive || hypot(newVelocity.x, newVelocity.y) > Constants.Physics.velocityThreshold
+                updatedNodes[i] = updatedNodes[i].with(position: newPosition, velocity: newVelocity)
+            }
+
+            return (updatedNodes, isActive)
+        }
+    
+    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree) -> CGPoint {
+            var force = CGPoint.zero
+            func calculateRepulsion(qt: Quadtree) {
+                if qt.children == nil {
+                    for other in qt.nodes where other.id != node.id {
+                        force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
+                    }
+                    return
+                }
+
+                let dx = qt.centerOfMass.x - node.position.x
+                let dy = qt.centerOfMass.y - node.position.y
+                let distance = hypot(dx, dy)
+                let width = qt.bounds.width
+
+                if width / distance < 0.5 && distance > 0 {
+                    let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
+                    force += approxForce
+                } else {
+                    if let children = qt.children {
+                        calculateRepulsion(qt: children[0])
+                        calculateRepulsion(qt: children[1])
+                        calculateRepulsion(qt: children[2])
+                        calculateRepulsion(qt: children[3])
+                    }
+                }
+            }
+
+            calculateRepulsion(qt: quadtree)
+            return force
+        }
+    private func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
+            let boundingBox = self.boundingBox(nodes: nodes)
+            let quadtree = Quadtree(bounds: boundingBox)
+            for node in nodes {
+                quadtree.insert(node)
+            }
+            return quadtree
+        }
     
     private func computeRepulsions(nodes: [any NodeProtocol]) -> [NodeID: CGPoint] {
         var forces: [NodeID: CGPoint] = [:]
@@ -1064,7 +1145,7 @@ public class PhysicsEngine {
             } else {
                 // Brute-force fallback
                 for otherNode in nodes where otherNode.id != node.id {
-                    repulsion += repulsionForce(from: otherNode.position, to: node.position, nodeCount: nodes.count)
+                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
                 }
             }
             forces[node.id] = (forces[node.id] ?? .zero) + repulsion
@@ -1193,13 +1274,15 @@ public class PhysicsEngine {
     }
     
     public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        if nodes.isEmpty { return .zero }
-        let xs = nodes.map { $0.position.x }
-        let ys = nodes.map { $0.position.y }
-        let minX = xs.min() ?? 0
-        let maxX = xs.max() ?? 0
-        let minY = ys.min() ?? 0
-        let maxY = ys.max() ?? 0
+        guard !nodes.isEmpty else { return .zero }
+        var minX = nodes[0].position.x, minY = nodes[0].position.y
+        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
+        for node in nodes {
+            minX = min(minX, node.position.x - node.radius)
+            minY = min(minY, node.position.y - node.radius)
+            maxX = max(maxX, node.position.x + node.radius)
+            maxY = max(maxY, node.position.y + node.radius)
+        }
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
     
@@ -1221,13 +1304,21 @@ public class PhysicsEngine {
         }
     }
     
-    private func repulsionForce(from: CGPoint, to: CGPoint, nodeCount: Int) -> CGPoint {
-        let delta = to - from
-        let distSquared = max(delta.x * delta.x + delta.y * delta.y, Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon)
-        let dist = sqrt(distSquared)
-        let factor = 1 + 0.15 * CGFloat(nodeCount) / 5
-        let forceMagnitude = (Constants.Physics.repulsion * factor) / distSquared
-        return (delta / dist) * forceMagnitude  // Parens for clarity
+    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
+            let dx = queryPosition.x - repellerPosition.x
+            let dy = queryPosition.y - repellerPosition.y
+            let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
+            let distance = sqrt(distanceSquared)
+            let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
+            return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
+        }
+    
+    private func springForce(from: CGPoint, to: CGPoint, idealLength: CGFloat) -> CGPoint {
+        let dx = to.x - from.x
+        let dy = to.y - from.y
+        let distance = max(hypot(dx, dy), Constants.Physics.distanceEpsilon)
+        let forceMagnitude = Constants.Physics.stiffness * (distance - idealLength)
+        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
     }
 }
 
@@ -2135,7 +2226,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-11 14:24:15
+Last modified: 2025-08-11 23:14:22
 
 Contents:
 //
@@ -2461,32 +2552,43 @@ struct ContentView: View {
             maxRel.y = max(maxRel.y, rel.y + node.radius)
         }
         
-        // Scaled half-extents
-        let scaledHalfWidth = (maxRel.x - minRel.x) * zoomScale / 2
-        let scaledHalfHeight = (maxRel.y - minRel.y) * zoomScale / 2
+        // Scaled extents (full, not half)
+        let scaledWidth = (maxRel.x - minRel.x) * zoomScale
+        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
         
         // Adjust padding for small graphs and high zoom
         var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
-        let scaledGraphHeight = (maxRel.y - minRel.y) * zoomScale
+        let scaledGraphHeight = scaledHeight
         if scaledGraphHeight < viewSize.height * 0.5 {
             paddingFactor *= 0.5
         }
         let paddingX = viewSize.width * paddingFactor / 2
         let paddingY = viewSize.height * paddingFactor / 2
         
-        // View half-sizes minus padding
-        let viewHalfWidth = viewSize.width / 2 - paddingX
-        let viewHalfHeight = viewSize.height / 2 - paddingY
+        // Effective view sizes minus padding
+        let effectiveViewWidth = viewSize.width - 2 * paddingX
+        let effectiveViewHeight = viewSize.height - 2 * paddingY
         
-        // Compute strict pan room
-        let panRoomX = max(0, scaledHalfWidth - viewHalfWidth)
-        let panRoomY = max(0, scaledHalfHeight - viewHalfHeight)
+        // Compute pan room (positive direction)
+        var panRoomX: CGFloat = 0
+        if scaledWidth > effectiveViewWidth {
+            panRoomX = (scaledWidth - effectiveViewWidth) / 2
+        } else {
+            panRoomX = (effectiveViewWidth - scaledWidth) / 2
+        }
+        var panRoomY: CGFloat = 0
+        if scaledHeight > effectiveViewHeight {
+            panRoomY = (scaledHeight - effectiveViewHeight) / 2
+        } else {
+            panRoomY = (effectiveViewHeight - scaledHeight) / 2
+        }
+        
         let minOffsetX = -panRoomX
         let maxOffsetX = panRoomX
         let minOffsetY = -panRoomY
         let maxOffsetY = panRoomY
         
-        // Allow slight over-pan for bounce (uses panRoomX/Y defined above)
+        // Allow slight over-pan for bounce
         let bounceFactor: CGFloat = 0.1
         let extendedMinX = minOffsetX - panRoomX * bounceFactor
         let extendedMaxX = maxOffsetX + panRoomX * bounceFactor
@@ -2500,7 +2602,6 @@ struct ContentView: View {
         // Debug log
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
     }
-    
     // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
@@ -2648,7 +2749,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-11 11:16:40
+Last modified: 2025-08-11 22:53:57
 
 Contents:
 // Revised GraphCanvasView.swift with animated offset handling
@@ -2728,7 +2829,7 @@ struct GraphCanvasView: View {
                 if showOverlays {
                     overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 }
-            }
+            }.focusable()
         }
     }
     

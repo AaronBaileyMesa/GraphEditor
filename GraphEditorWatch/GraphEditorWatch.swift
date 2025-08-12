@@ -6,11 +6,11 @@
 //
 
 import SwiftUI
-import WatchKit  
+import WatchKit
 
 @main
 struct GraphEditorWatch: App {
-    @WKExtensionDelegateAdaptor(ExtensionDelegate.self) private var delegate: ExtensionDelegate  // Use adaptor here
+    @WKApplicationDelegateAdaptor(AppDelegate.self) private var delegate: AppDelegate
 
     var body: some Scene {
         WindowGroup {

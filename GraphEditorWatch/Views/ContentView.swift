@@ -181,8 +181,8 @@ struct ContentView: View {
         }
         
         // New: Combined onChange for selections
-        let withSelectionsChange: some View = withEdgesChange.onChange(of: [selectedNodeID, selectedEdgeID]) { _ in
-            handleSelectionChange()
+        let withSelectionsChange: some View = withEdgesChange.onChange(of: [selectedNodeID, selectedEdgeID]) {
+            handleSelectionChange()  // No parameters; ignores old/new values
         }
         
         withSelectionsChange.onAppear {
