@@ -75,7 +75,7 @@ struct GraphCanvasView: View {
                 if showOverlays {
                     overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 }
-            }
+            }.focusable()
         }
     }
     

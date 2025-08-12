@@ -1,6 +1,3 @@
-// Fixed ContentView.swift
-// Changes: Replaced CGFloat.max/min with global max/min; simplified greatestFiniteMagnitude; fixed other minor issues.
-
 //
 //  ContentView.swift
 //  GraphEditor
@@ -45,6 +42,9 @@ struct ContentView: View {
     @State private var isPanning: Bool = false  // New: Track panning to pause clamping/simulation
     
     
+    // Fixed: Use unlabeled tuple to match compiler type
+    @State private var previousSelection: (NodeID?, UUID?) = (nil, nil)
+    
     init(storage: GraphStorage = PersistenceManager(),
          physicsEngine: PhysicsEngine = PhysicsEngine(simulationBounds: WKInterfaceDevice.current().screenBounds.size)) {
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
@@ -80,6 +80,8 @@ struct ContentView: View {
                 selectedEdgeID: $selectedEdgeID,
                 showOverlays: $showOverlays
             )
+            .focusable()  // Applied directly to GraphCanvasView
+            .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)  // Applied directly
         }
         
         let withIgnore: some View = geoReader.ignoresSafeArea()
@@ -114,11 +116,9 @@ struct ContentView: View {
             }
         }
         
-        let withFocus: some View = withSheet.focusable()
+        // Removed .focusable() here since moved inside GeometryReader
         
-        let withCrown: some View = withFocus.digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
-        
-        let withCrownChange: some View = withCrown.onChange(of: crownPosition) { oldValue, newValue in
+        let withCrownChange: some View = withSheet.onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 return
@@ -180,25 +180,73 @@ struct ContentView: View {
             clampOffset()  // Changed: Zero-parameter closure (dropped _ in)
         }
         
-        let withSelectedNode: some View = withEdgesChange.onChange(of: selectedNodeID) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                clampOffset()
-            }  // Changed: Zero-parameter closure (dropped _ in)
+        // New: Combined onChange for selections
+        let withSelectionsChange: some View = withEdgesChange.onChange(of: [selectedNodeID, selectedEdgeID]) { _ in
+            handleSelectionChange()
         }
         
-        let withSelectedEdge: some View = withSelectedNode.onChange(of: selectedEdgeID) {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                clampOffset()
-            }  // Changed: Zero-parameter closure (dropped _ in)
-        }
-        
-        withSelectedEdge.onAppear {
+        withSelectionsChange.onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
             onUpdateZoomRanges()
             viewModel.model.startSimulation()
             previousCrownPosition = crownPosition
         }
     }
+    
+    // New: Handle selection change with transitional offset
+    private func handleSelectionChange() {
+        let currentSelection = (selectedNodeID, selectedEdgeID)
+        let oldSelection = previousSelection
+        previousSelection = currentSelection
+        
+        let visibleNodes = viewModel.model.visibleNodes()
+        
+        // Compute old effective centroid (inline)
+        var oldCentroid: CGPoint = .zero
+        if let oldNodeID = oldSelection.0, let oldNode = visibleNodes.first(where: { $0.id == oldNodeID }) {
+            oldCentroid = oldNode.position
+        } else if let oldEdgeID = oldSelection.1, let edge = viewModel.model.edges.first(where: { $0.id == oldEdgeID }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            oldCentroid = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+        } else if !visibleNodes.isEmpty {
+            let count = CGFloat(visibleNodes.count)
+            let sumX = visibleNodes.reduce(0.0) { $0 + $1.position.x }
+            let sumY = visibleNodes.reduce(0.0) { $0 + $1.position.y }
+            oldCentroid = CGPoint(x: sumX / count, y: sumY / count)
+        }
+        
+        // Compute new effective centroid (inline)
+        var newCentroid: CGPoint = .zero
+        if let newNodeID = currentSelection.0, let newNode = visibleNodes.first(where: { $0.id == newNodeID }) {
+            newCentroid = newNode.position
+        } else if let newEdgeID = currentSelection.1, let edge = viewModel.model.edges.first(where: { $0.id == newEdgeID }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            newCentroid = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+        } else if !visibleNodes.isEmpty {
+            let count = CGFloat(visibleNodes.count)
+            let sumX = visibleNodes.reduce(0.0) { $0 + $1.position.x }
+            let sumY = visibleNodes.reduce(0.0) { $0 + $1.position.y }
+            newCentroid = CGPoint(x: sumX / count, y: sumY / count)
+        }
+        
+        // Immediate offset adjustment to prevent jump
+        let delta = CGPoint(x: newCentroid.x - oldCentroid.x, y: newCentroid.y - oldCentroid.y)
+        offset.width -= delta.x * zoomScale
+        offset.height -= delta.y * zoomScale
+        
+        // Animate to center (offset = .zero) and clamp
+        withAnimation(.easeInOut(duration: 0.3)) {
+            offset = .zero
+            clampOffset()
+        }
+        
+        // Pause/resume simulation for stability during transition
+        viewModel.model.pauseSimulation()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            viewModel.model.resumeSimulation()
+        }
+    }
+    
     private func toggleSimulation() {
         if viewModel.model.isSimulating {
             viewModel.model.pauseSimulation()
@@ -245,25 +293,6 @@ struct ContentView: View {
         }
     }
     
-    // Updated: Center on selected if present and zoomed in; no y-bias
-    private func updateZoomScale(oldCrown: Double) {
-        let newProgress = crownPosition
-        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
-        let oldScale = zoomScale
-        zoomScale = newScale
-        
-        let zoomRatio = newScale / oldScale
-        offset.width *= zoomRatio
-        offset.height *= zoomRatio
-        
-        // Debounce clamp to after zoom stops (prevents mid-zoom snaps)
-        clampTimer?.invalidate()
-        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
-            withAnimation(.easeOut(duration: 0.2)) {
-                clampOffset()
-            }
-        }
-    }
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
         let visibleNodes = viewModel.model.visibleNodes()
@@ -292,32 +321,43 @@ struct ContentView: View {
             maxRel.y = max(maxRel.y, rel.y + node.radius)
         }
         
-        // Scaled half-extents
-        let scaledHalfWidth = (maxRel.x - minRel.x) * zoomScale / 2
-        let scaledHalfHeight = (maxRel.y - minRel.y) * zoomScale / 2
+        // Scaled extents (full, not half)
+        let scaledWidth = (maxRel.x - minRel.x) * zoomScale
+        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
         
         // Adjust padding for small graphs and high zoom
         var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
-        let scaledGraphHeight = (maxRel.y - minRel.y) * zoomScale
+        let scaledGraphHeight = scaledHeight
         if scaledGraphHeight < viewSize.height * 0.5 {
             paddingFactor *= 0.5
         }
         let paddingX = viewSize.width * paddingFactor / 2
         let paddingY = viewSize.height * paddingFactor / 2
         
-        // View half-sizes minus padding
-        let viewHalfWidth = viewSize.width / 2 - paddingX
-        let viewHalfHeight = viewSize.height / 2 - paddingY
+        // Effective view sizes minus padding
+        let effectiveViewWidth = viewSize.width - 2 * paddingX
+        let effectiveViewHeight = viewSize.height - 2 * paddingY
         
-        // Compute strict pan room
-        let panRoomX = max(0, scaledHalfWidth - viewHalfWidth)
-        let panRoomY = max(0, scaledHalfHeight - viewHalfHeight)
+        // Compute pan room (positive direction)
+        var panRoomX: CGFloat = 0
+        if scaledWidth > effectiveViewWidth {
+            panRoomX = (scaledWidth - effectiveViewWidth) / 2
+        } else {
+            panRoomX = (effectiveViewWidth - scaledWidth) / 2
+        }
+        var panRoomY: CGFloat = 0
+        if scaledHeight > effectiveViewHeight {
+            panRoomY = (scaledHeight - effectiveViewHeight) / 2
+        } else {
+            panRoomY = (effectiveViewHeight - scaledHeight) / 2
+        }
+        
         let minOffsetX = -panRoomX
         let maxOffsetX = panRoomX
         let minOffsetY = -panRoomY
         let maxOffsetY = panRoomY
         
-        // Allow slight over-pan for bounce (uses panRoomX/Y defined above)
+        // Allow slight over-pan for bounce
         let bounceFactor: CGFloat = 0.1
         let extendedMinX = minOffsetX - panRoomX * bounceFactor
         let extendedMaxX = maxOffsetX + panRoomX * bounceFactor
@@ -330,6 +370,25 @@ struct ContentView: View {
         
         // Debug log
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
+    }
+    // Updated: Center on selected if present and zoomed in; no y-bias
+    private func updateZoomScale(oldCrown: Double) {
+        let newProgress = crownPosition
+        let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
+        let oldScale = zoomScale
+        zoomScale = newScale
+        
+        let zoomRatio = newScale / oldScale
+        offset.width *= zoomRatio
+        offset.height *= zoomRatio
+        
+        // Debounce clamp to after zoom stops (prevents mid-zoom snaps)
+        clampTimer?.invalidate()
+        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
+            withAnimation(.easeOut(duration: 0.2)) {
+                clampOffset()
+            }
+        }
     }
 }
 
@@ -454,4 +513,3 @@ struct GraphSection: View {
         }
     }
 }
-
