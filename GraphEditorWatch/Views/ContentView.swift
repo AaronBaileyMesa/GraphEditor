@@ -474,13 +474,13 @@ struct ViewSection: View {
     var body: some View {
         Section(header: Text("View & Simulation")) {
             Toggle("Show Overlays", isOn: $showOverlays)
-                .onChange(of: showOverlays) { _ in  // Modern syntax: no 'perform:'
+                .onChange(of: showOverlays) {  // Zero-params: ignores value
                     onDismiss()
                 }
             
             Toggle("Run Simulation", isOn: $isSimulating)
-                .onChange(of: isSimulating) { newValue in  // Modern syntax
-                    onSimulationChange(newValue)
+                .onChange(of: isSimulating) { _, new in  // Two-params: ignore old, use new
+                    onSimulationChange(new)
                     onDismiss()
                 }
         }
