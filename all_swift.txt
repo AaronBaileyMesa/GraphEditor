@@ -168,7 +168,7 @@ struct CenteringCalculator {
 --------------------------------------------------
 File: Constants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-11 11:07:32
+Last modified: 2025-08-12 13:05:01
 
 Contents:
 //
@@ -186,14 +186,14 @@ import CoreGraphics
 public enum Constants {
     public enum Physics {
         public static let stiffness: CGFloat = 0.8
-        public static let repulsion: CGFloat = 2200  // Reduced for less spread/oscillation
-        public static let damping: CGFloat = 0.96    // Increased for faster stability
+        public static let repulsion: CGFloat = 2200
+        public static let damping: CGFloat = 0.98  // Increased from 0.96 for faster stability
         public static let idealLength: CGFloat = 70
-        public static let centeringForce: CGFloat = 0.06  // Increased for tighter layouts on small screens
+        public static let centeringForce: CGFloat = 0.06
         public static let distanceEpsilon: CGFloat = 1e-3
         public static let timeStep: CGFloat = 0.03
-        public static let velocityThreshold: CGFloat = 0.1  // Tightened for better convergence (runs longer to lower velocities)
-        public static let maxSimulationSteps = 5000
+        public static let velocityThreshold: CGFloat = 0.1
+        public static let maxSimulationSteps = 1000  // Reduced from 5000 to prevent long runs/crashes
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 20
         public static let maxNodesForQuadtree = 200
@@ -213,7 +213,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-12 12:27:52
+Last modified: 2025-08-12 13:05:26
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -253,13 +253,16 @@ public class GraphModel: ObservableObject {
             physicsEngine: self.physicsEngine,
             onStable: { [weak self] in
                 guard let self = self else { return }
-                let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes)
+                var centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes)
+                // New: Reset velocities to prevent re-triggering simulation
+                centeredNodes = centeredNodes.map { node in
+                    node.with(position: node.position, velocity: .zero)
+                }
                 self.nodes = centeredNodes
                 self.objectWillChange.send()
             }
         )
     }()
-    
     // Indicates if undo is possible.
     public var canUndo: Bool {
         !undoStack.isEmpty
@@ -510,17 +513,59 @@ public class GraphModel: ObservableObject {
         physicsEngine.resetSimulation()
     }
     
-    public func addChild(to parentID: NodeID, at position: CGPoint? = nil) {
+    // In GraphModel.swift, replace the existing addChild with this:
+    public func addChild(to parentID: NodeID, at position: CGPoint? = nil, isToggle: Bool = false) {
         guard let parent = nodes.first(where: { $0.id == parentID }) else { return }
-        let childPosition = position ?? CGPoint(x: parent.position.x + 50, y: parent.position.y + 50)  // Default near parent
-        let child = Node(label: nextNodeLabel, position: childPosition)  // Or ToggleNode if desired
+        let childPosition = position ?? CGPoint(x: parent.position.x + 50, y: parent.position.y + 50)
+        let childLabel = nextNodeLabel
         nextNodeLabel += 1
+        
+        let child: any NodeProtocol = isToggle ?
+            ToggleNode(label: childLabel, position: childPosition) :
+            Node(label: childLabel, position: childPosition)
+        
         nodes.append(child)
-        edges.append(GraphEdge(from: parentID, to: child.id))
+        let newEdge = GraphEdge(from: parentID, to: child.id)
+        
+        // Check for cycles before adding edge
+        if hasCycle(adding: newEdge) {
+            // Optionally: Log or alert user
+            print("Cycle detected; edge not added.")
+            return
+        }
+        
+        edges.append(newEdge)
         physicsEngine.resetSimulation()
         startSimulation()
     }
-}
+
+    // Add this new helper function at the bottom of GraphModel (e.g., after resumeSimulation):
+    private func hasCycle(adding edge: GraphEdge) -> Bool {
+        var adj = buildAdjacencyList()
+        adj[edge.from, default: []].append(edge.to)
+        
+        // DFS cycle detection from new edge's from-node
+        var visited = Set<NodeID>()
+        var recStack = Set<NodeID>()
+        
+        func dfs(_ node: NodeID) -> Bool {
+            visited.insert(node)
+            recStack.insert(node)
+            if let neighbors = adj[node] {
+                for neighbor in neighbors {
+                    if !visited.contains(neighbor) {
+                        if dfs(neighbor) { return true }
+                    } else if recStack.contains(neighbor) {
+                        return true
+                    }
+                }
+            }
+            recStack.remove(node)
+            return false
+        }
+        
+        return dfs(edge.from)
+    }}
 
 @available(iOS 13.0, watchOS 6.0, *)
 extension GraphModel {
@@ -1658,7 +1703,7 @@ struct RepulsionCalculator {
 --------------------------------------------------
 File: ToggleNode.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-08-09 12:29:06
+Last modified: 2025-08-12 12:52:16
 
 Contents:
 // Sources/GraphEditorShared/ToggleNode.swift
@@ -1674,7 +1719,7 @@ public struct ToggleNode: NodeProtocol {
     public var position: CGPoint
     public var velocity: CGPoint = .zero
     public var radius: CGFloat = 10.0
-    public var isExpanded: Bool = true  // Mutable for toggle
+    public var isExpanded: Bool = true  // Default to expanded
 
     public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true) {
         self.id = id
@@ -1689,13 +1734,14 @@ public struct ToggleNode: NodeProtocol {
         ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded)
     }
 
+    // Override: Toggle expansion on tap
     public func handlingTap() -> Self {
         var updated = self
         updated.isExpanded.toggle()
         return updated
     }
 
-    // Custom drawing: Square shape, blue color, +/- indicator
+    // Override: Custom draw with +/- icon
     @available(iOS 15.0, *)
     @available(watchOS 9.0, *)
     public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
@@ -1704,32 +1750,33 @@ public struct ToggleNode: NodeProtocol {
         let borderRadius = scaledRadius + borderWidth / 2
 
         if borderWidth > 0 {
-            let borderPath = Path(roundedRect: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius), cornerRadius: 4 * zoomScale)
+            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
             context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
         }
 
-        let innerPath = Path(roundedRect: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius), cornerRadius: 4 * zoomScale)
-        context.fill(innerPath, with: .color(.blue))  // Distinct color
+        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        context.fill(innerPath, with: .color(.blue))  // Blue to distinguish from regular Node (red)
 
-        // +/- indicator (small text inside)
-        let indicator = isExpanded ? "+" : "-"  // Reversed for intuition: + when collapsed (to expand)
-        let fontSize = 10 * zoomScale
-        let text = Text(indicator).foregroundColor(.white).font(.system(size: fontSize, weight: .bold))
+        // Draw +/- icon
+        let iconText = isExpanded ? "-" : "+"
+        let fontSize = max(8.0, 12.0 * zoomScale)  // Readable min size
+        let text = Text(iconText).foregroundColor(.white).font(.system(size: fontSize, weight: .bold))
         let resolved = context.resolve(text)
-        context.draw(resolved, at: position, anchor: .center)
+        context.draw(resolved, at: position, anchor: .center)  // Center in node
 
-        // Always draw label above (fix "disappearing")
-        let labelFontSize = 12 * zoomScale
+        // Draw label above (as in protocol default)
+        let labelFontSize = max(8.0, 12.0 * zoomScale)
         let labelText = Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize))
         let labelResolved = context.resolve(labelText)
-        let labelPos = CGPoint(x: position.x, y: position.y - (scaledRadius + 8 * zoomScale))
-        context.draw(labelResolved, at: labelPos, anchor: .center)
+        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
+        context.draw(labelResolved, at: labelPosition, anchor: .center)
     }
 
-    // Coding support (mirror Node's, add isExpanded)
+    // Codable conformance (for persistence)
     enum CodingKeys: String, CodingKey {
         case id, label, radius, isExpanded
-        case positionX, positionY, velocityX, velocityY
+        case positionX, positionY
+        case velocityX, velocityY
     }
 
     public init(from decoder: Decoder) throws {
@@ -2321,7 +2368,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-12 12:33:37
+Last modified: 2025-08-12 13:11:09
 
 Contents:
 //
@@ -2624,55 +2671,24 @@ struct ContentView: View {
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
         let visibleNodes = viewModel.model.visibleNodes()
-        guard !visibleNodes.isEmpty else {
-            offset = .zero
-            return
-        }
+        guard !visibleNodes.isEmpty else { return }
         
-        // Compute effective centroid (unchanged)
-        var effectiveCentroid = visibleNodes.reduce(CGPoint.zero) { $0 + $1.position } / CGFloat(visibleNodes.count)
-        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-            effectiveCentroid = selected.position
-        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            effectiveCentroid = (from.position + to.position) / 2.0
-        }
+        // Compute bbox using visible nodes (via physicsEngine for consistency)
+        let graphBBox = viewModel.model.physicsEngine.boundingBox(nodes: visibleNodes)
+        let nodeRadius = Constants.App.nodeModelRadius
+        let scaledWidth = graphBBox.width * zoomScale + 2 * nodeRadius * zoomScale
+        let scaledHeight = graphBBox.height * zoomScale + 2 * nodeRadius * zoomScale
         
-        // Compute relative extents, expanded by node radius
-        var minRel = CGPoint(x: CGFloat.greatestFiniteMagnitude, y: CGFloat.greatestFiniteMagnitude)
-        var maxRel = CGPoint(x: -.greatestFiniteMagnitude, y: -.greatestFiniteMagnitude)
-        for node in visibleNodes {
-            let rel = node.position - effectiveCentroid
-            minRel.x = min(minRel.x, rel.x - node.radius)
-            minRel.y = min(minRel.y, rel.y - node.radius)
-            maxRel.x = max(maxRel.x, rel.x + node.radius)
-            maxRel.y = max(maxRel.y, rel.y + node.radius)
-        }
+        let effectiveViewWidth = viewSize.width - 2 * nodeRadius * zoomScale
+        let effectiveViewHeight = viewSize.height - 2 * nodeRadius * zoomScale
         
-        // Scaled extents (full, not half)
-        let scaledWidth = (maxRel.x - minRel.x) * zoomScale
-        let scaledHeight = (maxRel.y - minRel.y) * zoomScale
-        
-        // Adjust padding for small graphs and high zoom
-        var paddingFactor: CGFloat = zoomScale > 3.0 ? 0.5 : 0.25
-        let scaledGraphHeight = scaledHeight
-        if scaledGraphHeight < viewSize.height * 0.5 {
-            paddingFactor *= 0.5
-        }
-        let paddingX = viewSize.width * paddingFactor / 2
-        let paddingY = viewSize.height * paddingFactor / 2
-        
-        // Effective view sizes minus padding
-        let effectiveViewWidth = viewSize.width - 2 * paddingX
-        let effectiveViewHeight = viewSize.height - 2 * paddingY
-        
-        // Compute pan room (positive direction)
         var panRoomX: CGFloat = 0
         if scaledWidth > effectiveViewWidth {
             panRoomX = (scaledWidth - effectiveViewWidth) / 2
         } else {
             panRoomX = (effectiveViewWidth - scaledWidth) / 2
         }
+        
         var panRoomY: CGFloat = 0
         if scaledHeight > effectiveViewHeight {
             panRoomY = (scaledHeight - effectiveViewHeight) / 2
@@ -2685,21 +2701,26 @@ struct ContentView: View {
         let minOffsetY = -panRoomY
         let maxOffsetY = panRoomY
         
-        // Allow slight over-pan for bounce
         let bounceFactor: CGFloat = 0.1
         let extendedMinX = minOffsetX - panRoomX * bounceFactor
         let extendedMaxX = maxOffsetX + panRoomX * bounceFactor
         let extendedMinY = minOffsetY - panRoomY * bounceFactor
         let extendedMaxY = maxOffsetY + panRoomY * bounceFactor
         
-        // Apply extended clamp (strict clamp happens in gesture animation)
-        offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
-        offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
+        // New: Only clamp if actually out of range (reduce unnecessary ops/logs)
+        if offset.width < extendedMinX || offset.width > extendedMaxX ||
+           offset.height < extendedMinY || offset.height > extendedMaxY {
+            offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
+            offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
+        } else {
+            return  // Skip log if no change
+        }
         
-        // Debug log
+        // Debug log (add condition to print only on change or debug mode)
+        #if DEBUG
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
-    }
-    // Updated: Center on selected if present and zoomed in; no y-bias
+        #endif
+    }    // Updated: Center on selected if present and zoomed in; no y-bias
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
@@ -2844,7 +2865,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-12 12:14:25
+Last modified: 2025-08-12 12:55:23
 
 Contents:
 // Revised GraphCanvasView.swift with animated offset handling
@@ -3100,14 +3121,13 @@ struct GraphCanvasView: View {
     
 
     
+    // In GraphCanvasView.swift, replace overlaysView with:
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {
             if !visibleNodes.isEmpty {
                 let modelBBox = viewModel.model.boundingBox()
-                
                 let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                 let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                
                 let displayWidth = maxDisplay.x - minDisplay.x
                 let displayHeight = maxDisplay.y - minDisplay.y
                 let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
@@ -3120,11 +3140,24 @@ struct GraphCanvasView: View {
             
             if let centroid = visibleNodes.centroid() {
                 let displayPos = displayPosition(for: centroid, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                
                 Circle()
                     .fill(Color.yellow)
                     .frame(width: 4, height: 4)
                     .position(displayPos)
+            }
+            
+            // New: Hierarchy indicators (dashed lines to hidden children)
+            ForEach(viewModel.model.nodes.filter { !$0.isVisible && ($0 as? ToggleNode)?.isExpanded == false }, id: \.id) { hiddenNode in
+                if let parentID = viewModel.model.edges.first(where: { $0.to == hiddenNode.id })?.from,
+                   let parent = viewModel.model.nodes.first(where: { $0.id == parentID }) {
+                    let fromDisplay = displayPosition(for: parent.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    let toDisplay = displayPosition(for: hiddenNode.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    Path { path in
+                        path.move(to: fromDisplay)
+                        path.addLine(to: toDisplay)
+                    }
+                    .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 1.0, dash: [5.0]))
+                }
             }
         }
     }

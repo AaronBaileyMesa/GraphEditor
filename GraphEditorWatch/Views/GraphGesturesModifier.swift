@@ -1,3 +1,10 @@
+//
+//  GraphGesturesModifier.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on [some date].
+//  (Assuming original header; update as needed)
+
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -43,10 +50,6 @@ struct GraphGesturesModifier: ViewModifier {
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
-                // After handling, clamp with smooth animation
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
-                        onUpdateZoomRanges()  // This calls clampOffset()
-                    }
                 let touchPos = screenToModel(value.location)  // Updated: Use full inverse
                 
                 if dragStartNode == nil {
@@ -83,7 +86,25 @@ struct GraphGesturesModifier: ViewModifier {
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, tapModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
                         if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
                             viewModel.snapshot()
+                            let oldNode = hitNode
                             viewModel.model.nodes[index] = hitNode.handlingTap()
+                            // Fan out children if just expanded a ToggleNode
+                            if let oldToggle = oldNode as? ToggleNode, !oldToggle.isExpanded,
+                               let newToggle = viewModel.model.nodes[index] as? ToggleNode, newToggle.isExpanded {
+                                let children = viewModel.model.edges.filter { $0.from == newToggle.id }.map { $0.to }
+                                if !children.isEmpty {
+                                    for (i, childID) in children.enumerated() {
+                                        if let childIndex = viewModel.model.nodes.firstIndex(where: { $0.id == childID }) {
+                                            let angle = CGFloat(i) * 2 * .pi / CGFloat(children.count)
+                                            let offset = CGPoint(x: cos(angle) * Constants.Physics.idealLength, y: sin(angle) * Constants.Physics.idealLength)
+                                            viewModel.model.nodes[childIndex] = viewModel.model.nodes[childIndex].with(
+                                                position: newToggle.position + offset,
+                                                velocity: .zero
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             viewModel.model.startSimulation()
                         }
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
@@ -107,13 +128,14 @@ struct GraphGesturesModifier: ViewModifier {
                     }
                 } else {
                     viewModel.snapshot()
-                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id,
-                       !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                        viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
-                        viewModel.model.startSimulation()
-#if os(watchOS)
-                        WKInterfaceDevice.current().play(.success)  // Haptic on edge creation
-#endif
+                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
+                        let newEdge = GraphEdge(from: startNode.id, to: target.id)
+                        if !viewModel.model.hasCycle(adding: newEdge) &&
+                           !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
+                            viewModel.model.edges.append(newEdge)
+                            viewModel.model.startSimulation()
+                            WKInterfaceDevice.current().play(.success)
+                        }
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
