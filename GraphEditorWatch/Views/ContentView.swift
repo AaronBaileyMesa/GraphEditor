@@ -87,34 +87,24 @@ struct ContentView: View {
         let withIgnore: some View = geoReader.ignoresSafeArea()
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
-            NavigationStack {
-                List {
-                    AddSection(
-                        viewModel: viewModel,
-                        selectedNodeID: selectedNodeID,
-                        onDismiss: { showMenu = false }
-                    )
-                    EditSection(
-                        viewModel: viewModel,
-                        selectedNodeID: selectedNodeID,
-                        selectedEdgeID: selectedEdgeID,
-                        onDismiss: { showMenu = false }
-                    )
-                    ViewSection(
-                        isSimulating: viewModel.model.isSimulating,
-                        toggleSimulation: toggleSimulation,
-                        showOverlays: $showOverlays,
-                        onDismiss: { showMenu = false }
-                    )
-                    GraphSection(
-                        viewModel: viewModel,
-                        onDismiss: { showMenu = false }
-                    )
+            List {
+                if let selectedID = selectedNodeID {
+                    AddSection(viewModel: viewModel, selectedNodeID: selectedID, onDismiss: { showMenu = false })
+                } else {
+                    AddSection(viewModel: viewModel, selectedNodeID: nil, onDismiss: { showMenu = false })
                 }
-                .navigationTitle("Actions")
-                .navigationBarTitleDisplayMode(.inline)
+                
+                if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
+                    EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
+                }
+                
+                ViewSection(isSimulating: viewModel.model.isSimulating, toggleSimulation: toggleSimulation, showOverlays: $showOverlays, onDismiss: { showMenu = false })
+                
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
+            .listStyle(.carousel)  // Optional: Improves watchOS scrolling
         }
+        
         
         // Removed .focusable() here since moved inside GeometryReader
         
