@@ -56,8 +56,10 @@ struct GraphCanvasView: View {
                     
                     // Render nodes as Views for transitions
                     ForEach(culledNodes, id: \.id) { node in
-                        NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
-                            .position(displayPosition(for: node.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))
+                        let isDragged = draggedNode?.id == node.id
+                            let worldPos = isDragged ? node.position + dragOffset : node.position  // Add offset during drag
+                            NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
+                                .position(displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))  // Use worldPos
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.1, anchor: .center).combined(with: .opacity),
                                 removal: .opacity
@@ -235,38 +237,7 @@ struct GraphCanvasView: View {
         }
         context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
     }
-    
-    private func drawNodes(in context: GraphicsContext, culledNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
-        let nodesToDraw = culledNodes
-        if nodesToDraw.isEmpty {
-            let text = Text("No Visible Nodes").foregroundColor(.gray).font(.system(size: 16))
-            context.draw(context.resolve(text), at: viewCenter, anchor: .center)
-            return
-        }
-        for node in nodesToDraw {
-            let isDragged = draggedNode?.id == node.id
-            let worldPos = isDragged ? node.position + dragOffset : node.position
-            let displayPos = displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-            let isSelected = node.id == selectedNodeID
-            
-            let scaledRadius = node.radius * zoomScale
-            let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
-            let borderRadius = scaledRadius + borderWidth / 2
-            
-            let circlePath = Path(ellipseIn: CGRect(x: displayPos.x - scaledRadius, y: displayPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-            context.fill(circlePath, with: .color(.red), style: FillStyle(antialiased: true))
-            
-            if isSelected {
-                let borderPath = Path(ellipseIn: CGRect(x: displayPos.x - borderRadius, y: displayPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-                context.stroke(borderPath, with: .color(Color.yellow.opacity(0.8)), style: StrokeStyle(lineWidth: borderWidth, lineJoin: .round))
-            }
-            
-            node.draw(in: context, at: displayPos, zoomScale: zoomScale, isSelected: isSelected)
-        }
-    }
-    
-
-    
+      
     // In GraphCanvasView.swift, replace overlaysView with:
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {

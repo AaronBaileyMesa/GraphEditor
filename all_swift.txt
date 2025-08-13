@@ -23,9 +23,10 @@ Table of Contents:
 22. GraphEditorWatch/Views/ContentView.swift
 23. GraphEditorWatch/Views/GraphCanvasView.swift
 24. GraphEditorWatch/Views/GraphGesturesModifier.swift
-25. GraphEditorWatchTests/GraphEditorWatchTests.swift
-26. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-27. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
+25. GraphEditorWatch/Views/NodeView.swift
+26. GraphEditorWatchTests/GraphEditorWatchTests.swift
+27. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+28. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
 
 --------------------------------------------------
 File: Package.swift
@@ -168,7 +169,7 @@ struct CenteringCalculator {
 --------------------------------------------------
 File: Constants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-12 13:56:51
+Last modified: 2025-08-12 18:06:15
 
 Contents:
 //
@@ -185,15 +186,15 @@ import CoreGraphics
 
 public enum Constants {
     public enum Physics {
-        public static let stiffness: CGFloat = 0.8
-        public static let repulsion: CGFloat = 2200
-        public static let damping: CGFloat = 0.99  // Increased from 0.96 for faster stability
-        public static let idealLength: CGFloat = 70
-        public static let centeringForce: CGFloat = 0.06
+        public static let stiffness: CGFloat = 0.4  // Reduced from 0.8 for softer springs
+        public static let repulsion: CGFloat = 1200  // Reduced from 2200 for less aggressive push
+        public static let damping: CGFloat = 0.85  // Reduced from 0.99 for faster settling
+        public static let idealLength: CGFloat = 80  // Slightly increased for more space
+        public static let centeringForce: CGFloat = 0.03  // Reduced from 0.06 to avoid over-pull
         public static let distanceEpsilon: CGFloat = 1e-3
-        public static let timeStep: CGFloat = 0.03
-        public static let velocityThreshold: CGFloat = 0.2
-        public static let maxSimulationSteps = 1000  // Reduced from 5000 to prevent long runs/crashes
+        public static let timeStep: CGFloat = 0.02  // Slightly reduced for finer steps
+        public static let velocityThreshold: CGFloat = 0.5  // Increased from 0.2 for earlier stop
+        public static let maxSimulationSteps = 500  // Further reduced from 1000 for quick convergence
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 20
         public static let maxNodesForQuadtree = 200
@@ -1188,7 +1189,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-12 15:36:16
+Last modified: 2025-08-12 18:15:39
 
 Contents:
 //
@@ -1198,6 +1199,7 @@ Contents:
 //  Created by handcart on 8/1/25.
 //
 
+import os.log
 import SwiftUI
 import Foundation
 import CoreGraphics
@@ -1205,6 +1207,7 @@ import CoreGraphics
 @available(iOS 13.0, *)
 @available(watchOS 9.0, *)
 public class PhysicsEngine {
+    private let physicsLogger = OSLog(subsystem: "io.handcart.GraphEditor", category: "physics")
     let simulationBounds: CGSize
     private var stepCount: Int = 0
     private let maxNodesForQuadtree = 200
@@ -1241,6 +1244,13 @@ public class PhysicsEngine {
         var forces = repulsionCalculator.computeRepulsions(nodes: nodes)
         forces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
         forces = centeringCalculator.applyCentering(forces: forces, nodes: nodes)
+        
+        // New: Log totals every 2 steps to avoid spam
+        if stepCount % 2 == 0 {
+            let totalForce = forces.values.reduce(0.0) { $0 + hypot($1.x, $1.y) }
+            let totalVel = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+            os_log("Step %{public}d: Total force magnitude = %{public}.2f, Total velocity = %{public}.2f", log: physicsLogger, type: .debug, stepCount, totalForce, totalVel)
+        }
 
         let (updatedNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: forces, edges: edges)
         return (updatedNodes, isActive)
@@ -1729,7 +1739,7 @@ struct RepulsionCalculator {
 --------------------------------------------------
 File: ToggleNode.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-08-12 12:52:16
+Last modified: 2025-08-13 09:07:29
 
 Contents:
 // Sources/GraphEditorShared/ToggleNode.swift
@@ -1762,9 +1772,11 @@ public struct ToggleNode: NodeProtocol {
 
     // Override: Toggle expansion on tap
     public func handlingTap() -> Self {
-        var updated = self
-        updated.isExpanded.toggle()
-        return updated
+        withAnimation(.easeInOut(duration: 0.3)) {
+            var updated = self
+            updated.isExpanded.toggle()
+            return updated
+        }
     }
 
     // Override: Custom draw with +/- icon
@@ -2225,7 +2237,7 @@ extension Notification.Name {
 --------------------------------------------------
 File: GraphEditorWatch.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-08-12 09:59:09
+Last modified: 2025-08-13 09:04:04
 
 Contents:
 //
@@ -2245,6 +2257,10 @@ struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .onAppear {
+                    // Force focus on the crown sequencer to resolve setup warnings
+                    WKExtension.shared().visibleInterfaceController?.crownSequencer.focus()
+                }
         }
     }
 }
@@ -2891,7 +2907,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-12 17:54:36
+Last modified: 2025-08-13 09:06:07
 
 Contents:
 // Revised GraphCanvasView.swift with animated offset handling
@@ -2920,12 +2936,6 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
-    
-    private var zoomLevels: [CGFloat] {
-        (0...Constants.App.numZoomLevels).map { i in
-            1.0 + CGFloat(i) / CGFloat(Constants.App.numZoomLevels) * (maxZoom - 1.0)
-        }
-    }
     
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
@@ -2956,9 +2966,19 @@ struct GraphCanvasView: View {
                                height: min(viewSize.width, viewSize.height) * 0.4)
                         .position(viewCenter)
                     
+                    // Render nodes as Views for transitions
+                    ForEach(culledNodes, id: \.id) { node in
+                        NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
+                            .position(displayPosition(for: node.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.1, anchor: .center).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                            .animation(.easeInOut(duration: 0.3), value: node.id)  // Trigger on appearance/change
+                    }
+                    
+                    // Keep edges in Canvas for performance
                     Canvas { context, _ in
-                        drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        
                         drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                         
                         if let dragged = draggedNode, let target = potentialEdgeTarget {
@@ -2971,7 +2991,6 @@ struct GraphCanvasView: View {
                                 path.addLine(to: toDisplay)
                             }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
                         }
-                        
                     }
                     .drawingGroup()
                     
@@ -3088,15 +3107,13 @@ struct GraphCanvasView: View {
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 if isSelected {
-                    let midpoint = (fromDisplay + toDisplay) / 2
-                    let fromLabel = fromNode.label
-                    let toLabel = toNode.label
-                    let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
-                    let fontSize = max(8.0, 12.0 * zoomScale)
-                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                    context.draw(context.resolve(text), at: midpoint, anchor: .center)
-                }
-            } else {
+                        let midpoint = (fromDisplay + toDisplay) / 2
+                        let fromLabel = fromNode.label
+                        let toLabel = toNode.label
+                        let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
+                        // ... Draw text ...
+                    }
+                } else {
                 // Single straight line
                 context.stroke(Path { path in
                     path.move(to: lineStart)
@@ -3241,47 +3258,9 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
-            .focusable(true)
-            .digitalCrownRotation($crownPosition, from: 0, through: Double(Constants.App.numZoomLevels), sensitivity: .medium, isHapticFeedbackEnabled: true)
-            .onChange(of: crownPosition) { oldValue, newValue in
-                let index = Int(newValue.rounded())
-                let newZoom = zoomLevels[index]
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    zoomScale = newZoom
-                }
-                viewModel.pauseSimulation()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    viewModel.resumeSimulation()
-                    onUpdateZoomRanges()
-                }
+            .onChange(of: offset) {
+                withAnimation(.easeInOut(duration: 0.3)) { }  // Animate offset changes
             }
-            .onChange(of: zoomScale) { oldValue, newValue in
-                DispatchQueue.main.async {
-                    onUpdateZoomRanges()
-                }
-            }
-            .onChange(of: offset) { oldValue, newValue in
-                DispatchQueue.main.async {
-                    onUpdateZoomRanges()
-                }
-            }
-            .onChange(of: selectedNodeID) { oldValue, newValue in
-                animateRecenter()
-            }
-            .onChange(of: selectedEdgeID) { oldValue, newValue in
-                animateRecenter()
-            }
-    }
-    
-    private func animateRecenter() {
-        let visibleNodes = viewModel.model.visibleNodes()
-        let oldCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)  // Adjust based on previous selection if needed
-        let newCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
-        let deltaCentroid = newCentroid - oldCentroid  // Note: signs flipped from previous
-        let deltaOffset = deltaCentroid * zoomScale
-        withAnimation(.easeInOut(duration: 0.3)) {
-            offset = offset + CGSize(width: deltaOffset.x, height: deltaOffset.y)
-        }
     }
 }
 
@@ -3499,6 +3478,55 @@ struct GraphGesturesModifier: ViewModifier {
         let t = max(0, min(1, (pointVec.x * lineVec.x + pointVec.y * lineVec.y) / (lineLen * lineLen)))
         let projection = from + CGPoint(x: lineVec.x * t, y: lineVec.y * t)
         return distance(point, projection)
+    }
+}
+
+--------------------------------------------------
+--------------------------------------------------
+File: NodeView.swift
+Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/NodeView.swift
+Last modified: 2025-08-13 09:08:18
+
+Contents:
+//
+//  NodeView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/13/25.
+//
+
+import SwiftUICore
+import GraphEditorShared
+
+
+struct NodeView: View {
+    let node: any NodeProtocol
+    let isSelected: Bool
+    let zoomScale: CGFloat
+    
+    var body: some View {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .stroke(Color.yellow, lineWidth: 4 * zoomScale)
+                    .frame(width: node.radius * 2 * zoomScale + 4 * zoomScale, height: node.radius * 2 * zoomScale + 4 * zoomScale)
+            }
+            Circle()
+                .fill(Color.blue)  // Or dynamic based on node type
+                .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
+            
+            // Add icon/label as in ToggleNode.draw
+            if let toggleNode = node as? ToggleNode {
+                Text(toggleNode.isExpanded ? "-" : "+")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
+            }
+            
+            Text("\(node.label)")
+                .foregroundColor(.white)
+                .font(.system(size: max(8.0, 12.0 * zoomScale)))
+                .offset(y: -(node.radius + 10) * zoomScale)  // Position above
+        }
     }
 }
 
