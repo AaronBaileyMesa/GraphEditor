@@ -22,7 +22,7 @@ struct NodeView: View {
                     .frame(width: node.radius * 2 * zoomScale + 4 * zoomScale, height: node.radius * 2 * zoomScale + 4 * zoomScale)
             }
             Circle()
-                .fill(Color.blue)  // Or dynamic based on node type
+                .fill(node.fillColor)  // Or dynamic based on node type
                 .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
             
             // Add icon/label as in ToggleNode.draw
