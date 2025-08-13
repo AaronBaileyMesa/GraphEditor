@@ -135,15 +135,17 @@ struct ContentView: View {
             .listStyle(.carousel)
         }
             .onChange(of: selectedNodeID) { oldValue, newValue in
-                if newValue != oldValue && newValue != previousSelection.0 {
+                print("Selection change (node): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
+                if newValue != oldValue && newValue != previousSelection.0 {  // This is fine; no strings here
                     previousSelection.0 = newValue
                     if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
                             recenterOn(position: selectedNode.position)
                         }
-                        viewModel.model.isSimulating = false  // Pause simulation (use viewModel.pauseSimulation() if method exists)
+                        viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                            viewModel.model.isSimulating = true  // Resume (or viewModel.resumeSimulation())
+                            viewModel.model.isSimulating = true
+                            print("Resuming simulation after node selection change/deselection. Node count: \(viewModel.model.nodes.count), Visible nodes: \(viewModel.model.visibleNodes().count)")
                         }
                     } else {
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -151,8 +153,10 @@ struct ContentView: View {
                         }
                     }
                 }
+                print("Offset after node selection change: width \(offset.width), height \(offset.height)")
             }
             .onChange(of: selectedEdgeID) { oldValue, newValue in
+                print("Selection change (edge): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.1 {
                     previousSelection.1 = newValue
                     if let newID = newValue, let edge = viewModel.model.edges.first(where: { $0.id == newID }),
@@ -165,6 +169,7 @@ struct ContentView: View {
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
                             viewModel.model.isSimulating = true
+                            print("Resuming simulation after edge selection change/deselection. Node count: \(viewModel.model.nodes.count), Visible nodes: \(viewModel.model.visibleNodes().count)")
                         }
                     } else {
                         withAnimation(.easeInOut(duration: 0.3)) {
@@ -172,10 +177,9 @@ struct ContentView: View {
                         }
                     }
                 }
+                print("Offset after edge selection change: width \(offset.width), height \(offset.height)")
             }
-        
-        // Removed .focusable() here since moved inside GeometryReader
-        
+                
         let withCrownChange: some View = withSheet.onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -353,6 +357,7 @@ struct ContentView: View {
     
     // Updated: More padding at high zoom for better panning
     private func clampOffset() {
+        let oldOffset = offset
         let visibleNodes = viewModel.model.visibleNodes()
         guard !visibleNodes.isEmpty else { return }
         
@@ -392,7 +397,7 @@ struct ContentView: View {
         
         // New: Only clamp if actually out of range (reduce unnecessary ops/logs)
         if offset.width < extendedMinX || offset.width > extendedMaxX ||
-           offset.height < extendedMinY || offset.height > extendedMaxY {
+            offset.height < extendedMinY || offset.height > extendedMaxY {
             offset.width = offset.width.clamped(to: extendedMinX...extendedMaxX)
             offset.height = offset.height.clamped(to: extendedMinY...extendedMaxY)
         } else {
@@ -400,10 +405,17 @@ struct ContentView: View {
         }
         
         // Debug log (add condition to print only on change or debug mode)
-        #if DEBUG
+#if DEBUG
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
-        #endif
+#endif
+        if offset != oldOffset {
+                print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(selectedNodeID == nil && selectedEdgeID == nil)")
+            } else {
+                print("ClampOffset called but no adjustment needed.")
+            }
     }    // Updated: Center on selected if present and zoomed in; no y-bias
+    
+    
     private func updateZoomScale(oldCrown: Double) {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))

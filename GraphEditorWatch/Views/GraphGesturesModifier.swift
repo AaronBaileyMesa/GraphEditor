@@ -80,41 +80,23 @@ struct GraphGesturesModifier: ViewModifier {
                 viewModel.resumeSimulation()
                 
                 let dragDistance = hypot(value.translation.width, value.translation.height)
+                let tapModelPos = screenToModel(value.startLocation)  // Use startLocation for tap position
                 
-                if dragDistance < Constants.App.tapThreshold {
-                    let tapModelPos = screenToModel(value.startLocation)  // Updated: Use full inverse for tap
+                if dragDistance < Constants.App.tapThreshold {  // Tap detected
+                    print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
+                    
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, tapModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
-                        if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
-                            viewModel.snapshot()
-                            let oldNode = hitNode
-                            viewModel.model.nodes[index] = hitNode.handlingTap()
-                            // Fan out children if just expanded a ToggleNode
-                            if let oldToggle = oldNode as? ToggleNode, !oldToggle.isExpanded,
-                               let newToggle = viewModel.model.nodes[index] as? ToggleNode, newToggle.isExpanded {
-                                let children = viewModel.model.edges.filter { $0.from == newToggle.id }.map { $0.to }
-                                if !children.isEmpty {
-                                    for (i, childID) in children.enumerated() {
-                                        if let childIndex = viewModel.model.nodes.firstIndex(where: { $0.id == childID }) {
-                                            let angle = CGFloat(i) * 2 * .pi / CGFloat(children.count)
-                                            let offset = CGPoint(x: cos(angle) * Constants.Physics.idealLength, y: sin(angle) * Constants.Physics.idealLength)
-                                            viewModel.model.nodes[childIndex] = viewModel.model.nodes[childIndex].with(
-                                                position: newToggle.position + offset,
-                                                velocity: .zero
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            viewModel.model.startSimulation()
-                        }
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
+                        if let toggleNode = hitNode as? ToggleNode {
+                            print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")
+                            // Update model if needed, e.g., viewModel.model.updateNode(toggleNode.handlingTap())
+                        }
                     } else if let hitEdge = viewModel.model.edges.first(where: { edge in
-                        
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {  // Updated: Use tapModelPos
+                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {
                             return true
                         }
                         return false
@@ -123,9 +105,13 @@ struct GraphGesturesModifier: ViewModifier {
                         selectedNodeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else {
+                        // Background tap case
+                        print("Background tap confirmed. Deselecting everything.")
                         selectedNodeID = nil
                         selectedEdgeID = nil
                     }
+                    
+                    print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
                 } else {
                     viewModel.snapshot()
                     if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
