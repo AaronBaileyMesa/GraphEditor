@@ -51,6 +51,23 @@ struct ContentView: View {
         _viewModel = StateObject(wrappedValue: GraphViewModel(model: model))
     }
     
+    private func recenterOn(position: CGPoint) {
+        guard viewSize != .zero else { return }  // Avoid div-by-zero
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let targetOffsetX = viewCenter.x - position.x * zoomScale
+        let targetOffsetY = viewCenter.y - position.y * zoomScale
+        
+        // Dampen: Limit max change per animation to prevent jarring (50% of screen)
+        let maxDeltaX = viewSize.width * 0.5
+        let maxDeltaY = viewSize.height * 0.5
+        let deltaX = targetOffsetX - offset.width
+        let deltaY = targetOffsetY - offset.height
+        offset.width += deltaX.clamped(to: -maxDeltaX...maxDeltaX)
+        offset.height += deltaY.clamped(to: -maxDeltaY...maxDeltaY)
+        
+        clampOffset()  // Apply your existing clamping after adjustment
+    }
+    
     // Updated: Always recenter after updates unless panning
     private var onUpdateZoomRanges: () -> Void {
         return {
@@ -117,6 +134,45 @@ struct ContentView: View {
             }
             .listStyle(.carousel)
         }
+            .onChange(of: selectedNodeID) { oldValue, newValue in
+                if newValue != oldValue && newValue != previousSelection.0 {
+                    previousSelection.0 = newValue
+                    if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
+                            recenterOn(position: selectedNode.position)
+                        }
+                        viewModel.model.isSimulating = false  // Pause simulation (use viewModel.pauseSimulation() if method exists)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            viewModel.model.isSimulating = true  // Resume (or viewModel.resumeSimulation())
+                        }
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            clampOffset()
+                        }
+                    }
+                }
+            }
+            .onChange(of: selectedEdgeID) { oldValue, newValue in
+                if newValue != oldValue && newValue != previousSelection.1 {
+                    previousSelection.1 = newValue
+                    if let newID = newValue, let edge = viewModel.model.edges.first(where: { $0.id == newID }),
+                       let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                        let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
+                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
+                            recenterOn(position: midpoint)
+                        }
+                        viewModel.model.isSimulating = false
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            viewModel.model.isSimulating = true
+                        }
+                    } else {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            clampOffset()
+                        }
+                    }
+                }
+            }
         
         // Removed .focusable() here since moved inside GeometryReader
         
@@ -364,6 +420,15 @@ struct ContentView: View {
             withAnimation(.easeOut(duration: 0.2)) {
                 clampOffset()
             }
+        }
+        // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
+        if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+            recenterOn(position: selectedNode.position)
+        } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+                  let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+            let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
+            recenterOn(position: midpoint)
         }
     }
 }
