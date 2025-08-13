@@ -46,36 +46,52 @@ struct GraphCanvasView: View {
             
             let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
-            ZStack {
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                           height: min(viewSize.width, viewSize.height) * 0.4)
-                    .position(viewCenter)
-                
-                Canvas { context, _ in
-                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            ScrollView {
+                ZStack {
+                    Circle()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                               height: min(viewSize.width, viewSize.height) * 0.4)
+                        .position(viewCenter)
                     
-                    drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                    
-                    if let dragged = draggedNode, let target = potentialEdgeTarget {
-                        let fromPos = dragged.position + dragOffset
-                        let toPos = target.position
-                        let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        context.stroke(Path { path in
-                            path.move(to: fromDisplay)
-                            path.addLine(to: toDisplay)
-                        }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
+                    // Render nodes as Views for transitions
+                    ForEach(culledNodes, id: \.id) { node in
+                        NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
+                            .position(displayPosition(for: node.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.1, anchor: .center).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                            .animation(.easeInOut(duration: 0.3), value: node.id)  // Trigger on appearance/change
                     }
                     
+                    // Keep edges in Canvas for performance
+                    Canvas { context, _ in
+                        drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                        
+                        if let dragged = draggedNode, let target = potentialEdgeTarget {
+                            let fromPos = dragged.position + dragOffset
+                            let toPos = target.position
+                            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                            context.stroke(Path { path in
+                                path.move(to: fromDisplay)
+                                path.addLine(to: toDisplay)
+                            }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
+                        }
+                    }
+                    .drawingGroup()
+                    
+                    if showOverlays {
+                        overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    }
                 }
-                .drawingGroup()
-                
-                if showOverlays {
-                    overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                }
-            }.focusable()
+                .frame(width: geometry.size.width, height: geometry.size.height)  // Match geometry
+                .offset(x: offset.width, y: offset.height)  // Apply offset
+                .scaleEffect(zoomScale)  // Apply zoom
+            }
+            .scrollDisabled(true)  // Prevent unwanted scrolling
+            .focusable(true)  // Enable focus for crown
         }
     }
     
