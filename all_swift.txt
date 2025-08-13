@@ -168,7 +168,7 @@ struct CenteringCalculator {
 --------------------------------------------------
 File: Constants.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-12 13:05:01
+Last modified: 2025-08-12 13:56:51
 
 Contents:
 //
@@ -187,12 +187,12 @@ public enum Constants {
     public enum Physics {
         public static let stiffness: CGFloat = 0.8
         public static let repulsion: CGFloat = 2200
-        public static let damping: CGFloat = 0.98  // Increased from 0.96 for faster stability
+        public static let damping: CGFloat = 0.99  // Increased from 0.96 for faster stability
         public static let idealLength: CGFloat = 70
         public static let centeringForce: CGFloat = 0.06
         public static let distanceEpsilon: CGFloat = 1e-3
         public static let timeStep: CGFloat = 0.03
-        public static let velocityThreshold: CGFloat = 0.1
+        public static let velocityThreshold: CGFloat = 0.2
         public static let maxSimulationSteps = 1000  // Reduced from 5000 to prevent long runs/crashes
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 20
@@ -213,7 +213,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-12 13:05:26
+Last modified: 2025-08-12 15:06:43
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -250,6 +250,10 @@ public class GraphModel: ObservableObject {
             getNodes: { [weak self] in self?.nodes ?? [] },
             setNodes: { [weak self] nodes in self?.nodes = nodes },
             getEdges: { [weak self] in self?.edges ?? [] },
+            
+            getVisibleNodes: { [weak self] in self?.visibleNodes() ?? [] },
+            getVisibleEdges: { [weak self] in self?.visibleEdges() ?? [] },
+            
             physicsEngine: self.physicsEngine,
             onStable: { [weak self] in
                 guard let self = self else { return }
@@ -305,7 +309,7 @@ public class GraphModel: ObservableObject {
         self.edges = tempEdges
         self.nextNodeLabel = tempNextLabel  // Always set (computed above)
     }
-
+    
     public func clearGraph() {
         snapshot()
         nodes = []
@@ -429,43 +433,51 @@ public class GraphModel: ObservableObject {
     }
     
     public func startSimulation() {
-        #if os(watchOS)
+#if os(watchOS)
         guard WKApplication.shared().applicationState == .active else {
             return  // Don't simulate if backgrounded
         }
-        #endif
+#endif
         simulator.startSimulation { [weak self] in
             self?.objectWillChange.send()
         }
     }
-
+    
     public func stopSimulation() {
         simulator.stopSimulation()
     }
-
+    
     public func pauseSimulation() {
         stopSimulation()
         physicsEngine.isPaused = true  // Assumes isPaused var in PhysicsEngine
     }
-
+    
     public func resumeSimulation() {
         physicsEngine.isPaused = false
         startSimulation()
     }
-
+    
     
     public func boundingBox() -> CGRect {
         self.physicsEngine.boundingBox(nodes: nodes)
     }
     
+    private func buildRoots() -> [any NodeProtocol] {
+        var incoming = Set<NodeID>()
+        for edge in edges {
+            incoming.insert(edge.to)
+        }
+        return nodes.filter { !incoming.contains($0.id) }
+    }
     // Visibility methods
     public func visibleNodes() -> [any NodeProtocol] {
         var visible: [any NodeProtocol] = []
         var visited = Set<NodeID>()
         let adjacency = buildAdjacencyList()
-        for node in nodes {
-            if !visited.contains(node.id) {
-                dfsVisible(node: node, adjacency: adjacency, visited: &visited, visible: &visible)
+        let roots = buildRoots()
+        for root in roots {
+            if !visited.contains(root.id) {
+                dfsVisible(node: root, adjacency: adjacency, visited: &visited, visible: &visible)
             }
         }
         return visible
@@ -493,7 +505,7 @@ public class GraphModel: ObservableObject {
         edges.contains { $0.from == id1 && $0.to == id2 } &&
         edges.contains { $0.from == id2 && $0.to == id1 }
     }
-
+    
     public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
         edges.filter { ($0.from == id1 && $0.to == id2) || ($0.from == id2 && $0.to == id1) }
     }
@@ -521,8 +533,8 @@ public class GraphModel: ObservableObject {
         nextNodeLabel += 1
         
         let child: any NodeProtocol = isToggle ?
-            ToggleNode(label: childLabel, position: childPosition) :
-            Node(label: childLabel, position: childPosition)
+        ToggleNode(label: childLabel, position: childPosition) :
+        Node(label: childLabel, position: childPosition)
         
         nodes.append(child)
         let newEdge = GraphEdge(from: parentID, to: child.id)
@@ -538,9 +550,9 @@ public class GraphModel: ObservableObject {
         physicsEngine.resetSimulation()
         startSimulation()
     }
-
+    
     // Add this new helper function at the bottom of GraphModel (e.g., after resumeSimulation):
-    private func hasCycle(adding edge: GraphEdge) -> Bool {
+    public func hasCycle(adding edge: GraphEdge) -> Bool {
         var adj = buildAdjacencyList()
         adj[edge.from, default: []].append(edge.to)
         
@@ -612,7 +624,7 @@ extension GraphModel {
 --------------------------------------------------
 File: GraphSimulator.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-08-09 15:02:07
+Last modified: 2025-08-12 15:01:14
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -633,6 +645,9 @@ class GraphSimulator {
     private let velocityHistoryCount = 5
     
     let physicsEngine: PhysicsEngine
+    private let getVisibleNodes: () -> [any NodeProtocol]
+    private let getVisibleEdges: () -> [GraphEdge]
+    
     private let getNodes: () -> [any NodeProtocol]  // Updated: Polymorphic
     private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
     private let getEdges: () -> [GraphEdge]
@@ -641,6 +656,8 @@ class GraphSimulator {
     init(getNodes: @escaping () -> [any NodeProtocol],
          setNodes: @escaping ([any NodeProtocol]) -> Void,
          getEdges: @escaping () -> [GraphEdge],
+         getVisibleNodes: @escaping () -> [any NodeProtocol],
+         getVisibleEdges: @escaping () -> [GraphEdge],
          physicsEngine: PhysicsEngine,
          onStable: (() -> Void)? = nil) {  // New parameter
         self.getNodes = getNodes
@@ -648,6 +665,9 @@ class GraphSimulator {
         self.getEdges = getEdges
         self.physicsEngine = physicsEngine
         self.onStable = onStable
+        
+        self.getVisibleNodes = getVisibleNodes
+        self.getVisibleEdges = getVisibleEdges
     }
     
     func startSimulation(onUpdate: @escaping () -> Void) {
@@ -656,38 +676,44 @@ class GraphSimulator {
             return  // Don't simulate if backgrounded
         }
         #endif
-            timer?.invalidate()
-            physicsEngine.resetSimulation()
-            recentVelocities.removeAll()
-            
-            let nodeCount = getNodes().count
-            if nodeCount < 5 { return }
-            
-            // Dynamic interval: Slower for larger graphs; further slow in low power mode
-            var baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
-            if ProcessInfo.processInfo.isLowPowerModeEnabled {
-                baseInterval *= 2.0  // Double interval to save battery
-            }
-            
-            timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
-                guard let self = self else { return }
+        timer?.invalidate()
+        physicsEngine.resetSimulation()
+        recentVelocities.removeAll()
+        
+        let nodeCount = getNodes().count
+        if nodeCount < 5 { return }
+        
+        // Dynamic interval: Slower for larger graphs; further slow in low power mode
+        var baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            baseInterval *= 2.0  // Double interval to save battery
+        }
+        
+        timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
             
             DispatchQueue.global(qos: .userInitiated).async {
-                var nodes = self.getNodes()  // [any NodeProtocol]
-                let edges = self.getEdges()
+                let nodes = self.getNodes()
+                let visibleNodes = self.getVisibleNodes()
+                let visibleEdges = self.getVisibleEdges()
+                var forces = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
+                forces = self.physicsEngine.attractionCalculator.applyAttractions(forces: forces, edges: visibleEdges, nodes: visibleNodes)
+                forces = self.physicsEngine.centeringCalculator.applyCentering(forces: forces, nodes: visibleNodes)
+                
                 var shouldContinue = false
                 let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
                 
+                var updatedNodes = nodes
                 for _ in 0..<subSteps {
-                    let (updatedNodes, stepActive) = self.physicsEngine.simulationStep(nodes: nodes, edges: edges)  // Updated: Non-inout
-                    nodes = updatedNodes  // Assign updated
+                    let (tempNodes, stepActive) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: updatedNodes, forces: forces, edges: self.getEdges())
+                    updatedNodes = tempNodes
                     shouldContinue = shouldContinue || stepActive  // Accumulate
                 }
                 
-                let totalVelocity = nodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }  // Uses protocol velocity
+                let totalVelocity = updatedNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
                 
                 DispatchQueue.main.async {
-                    self.setNodes(nodes)
+                    self.setNodes(updatedNodes)
                     onUpdate()
                     
                     // Early stop if already stable
@@ -1162,7 +1188,7 @@ public class PersistenceManager: GraphStorage {
 --------------------------------------------------
 File: PhysicsEngine.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-12 09:46:40
+Last modified: 2025-08-12 15:36:16
 
 Contents:
 //
@@ -1182,11 +1208,11 @@ public class PhysicsEngine {
     let simulationBounds: CGSize
     private var stepCount: Int = 0
     private let maxNodesForQuadtree = 200
-    private let symmetricFactor: CGFloat = 0.2
-    private let repulsionCalculator: RepulsionCalculator
-    private let attractionCalculator: AttractionCalculator
-    private let centeringCalculator: CenteringCalculator
-    private let positionUpdater: PositionUpdater
+    private let symmetricFactor: CGFloat = 0.5
+    internal let repulsionCalculator: RepulsionCalculator
+    internal let attractionCalculator: AttractionCalculator
+    internal let centeringCalculator: CenteringCalculator
+    internal let positionUpdater: PositionUpdater
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -2865,7 +2891,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-12 12:55:23
+Last modified: 2025-08-12 17:54:36
 
 Contents:
 // Revised GraphCanvasView.swift with animated offset handling
@@ -2895,6 +2921,12 @@ struct GraphCanvasView: View {
     @Binding var showOverlays: Bool
     
     
+    private var zoomLevels: [CGFloat] {
+        (0...Constants.App.numZoomLevels).map { i in
+            1.0 + CGFloat(i) / CGFloat(Constants.App.numZoomLevels) * (maxZoom - 1.0)
+        }
+    }
+    
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
         let scaled = relative * zoomScale
@@ -2916,36 +2948,43 @@ struct GraphCanvasView: View {
             
             let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
-            ZStack {
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                           height: min(viewSize.width, viewSize.height) * 0.4)
-                    .position(viewCenter)
-                
-                Canvas { context, _ in
-                    drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+            ScrollView {
+                ZStack {
+                    Circle()
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                               height: min(viewSize.width, viewSize.height) * 0.4)
+                        .position(viewCenter)
                     
-                    drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                    
-                    if let dragged = draggedNode, let target = potentialEdgeTarget {
-                        let fromPos = dragged.position + dragOffset
-                        let toPos = target.position
-                        let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        context.stroke(Path { path in
-                            path.move(to: fromDisplay)
-                            path.addLine(to: toDisplay)
-                        }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
+                    Canvas { context, _ in
+                        drawNodes(in: context, culledNodes: culledNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                        
+                        drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                        
+                        if let dragged = draggedNode, let target = potentialEdgeTarget {
+                            let fromPos = dragged.position + dragOffset
+                            let toPos = target.position
+                            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                            context.stroke(Path { path in
+                                path.move(to: fromDisplay)
+                                path.addLine(to: toDisplay)
+                            }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
+                        }
+                        
                     }
+                    .drawingGroup()
                     
+                    if showOverlays {
+                        overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
+                    }
                 }
-                .drawingGroup()
-                
-                if showOverlays {
-                    overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                }
-            }.focusable()
+                .frame(width: geometry.size.width, height: geometry.size.height)  // Match geometry
+                .offset(x: offset.width, y: offset.height)  // Apply offset
+                .scaleEffect(zoomScale)  // Apply zoom
+            }
+            .scrollDisabled(true)  // Prevent unwanted scrolling
+            .focusable(true)  // Enable focus for crown
         }
     }
     
@@ -3049,13 +3088,15 @@ struct GraphCanvasView: View {
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 if isSelected {
-                        let midpoint = (fromDisplay + toDisplay) / 2
-                        let fromLabel = fromNode.label
-                        let toLabel = toNode.label
-                        let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
-                        // ... Draw text ...
-                    }
-                } else {
+                    let midpoint = (fromDisplay + toDisplay) / 2
+                    let fromLabel = fromNode.label
+                    let toLabel = toNode.label
+                    let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
+                    let fontSize = max(8.0, 12.0 * zoomScale)
+                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                    context.draw(context.resolve(text), at: midpoint, anchor: .center)
+                }
+            } else {
                 // Single straight line
                 context.stroke(Path { path in
                     path.move(to: lineStart)
@@ -3200,9 +3241,47 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
-            .onChange(of: offset) {
-                withAnimation(.easeInOut(duration: 0.3)) { }  // Animate offset changes
+            .focusable(true)
+            .digitalCrownRotation($crownPosition, from: 0, through: Double(Constants.App.numZoomLevels), sensitivity: .medium, isHapticFeedbackEnabled: true)
+            .onChange(of: crownPosition) { oldValue, newValue in
+                let index = Int(newValue.rounded())
+                let newZoom = zoomLevels[index]
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    zoomScale = newZoom
+                }
+                viewModel.pauseSimulation()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    viewModel.resumeSimulation()
+                    onUpdateZoomRanges()
+                }
             }
+            .onChange(of: zoomScale) { oldValue, newValue in
+                DispatchQueue.main.async {
+                    onUpdateZoomRanges()
+                }
+            }
+            .onChange(of: offset) { oldValue, newValue in
+                DispatchQueue.main.async {
+                    onUpdateZoomRanges()
+                }
+            }
+            .onChange(of: selectedNodeID) { oldValue, newValue in
+                animateRecenter()
+            }
+            .onChange(of: selectedEdgeID) { oldValue, newValue in
+                animateRecenter()
+            }
+    }
+    
+    private func animateRecenter() {
+        let visibleNodes = viewModel.model.visibleNodes()
+        let oldCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)  // Adjust based on previous selection if needed
+        let newCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
+        let deltaCentroid = newCentroid - oldCentroid  // Note: signs flipped from previous
+        let deltaOffset = deltaCentroid * zoomScale
+        withAnimation(.easeInOut(duration: 0.3)) {
+            offset = offset + CGSize(width: deltaOffset.x, height: deltaOffset.y)
+        }
     }
 }
 
@@ -3229,9 +3308,16 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-12 12:15:31
+Last modified: 2025-08-12 14:31:06
 
 Contents:
+//
+//  GraphGesturesModifier.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on [some date].
+//  (Assuming original header; update as needed)
+
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -3277,10 +3363,6 @@ struct GraphGesturesModifier: ViewModifier {
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
-                // After handling, clamp with smooth animation
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
-                        onUpdateZoomRanges()  // This calls clampOffset()
-                    }
                 let touchPos = screenToModel(value.location)  // Updated: Use full inverse
                 
                 if dragStartNode == nil {
@@ -3317,7 +3399,25 @@ struct GraphGesturesModifier: ViewModifier {
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, tapModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
                         if let index = viewModel.model.nodes.firstIndex(where: { $0.id == hitNode.id }) {
                             viewModel.snapshot()
+                            let oldNode = hitNode
                             viewModel.model.nodes[index] = hitNode.handlingTap()
+                            // Fan out children if just expanded a ToggleNode
+                            if let oldToggle = oldNode as? ToggleNode, !oldToggle.isExpanded,
+                               let newToggle = viewModel.model.nodes[index] as? ToggleNode, newToggle.isExpanded {
+                                let children = viewModel.model.edges.filter { $0.from == newToggle.id }.map { $0.to }
+                                if !children.isEmpty {
+                                    for (i, childID) in children.enumerated() {
+                                        if let childIndex = viewModel.model.nodes.firstIndex(where: { $0.id == childID }) {
+                                            let angle = CGFloat(i) * 2 * .pi / CGFloat(children.count)
+                                            let offset = CGPoint(x: cos(angle) * Constants.Physics.idealLength, y: sin(angle) * Constants.Physics.idealLength)
+                                            viewModel.model.nodes[childIndex] = viewModel.model.nodes[childIndex].with(
+                                                position: newToggle.position + offset,
+                                                velocity: .zero
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                             viewModel.model.startSimulation()
                         }
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
@@ -3341,13 +3441,14 @@ struct GraphGesturesModifier: ViewModifier {
                     }
                 } else {
                     viewModel.snapshot()
-                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id,
-                       !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                        viewModel.model.edges.append(GraphEdge(from: startNode.id, to: target.id))
-                        viewModel.model.startSimulation()
-#if os(watchOS)
-                        WKInterfaceDevice.current().play(.success)  // Haptic on edge creation
-#endif
+                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
+                        let newEdge = GraphEdge(from: startNode.id, to: target.id)
+                        if !viewModel.model.hasCycle(adding: newEdge) &&
+                           !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
+                            viewModel.model.edges.append(newEdge)
+                            viewModel.model.startSimulation()
+                            WKInterfaceDevice.current().play(.success)
+                        }
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
                         var updatedNode = viewModel.model.nodes[index]
