@@ -85,28 +85,33 @@ struct GraphGesturesModifier: ViewModifier {
                 if dragDistance < Constants.App.tapThreshold {  // Tap detected
                     print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
                     
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, tapModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
+                    // Tighten hit radius for taps (e.g., half of drag radius to favor background)
+                    let tapHitRadius = Constants.App.hitScreenRadius / (2 * zoomScale)  // Smaller for precision
+                    
+                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < tapHitRadius }) {  // Use visibleNodes() to ignore hidden
+                        print("Node hit detected with tightened radius: \(hitNode.label)")
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
                         WKInterfaceDevice.current().play(.click)
                         if let toggleNode = hitNode as? ToggleNode {
                             print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")
-                            // Update model if needed, e.g., viewModel.model.updateNode(toggleNode.handlingTap())
+                            // Call handlingTap and update model (assuming you have a method; e.g., viewModel.updateNode(toggleNode.handlingTap()))
                         }
-                    } else if let hitEdge = viewModel.model.edges.first(where: { edge in
+                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in  // Use visibleEdges if available
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < Constants.App.hitScreenRadius / zoomScale {
+                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < tapHitRadius {
                             return true
                         }
                         return false
                     }) {
+                        print("Edge hit detected with tightened radius.")
                         selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
                         selectedNodeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else {
-                        // Background tap case
-                        print("Background tap confirmed. Deselecting everything.")
+                        // True background tap
+                        print("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
                         selectedNodeID = nil
                         selectedEdgeID = nil
                     }
