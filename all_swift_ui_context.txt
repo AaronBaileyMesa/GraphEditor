@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-13 14:18:28
+Current date: 2025-08-13 18:56:11
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -1955,7 +1955,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-11 13:43:33
+Last modified: 2025-08-13 15:51:39
 
 Contents:
 //
@@ -1969,6 +1969,7 @@ Contents:
 import SwiftUI
 import Combine
 import GraphEditorShared
+import WatchKit  // For WKApplication
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
@@ -1987,18 +1988,19 @@ class GraphViewModel: ObservableObject {
     private var pauseObserver: NSObjectProtocol?
     private var resumeObserver: NSObjectProtocol?
     
+    // New: Timer for debounced resumes
+    private var resumeTimer: Timer?
+    
     init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
-            
         }
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
             self?.model.pauseSimulation()
         }
         resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            self?.model.resumeSimulation()
-            
+            self?.resumeSimulationAfterDelay()
         }
     }
     
@@ -2010,6 +2012,7 @@ class GraphViewModel: ObservableObject {
         if let resumeObserver = resumeObserver {
             NotificationCenter.default.removeObserver(resumeObserver)
         }
+        resumeTimer?.invalidate()
     }
     
     func snapshot() {
@@ -2051,16 +2054,26 @@ class GraphViewModel: ObservableObject {
     func pauseSimulation() {
         model.pauseSimulation()
     }
+    
     func resumeSimulation() {
         model.resumeSimulation()
     }
-    func handleTap() {  // Call this before/after selection in gesture
-        model.pauseSimulation()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {  // 0.5s delay for stability
-            self.model.resumeSimulation()
+    
+    // New: Debounced resume with app state check
+    func resumeSimulationAfterDelay() {
+        resumeTimer?.invalidate()
+        resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if WKApplication.shared().applicationState == .active {
+                self.model.resumeSimulation()
+            }
         }
     }
     
+    func handleTap() {  // Call this before/after selection in gesture
+        model.pauseSimulation()
+        resumeSimulationAfterDelay()  // Use debounced method
+    }
 }
 --------------------------------------------------
 --------------------------------------------------
@@ -2639,15 +2652,18 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-13 10:50:15
+Last modified: 2025-08-13 18:52:16
 
 Contents:
-// Revised GraphCanvasView.swift with animated offset handling
-// Changes: Added withAnimation to body for offset changes; ensured selection triggers animated recenter via onChange.
+// Full corrected GraphCanvasView.swift with all functions included and changes applied
 
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+
+class CrownHandler: ObservableObject {
+    @Published var accumulator: Double = 0.0  // Persistent crown value
+}
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -2668,6 +2684,20 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
+    // Persistent crown handler
+    @StateObject private var crownHandler = CrownHandler()
+    
+    // Re-added for focus management
+    @FocusState private var isCrownFocused: Bool
+    
+    // New: Clamp function to cap extreme offsets
+    private func clampOffset(_ offset: CGSize) -> CGSize {
+        let maxOffset: CGFloat = 500.0  // Arbitrary cap; adjust based on graph size
+        return CGSize(
+            width: max(-maxOffset, min(offset.width, maxOffset)),
+            height: max(-maxOffset, min(offset.height, maxOffset))
+        )
+    }
     
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
         let relative = worldPos - effectiveCentroid
@@ -2701,9 +2731,9 @@ struct GraphCanvasView: View {
                     // Render nodes as Views for transitions
                     ForEach(culledNodes, id: \.id) { node in
                         let isDragged = draggedNode?.id == node.id
-                            let worldPos = isDragged ? node.position + dragOffset : node.position  // Add offset during drag
-                            NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
-                                .position(displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))  // Use worldPos
+                        let worldPos = isDragged ? node.position + dragOffset : node.position  // Add offset during drag
+                        NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
+                            .position(displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))  // Use worldPos
                             .transition(.asymmetric(
                                 insertion: .scale(scale: 0.1, anchor: .center).combined(with: .opacity),
                                 removal: .opacity
@@ -2732,13 +2762,13 @@ struct GraphCanvasView: View {
                         overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                     }
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)  // Match geometry
-                .offset(x: offset.width, y: offset.height)  // Apply offset
-                .scaleEffect(zoomScale)  // Apply zoom
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .offset(x: offset.width, y: offset.height)
+                .scaleEffect(zoomScale)
             }
-            .scrollDisabled(true)  // Prevent unwanted scrolling
-            .focusable(true)  // Enable focus for crown
+            .scrollDisabled(true)
         }
+        .ignoresSafeArea()  // Helps with watch layout
     }
     
     private func computeEffectiveCentroid(visibleNodes: [any NodeProtocol]) -> CGPoint {
@@ -2761,7 +2791,7 @@ struct GraphCanvasView: View {
         let bufferWorld = 50.0 / zoomScale
         return visibleRect.insetBy(dx: -bufferWorld, dy: -bufferWorld)
     }
-
+    
     private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
         visibleNodes.filter { node in
             let buffer = node.radius / 2
@@ -2769,7 +2799,7 @@ struct GraphCanvasView: View {
             return visibleRect.intersects(nodeRect)
         }
     }
-
+    
     private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
         visibleEdges.filter { edge in
             guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
@@ -2841,13 +2871,15 @@ struct GraphCanvasView: View {
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 if isSelected {
-                        let midpoint = (fromDisplay + toDisplay) / 2
-                        let fromLabel = fromNode.label
-                        let toLabel = toNode.label
-                        let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
-                        // ... Draw text ...
-                    }
-                } else {
+                    let midpoint = (fromDisplay + toDisplay) / 2
+                    let fromLabel = fromNode.label
+                    let toLabel = toNode.label
+                    let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
+                    let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
+                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
+                    context.draw(context.resolve(text), at: midpoint, anchor: .center)
+                }
+            } else {
                 // Single straight line
                 context.stroke(Path { path in
                     path.move(to: lineStart)
@@ -2881,8 +2913,7 @@ struct GraphCanvasView: View {
         }
         context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
     }
-      
-    // In GraphCanvasView.swift, replace overlaysView with:
+    
     private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
         Group {
             if !visibleNodes.isEmpty {
@@ -2944,26 +2975,52 @@ struct GraphCanvasView: View {
     }
     
     var body: some View {
-        accessibleCanvas
-            .modifier(GraphGesturesModifier(
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
-                selectedEdgeID: $selectedEdgeID,
-                viewSize: viewSize,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                maxZoom: maxZoom,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges
-            ))
-            .onChange(of: offset) {
-                withAnimation(.easeInOut(duration: 0.3)) { }  // Animate offset changes
+        Group {
+            accessibleCanvas
+                .modifier(GraphGesturesModifier(
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $selectedNodeID,
+                    selectedEdgeID: $selectedEdgeID,
+                    viewSize: viewSize,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: onUpdateZoomRanges
+                ))
+        }
+        .focusable(true)
+        .focused($isCrownFocused)
+        .digitalCrownRotation(
+            $crownHandler.accumulator,
+            from: 0.0,
+            through: Double(Constants.App.numZoomLevels),
+            sensitivity: .low,
+            isContinuous: true,
+            isHapticFeedbackEnabled: true
+        )
+        .onChange(of: crownHandler.accumulator) { newValue in  // New syntax (already in code, but confirm no 'perform:')
+            let baseScale = CGFloat(newValue / Double(Constants.App.numZoomLevels))
+            zoomScale = max(0.5, min(pow(1.1, baseScale * 20) * 0.5, maxZoom))  // Exponential mapping
+            viewModel.pauseSimulation()
+            onUpdateZoomRanges()
+        }
+        .onChange(of: offset) { newOffset in  // New syntax
+            let clamped = clampOffset(newOffset)
+            if clamped != newOffset {  // Guard against loops
+                offset = clamped
             }
+            withAnimation(.easeInOut(duration: 0.3)) { }
+        }
+        .onAppear {
+            isCrownFocused = true
+        }
+        .ignoresSafeArea()
     }
 }
 

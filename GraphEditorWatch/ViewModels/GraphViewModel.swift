@@ -9,6 +9,7 @@
 import SwiftUI
 import Combine
 import GraphEditorShared
+import WatchKit  // For WKApplication
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
@@ -27,18 +28,19 @@ class GraphViewModel: ObservableObject {
     private var pauseObserver: NSObjectProtocol?
     private var resumeObserver: NSObjectProtocol?
     
+    // New: Timer for debounced resumes
+    private var resumeTimer: Timer?
+    
     init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
-            
         }
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
             self?.model.pauseSimulation()
         }
         resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            self?.model.resumeSimulation()
-            
+            self?.resumeSimulationAfterDelay()
         }
     }
     
@@ -50,6 +52,7 @@ class GraphViewModel: ObservableObject {
         if let resumeObserver = resumeObserver {
             NotificationCenter.default.removeObserver(resumeObserver)
         }
+        resumeTimer?.invalidate()
     }
     
     func snapshot() {
@@ -91,14 +94,24 @@ class GraphViewModel: ObservableObject {
     func pauseSimulation() {
         model.pauseSimulation()
     }
+    
     func resumeSimulation() {
         model.resumeSimulation()
     }
-    func handleTap() {  // Call this before/after selection in gesture
-        model.pauseSimulation()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {  // 0.5s delay for stability
-            self.model.resumeSimulation()
+    
+    // New: Debounced resume with app state check
+    func resumeSimulationAfterDelay() {
+        resumeTimer?.invalidate()
+        resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if WKApplication.shared().applicationState == .active {
+                self.model.resumeSimulation()
+            }
         }
     }
     
+    func handleTap() {  // Call this before/after selection in gesture
+        model.pauseSimulation()
+        resumeSimulationAfterDelay()  // Use debounced method
+    }
 }
