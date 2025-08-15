@@ -387,8 +387,8 @@ struct GraphCanvasView: View {
                         onUpdateZoomRanges: onUpdateZoomRanges
                     ))
             }
-            .onChange(of: crownHandler.accumulator) { oldValue, newValue in
-                let targetZoomIndex = max(0, min(Int(newValue), zoomLevels.count - 1))
+            .onChange(of: crownHandler.accumulator) {
+                let targetZoomIndex = max(0, min(Int(crownHandler.accumulator), zoomLevels.count - 1))
                 let targetZoom = zoomLevels[targetZoomIndex]
                 let oldZoom = zoomScale
                 
@@ -396,28 +396,47 @@ struct GraphCanvasView: View {
                 
                 viewModel.pauseSimulation()
                 
-                let screenCenter = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-                let modelCenterBefore = CGPoint(
-                    x: (screenCenter.x - offset.width) / oldZoom,
-                    y: (screenCenter.y - offset.height) / oldZoom
-                )
+                // Improved focal point: Use view center or selected item's screen position
+                let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                var focalModelPoint: CGPoint = .zero  // Model coords to preserve
+                
+                // If selected node, use its position
+                if let selectedID = selectedNodeID, let selected = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                    focalModelPoint = selected.position
+                }
+                // If selected edge, use midpoint
+                else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+                        let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                        let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    focalModelPoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                }
+                // Default: Inverse of current view center to model coords
+                else {
+                    let panOffset = CGPoint(x: offset.width, y: offset.height)
+                    let effectiveCentroid = computeEffectiveCentroid(visibleNodes: viewModel.model.visibleNodes())
+                    focalModelPoint = CGPoint(
+                        x: (viewCenter.x - panOffset.x) / oldZoom + effectiveCentroid.x,
+                        y: (viewCenter.y - panOffset.y) / oldZoom + effectiveCentroid.y
+                    )
+                }
+                
+                // Calculate new offset to keep focal point fixed on screen
+                let newOffsetX = viewCenter.x - (focalModelPoint.x - computeEffectiveCentroid(visibleNodes: viewModel.model.visibleNodes()).x) * targetZoom
+                let newOffsetY = viewCenter.y - (focalModelPoint.y - computeEffectiveCentroid(visibleNodes: viewModel.model.visibleNodes()).y) * targetZoom
                 
                 withAnimation(.easeInOut(duration: 0.25)) {
                     zoomScale = targetZoom
-                    offset = CGSize(
-                        width: screenCenter.x - modelCenterBefore.x * targetZoom,
-                        height: screenCenter.y - modelCenterBefore.y * targetZoom
-                    )
+                    offset = CGSize(width: newOffsetX, height: newOffsetY)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         onUpdateZoomRanges()
                     }
                 }
                 
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                     viewModel.resumeSimulation()
+                    viewModel.saveViewState()
                 }
-            }
-            .onChange(of: offset) { oldOffset, newOffset in
+            }            .onChange(of: offset) { oldOffset, newOffset in
                 let clamped = clampOffset(newOffset)
                 if clamped != newOffset {
                     withAnimation(.easeInOut(duration: 0.3)) {

@@ -98,10 +98,14 @@ struct ContentView: View {
                 selectedEdgeID: $viewModel.selectedEdgeID,  // Change to this (binds to viewModel)
                 showOverlays: $showOverlays
             )
-            .focusable()  // Applied directly to GraphCanvasView
-            .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)  // Applied directly
+            .focusable(true) { focused in  // Add this before digitalCrownRotation; handles focus
+                    if focused {
+                        print("Crown focused")  // Optional debug; remove later
+                    }
+                }
+                .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
         }
-        
+            .background(Color.black)
         let withIgnore: some View = geoReader.ignoresSafeArea()
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
