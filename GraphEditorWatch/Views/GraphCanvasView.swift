@@ -12,16 +12,23 @@ struct FocusableView<Content: View>: View {
     
     var body: some View {
         content
-            .focusable(true)
+            .focusable(true) { focused in  // Add closure to handle focus changes
+                if focused {
+                    print("View focused for crown")  // Optional debug
+                }
+            }
             .onAppear {
-                // Force focus on appear for crown
-                // Removed redundant self.focusable(true) as it's unused and incorrect
+                // No need for extra; .focusable handles
             }
     }
 }
 
-class CrownHandler: ObservableObject {
-    @Published var accumulator: Double = 0.0  // Persistent crown value
+class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
+    @Published var accumulator: Double = 0.0
+    
+    func crownDidRotate(_ crownSequencer: WKCrownSequencer?, rotationalDelta: Double) {
+        accumulator += Double(rotationalDelta) * 10.0  // Sensitivity; adjust
+    }
 }
 
 struct GraphCanvasView: View {
@@ -418,9 +425,15 @@ struct GraphCanvasView: View {
                     }
                 }
             }
+            .onChange(of: selectedNodeID) {
+                viewModel.saveViewState()
+            }
+            .onChange(of: selectedEdgeID) {
+                viewModel.saveViewState()
+            }
             .onAppear {
                 isCrownFocused = true
-            }
+             }
             .ignoresSafeArea()
         }
     }

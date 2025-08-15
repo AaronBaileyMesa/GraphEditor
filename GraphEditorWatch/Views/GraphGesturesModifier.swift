@@ -92,6 +92,7 @@ struct GraphGesturesModifier: ViewModifier {
                         print("Node hit detected with tightened radius: \(hitNode.label)")
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
+                        print("Set selectedNodeID to \(selectedNodeID?.uuidString ?? "nil") in gesture")
                         WKInterfaceDevice.current().play(.click)
                         if let toggleNode = hitNode as? ToggleNode {
                             print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")

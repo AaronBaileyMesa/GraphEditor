@@ -46,17 +46,21 @@ class GraphViewModel: ObservableObject {
             self?.resumeSimulationAfterDelay()
         }
         
-        // Load view state (fixes error at line 50)
         if let state = try? model.loadViewState() {
+            print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
             self.offset = state.offset
             self.zoomScale = state.zoomScale
             self.selectedNodeID = state.selectedNodeID
             self.selectedEdgeID = state.selectedEdgeID
+            self.objectWillChange.send()  // Add this to refresh views with loaded selection
         }
+        
+        print("Loaded ID: \(selectedNodeID), Node exists? \(model.nodes.contains { $0.id == selectedNodeID })")
     }
     
     // New method to save (call from views)
     func saveViewState() {
+        print("Saving view state: selectedNodeID = \(selectedNodeID?.uuidString ?? "nil")")
         try? model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
     }
     

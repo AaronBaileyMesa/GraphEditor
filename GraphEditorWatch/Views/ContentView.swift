@@ -18,8 +18,6 @@ struct ContentView: View {
     @State private var draggedNode: (any NodeProtocol)? = nil
     @State private var dragOffset: CGPoint = .zero
     @State private var potentialEdgeTarget: (any NodeProtocol)? = nil
-    @State private var selectedNodeID: NodeID? = nil
-    @State private var selectedEdgeID: UUID? = nil
     @State private var panStartOffset: CGSize? = nil
     @State private var showMenu = false
     @State private var showOverlays = false
@@ -90,14 +88,14 @@ struct ContentView: View {
                 draggedNode: $draggedNode,
                 dragOffset: $dragOffset,
                 potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
+                selectedNodeID: $viewModel.selectedNodeID,  // Change to this (binds to viewModel)
                 viewSize: geo.size,
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
-                selectedEdgeID: $selectedEdgeID,
+                selectedEdgeID: $viewModel.selectedEdgeID,  // Change to this (binds to viewModel)
                 showOverlays: $showOverlays
             )
             .focusable()  // Applied directly to GraphCanvasView
@@ -109,13 +107,13 @@ struct ContentView: View {
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
             List {
                 // Show Add only if no edge is selected (and optionally if a node is selected or none)
-                if selectedEdgeID == nil {
-                    AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
+                if viewModel.selectedEdgeID == nil {
+                    AddSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, onDismiss: { showMenu = false })
                 }
                 
                 // Show Edit only if it would have at least one button
-                if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
-                    EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
+                if viewModel.selectedNodeID != nil || viewModel.selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
+                    EditSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, selectedEdgeID: viewModel.selectedEdgeID, onDismiss: { showMenu = false })
                 }
                 
                 // Always show View
@@ -137,7 +135,7 @@ struct ContentView: View {
             }
             .listStyle(.carousel)
         }
-            .onChange(of: selectedNodeID) { oldValue, newValue in
+            .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
                 print("Selection change (node): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.0 {  // This is fine; no strings here
                     previousSelection.0 = newValue
@@ -158,7 +156,7 @@ struct ContentView: View {
                 }
                 print("Offset after node selection change: width \(offset.width), height \(offset.height)")
             }
-            .onChange(of: selectedEdgeID) { oldValue, newValue in
+            .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
                 print("Selection change (edge): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.1 {
                     previousSelection.1 = newValue
@@ -246,7 +244,7 @@ struct ContentView: View {
         }
         
         // New: Combined onChange for selections
-        let withSelectionsChange: some View = withEdgesChange.onChange(of: [selectedNodeID, selectedEdgeID]) {
+        let withSelectionsChange: some View = withEdgesChange.onChange(of: [viewModel.selectedNodeID, viewModel.selectedEdgeID]) {
             handleSelectionChange()  // No parameters; ignores old/new values
         }
         
@@ -260,7 +258,7 @@ struct ContentView: View {
     
     // New: Handle selection change with transitional offset
     private func handleSelectionChange() {
-        let currentSelection = (selectedNodeID, selectedEdgeID)
+        let currentSelection = (viewModel.selectedNodeID, viewModel.selectedEdgeID)
         let oldSelection = previousSelection
         previousSelection = currentSelection
         
@@ -412,7 +410,7 @@ struct ContentView: View {
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
 #endif
         if offset != oldOffset {
-                print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(selectedNodeID == nil && selectedEdgeID == nil)")
+            print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
             } else {
                 print("ClampOffset called but no adjustment needed.")
             }
@@ -437,9 +435,9 @@ struct ContentView: View {
             }
         }
         // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
-        if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+        if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
             //recenterOn(position: selectedNode.position)
-        } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+        } else if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                   let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
             let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
