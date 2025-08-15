@@ -14,6 +14,8 @@ import WatchKit  // For WKApplication
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
     @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
+    @Published var offset: CGPoint = .zero
+    @Published var zoomScale: CGFloat = 1.0
     
     private var cancellable: AnyCancellable?
     
