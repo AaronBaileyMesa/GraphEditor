@@ -170,12 +170,18 @@ struct GraphGesturesModifier: ViewModifier {
     }
     
     private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
-        let lineVec = to - from
-        let pointVec = point - from
-        let lineLen = hypot(lineVec.x, lineVec.y)
-        if lineLen == 0 { return distance(point, from) }
-        let t = max(0, min(1, (pointVec.x * lineVec.x + pointVec.y * lineVec.y) / (lineLen * lineLen)))
-        let projection = from + CGPoint(x: lineVec.x * t, y: lineVec.y * t)
-        return distance(point, projection)
-    }
+            let lineVec = to - from
+            let pointVec = point - from
+            let lineLen = hypot(lineVec.x, lineVec.y)
+            if lineLen == 0 { return hypot(point.x - from.x, point.y - from.y) }  // Inline distance to avoid redeclaration
+
+            // Break up the expression
+            let dot = pointVec.x * lineVec.x + pointVec.y * lineVec.y
+            let denom = lineLen * lineLen
+            let tUnclamped = dot / denom
+            let t = max(0, min(1, tUnclamped))
+
+            let projection = from + (lineVec * t)
+            return hypot(point.x - projection.x, point.y - projection.y)  // Inline distance
+        }
 }

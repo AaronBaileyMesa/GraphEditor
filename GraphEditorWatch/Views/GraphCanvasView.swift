@@ -2,6 +2,24 @@ import SwiftUI
 import WatchKit
 import GraphEditorShared
 
+// New: Custom wrapper for reliable crown focus
+struct FocusableView<Content: View>: View {
+    let content: Content
+    
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .focusable(true)
+            .onAppear {
+                // Force focus on appear for crown
+                // Removed redundant self.focusable(true) as it's unused and incorrect
+            }
+    }
+}
+
 class CrownHandler: ObservableObject {
     @Published var accumulator: Double = 0.0  // Persistent crown value
 }
@@ -22,7 +40,6 @@ struct GraphCanvasView: View {
     let onUpdateZoomRanges: () -> Void
     @State private var previousZoomScale: CGFloat = 1.0
     @State private var zoomTimer: Timer? = nil
-    @State private var snapshotNodes: [any NodeProtocol] = []  // New: Stable snapshot for rendering
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
@@ -31,7 +48,7 @@ struct GraphCanvasView: View {
     // Re-added for focus management
     @FocusState private var isCrownFocused: Bool
     
-    // New: Define zoomLevels array
+    // Define zoomLevels array
     private let zoomLevels: [CGFloat] = {
         let minZoom: CGFloat = 0.5
         let maxZoom: CGFloat = 2.5
@@ -40,10 +57,10 @@ struct GraphCanvasView: View {
         return (0..<steps).map { minZoom + CGFloat($0) * stepSize }
     }()
     
-    // New: Define simulationBounds
+    // Define simulationBounds
     private let simulationBounds: CGSize = CGSize(width: 300, height: 300)  // Match PhysicsEngine bounds
     
-    // New: Clamp function to cap extreme offsets
+    // Clamp function to cap extreme offsets
     private func clampOffset(_ offset: CGSize) -> CGSize {
         let maxOffset: CGFloat = 500.0  // Arbitrary cap; adjust based on graph size
         return CGSize(
@@ -53,27 +70,25 @@ struct GraphCanvasView: View {
     }
     
     private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
-        let relative = worldPos - effectiveCentroid
-        let scaled = relative * zoomScale
-        return scaled + viewCenter + panOffset
+        let relative = CGPoint(x: worldPos.x - effectiveCentroid.x, y: worldPos.y - effectiveCentroid.y)
+        let scaled = CGPoint(x: relative.x * zoomScale, y: relative.y * zoomScale)
+        return CGPoint(x: scaled.x + viewCenter.x + panOffset.x, y: scaled.y + viewCenter.y + panOffset.y)
     }
     
     private var canvasBase: some View {
-            GeometryReader { geometry in
-                let viewSize = geometry.size
-                let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-                let panOffset = CGPoint(x: offset.width, y: offset.height)
-                
-                // Use snapshot for stability (update via onReceive or similar)
-                let visibleNodes = snapshotNodes.filter { $0.isVisible }  // Assuming NodeProtocol has isVisible
-                
-                let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
-                
-                let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
-                
-                let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
-                
-                let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
+        GeometryReader { geometry in
+            let viewSize = geometry.size
+            let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let panOffset = CGPoint(x: offset.width, y: offset.height)
+            let visibleNodes = viewModel.model.visibleNodes()
+            
+            let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
+            
+            let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
+            
+            let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
+            
+            let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
             ScrollView {
                 ZStack {
@@ -86,7 +101,7 @@ struct GraphCanvasView: View {
                     // Render nodes as Views for transitions
                     ForEach(culledNodes, id: \.id) { node in
                         let isDragged = draggedNode?.id == node.id
-                        let worldPos = isDragged ? node.position + dragOffset : node.position  // Add offset during drag
+                        let worldPos = isDragged ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position
                         NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
                             .position(displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))  // Use worldPos
                             .transition(.asymmetric(
@@ -96,12 +111,12 @@ struct GraphCanvasView: View {
                             .animation(.easeInOut(duration: 0.3), value: node.id)  // Trigger on appearance/change
                     }
                     
-                    // Keep edges in Canvas for performance
+                    // Keep edges in Canvas for performance, but add animation for sync
                     Canvas { context, _ in
                         drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                         
                         if let dragged = draggedNode, let target = potentialEdgeTarget {
-                            let fromPos = dragged.position + dragOffset
+                            let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y)
                             let toPos = target.position
                             let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                             let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
@@ -112,26 +127,37 @@ struct GraphCanvasView: View {
                         }
                     }
                     .drawingGroup()
+                    .animation(.easeInOut(duration: 0.3), value: culledEdges.map { $0.id })  // Sync animation with edge IDs
                     
                     if showOverlays {
                         overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
                     }
                 }
-                .frame(width: geometry.size.width, height: geometry.size.height)  // Moved here
-                .offset(x: offset.width, y: offset.height)  // Moved here
-                .scaleEffect(zoomScale)  // Moved here
-                .focusable(true)  // Enable crown focus
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .offset(x: offset.width, y: offset.height)
+                .scaleEffect(zoomScale)
+                .focusable(true)  // Enable crown focus here too
+                .digitalCrownRotation(  // Moved here for direct association
+                    $crownHandler.accumulator,
+                    from: 0.0,
+                    through: Double(Constants.App.numZoomLevels - 1),
+                    by: 1.0,
+                    sensitivity: .medium,
+                    isContinuous: false,
+                    isHapticFeedbackEnabled: true
+                )
             }
             .scrollDisabled(true)
         }
-        .ignoresSafeArea()  // Helps with watch layout
+        .ignoresSafeArea()
     }
+    
     private func computeEffectiveCentroid(visibleNodes: [any NodeProtocol]) -> CGPoint {
         if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
             return selected.position
         } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
                   let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            return (from.position + to.position) / 2.0
+            return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
         }
         return visibleNodes.centroid() ?? .zero
     }
@@ -150,7 +176,9 @@ struct GraphCanvasView: View {
     private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
         visibleNodes.filter { node in
             let buffer = node.radius / 2
-            let nodeRect = CGRect(center: node.position, size: CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2))
+            let nodeRectOrigin = CGPoint(x: node.position.x - (node.radius + buffer), y: node.position.y - (node.radius + buffer))
+            let nodeRectSize = CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2)
+            let nodeRect = CGRect(origin: nodeRectOrigin, size: nodeRectSize)
             return visibleRect.intersects(nodeRect)
         }
     }
@@ -179,21 +207,21 @@ struct GraphCanvasView: View {
             guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { continue }
             
-            let fromPos = (draggedNode?.id == fromNode.id ? fromNode.position + dragOffset : fromNode.position)
-            let toPos = (draggedNode?.id == toNode.id ? toNode.position + dragOffset : toNode.position)
+            let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
+            let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
             
             let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
             let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
             
-            let direction = toDisplay - fromDisplay
+            let direction = CGPoint(x: toDisplay.x - fromDisplay.x, y: toDisplay.y - fromDisplay.y)
             let length = hypot(direction.x, direction.y)
             if length <= 0 { continue }
             
-            let unitDir = direction / length
+            let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
             let scaledFromRadius = fromNode.radius * zoomScale + 2  // Slight inset
             let scaledToRadius = toNode.radius * zoomScale + 2
-            let lineStart = fromDisplay + unitDir * scaledFromRadius
-            let lineEnd = toDisplay - unitDir * scaledToRadius
+            let lineStart = CGPoint(x: fromDisplay.x + unitDir.x * scaledFromRadius, y: fromDisplay.y + unitDir.y * scaledFromRadius)
+            let lineEnd = CGPoint(x: toDisplay.x - unitDir.x * scaledToRadius, y: toDisplay.y - unitDir.y * scaledToRadius)
             
             let isSelected = edge.id == selectedEdgeID
             let lineWidth = isSelected ? 4.0 : 2.0
@@ -204,11 +232,9 @@ struct GraphCanvasView: View {
                 processedEdges.insert(reverseEdge.id)  // Skip reverse
                 
                 // Draw two curved lines
-                let midPoint = (fromDisplay + toDisplay) / 2
-                let perpDir = CGPoint(x: -unitDir.y, y: unitDir.x) * (8.0 * zoomScale)  // Curve offset scaled
-                
-                // Forward curve
-                let control1 = midPoint + perpDir
+                let midPoint = CGPoint(x: (fromDisplay.x + toDisplay.x) / 2, y: (fromDisplay.y + toDisplay.y) / 2)
+                let perpDir = CGPoint(x: -unitDir.y * (8.0 * zoomScale), y: unitDir.x * (8.0 * zoomScale))  // Break up
+                let control1 = CGPoint(x: midPoint.x + perpDir.x, y: midPoint.y + perpDir.y)
                 context.stroke(Path { path in
                     path.move(to: lineStart)
                     path.addQuadCurve(to: lineEnd, control: control1)
@@ -216,9 +242,9 @@ struct GraphCanvasView: View {
                 drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 
                 // Reverse curve (opposite offset)
-                let control2 = midPoint + CGPoint(x: -perpDir.x, y: -perpDir.y)  // Proper negation
-                let revStart = toDisplay + CGPoint(x: -unitDir.x * scaledToRadius, y: -unitDir.y * scaledToRadius)  // Swap and negate
-                let revEnd = fromDisplay + unitDir * scaledFromRadius
+                let control2 = CGPoint(x: midPoint.x - perpDir.x, y: midPoint.y - perpDir.y)
+                let revStart = CGPoint(x: toDisplay.x - unitDir.x * scaledToRadius, y: toDisplay.y - unitDir.y * scaledToRadius)
+                let revEnd = CGPoint(x: fromDisplay.x + unitDir.x * scaledFromRadius, y: fromDisplay.y + unitDir.y * scaledFromRadius)
                 let revDir = CGPoint(x: -unitDir.x, y: -unitDir.y)
                 context.stroke(Path { path in
                     path.move(to: revStart)
@@ -226,7 +252,7 @@ struct GraphCanvasView: View {
                 }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
                 drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
                 if isSelected {
-                    let midpoint = (fromDisplay + toDisplay) / 2
+                    let midpoint = midPoint
                     let fromLabel = fromNode.label
                     let toLabel = toNode.label
                     let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
@@ -244,7 +270,7 @@ struct GraphCanvasView: View {
             }
             
             if isSelected {
-                let midpoint = (fromDisplay + toDisplay) / 2
+                let midpoint = CGPoint(x: (fromDisplay.x + toDisplay.x) / 2, y: (fromDisplay.y + toDisplay.y) / 2)
                 let edgeLabel = "\(fromNode.label)→\(toNode.label)"
                 let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
                 let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
@@ -257,8 +283,12 @@ struct GraphCanvasView: View {
         let arrowSize = size * min(zoomScale, 1.0)  // Scale with zoom, cap at 1x
         let perpDir = CGPoint(x: -direction.y, y: direction.x)
         let arrowTip = point
-        let arrowBase1 = arrowTip - direction * arrowSize + perpDir * (arrowSize / 2)
-        let arrowBase2 = arrowTip - direction * arrowSize - perpDir * (arrowSize / 2)
+        let arrowBase1X = arrowTip.x - direction.x * arrowSize + perpDir.x * (arrowSize / 2)
+        let arrowBase1Y = arrowTip.y - direction.y * arrowSize + perpDir.y * (arrowSize / 2)
+        let arrowBase1 = CGPoint(x: arrowBase1X, y: arrowBase1Y)
+        let arrowBase2X = arrowTip.x - direction.x * arrowSize - perpDir.x * (arrowSize / 2)
+        let arrowBase2Y = arrowTip.y - direction.y * arrowSize - perpDir.y * (arrowSize / 2)
+        let arrowBase2 = CGPoint(x: arrowBase2X, y: arrowBase2Y)
         
         let arrowPath = Path { path in
             path.move(to: arrowTip)
@@ -330,84 +360,70 @@ struct GraphCanvasView: View {
     }
     
     var body: some View {
-        Group {
-            accessibleCanvas
-                .modifier(GraphGesturesModifier(
-                    viewModel: viewModel,
-                    zoomScale: $zoomScale,
-                    offset: $offset,
-                    draggedNode: $draggedNode,
-                    dragOffset: $dragOffset,
-                    potentialEdgeTarget: $potentialEdgeTarget,
-                    selectedNodeID: $selectedNodeID,
-                    selectedEdgeID: $selectedEdgeID,
-                    viewSize: viewSize,
-                    panStartOffset: $panStartOffset,
-                    showMenu: $showMenu,
-                    maxZoom: maxZoom,
-                    crownPosition: $crownPosition,
-                    onUpdateZoomRanges: onUpdateZoomRanges
-                ))
-        }
-        .focusable(true)
-        .focused($isCrownFocused)
-        .digitalCrownRotation(
-            $crownHandler.accumulator,
-            from: 0.0,
-            through: Double(Constants.App.numZoomLevels - 1),
-            sensitivity: .medium,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true
-        )
-        .onChange(of: crownHandler.accumulator) { oldValue, newValue in
-            let targetZoomIndex = Int(newValue)
-            let targetZoom = zoomLevels[targetZoomIndex]
-            let oldZoom = zoomScale
-            
-            if abs(targetZoom - oldZoom) < 0.01 { return }  // Debounce tiny changes
-            
-            viewModel.pauseSimulation()
-            
-            let screenCenter = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-            let modelCenterBefore = CGPoint(
-                x: (screenCenter.x - offset.width) / oldZoom,
-                y: (screenCenter.y - offset.height) / oldZoom
-            )
-            
-            withAnimation(.easeInOut(duration: 0.25)) {
-                zoomScale = targetZoom
-                offset = CGSize(
-                    width: screenCenter.x - modelCenterBefore.x * targetZoom,
-                    height: screenCenter.y - modelCenterBefore.y * targetZoom
+        FocusableView {
+            Group {
+                accessibleCanvas
+                    .modifier(GraphGesturesModifier(
+                        viewModel: viewModel,
+                        zoomScale: $zoomScale,
+                        offset: $offset,
+                        draggedNode: $draggedNode,
+                        dragOffset: $dragOffset,
+                        potentialEdgeTarget: $potentialEdgeTarget,
+                        selectedNodeID: $selectedNodeID,
+                        selectedEdgeID: $selectedEdgeID,
+                        viewSize: viewSize,
+                        panStartOffset: $panStartOffset,
+                        showMenu: $showMenu,
+                        maxZoom: maxZoom,
+                        crownPosition: $crownPosition,
+                        onUpdateZoomRanges: onUpdateZoomRanges
+                    ))
+            }
+            .onChange(of: crownHandler.accumulator) { oldValue, newValue in
+                let targetZoomIndex = max(0, min(Int(newValue), zoomLevels.count - 1))
+                let targetZoom = zoomLevels[targetZoomIndex]
+                let oldZoom = zoomScale
+                
+                if abs(targetZoom - oldZoom) < 0.01 { return }
+                
+                viewModel.pauseSimulation()
+                
+                let screenCenter = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
+                let modelCenterBefore = CGPoint(
+                    x: (screenCenter.x - offset.width) / oldZoom,
+                    y: (screenCenter.y - offset.height) / oldZoom
                 )
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    onUpdateZoomRanges()
+                
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    zoomScale = targetZoom
+                    offset = CGSize(
+                        width: screenCenter.x - modelCenterBefore.x * targetZoom,
+                        height: screenCenter.y - modelCenterBefore.y * targetZoom
+                    )
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        onUpdateZoomRanges()
+                    }
+                }
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    viewModel.resumeSimulation()
                 }
             }
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            viewModel.resumeSimulation()
-                        }
+            .onChange(of: offset) { oldOffset, newOffset in
+                let clamped = clampOffset(newOffset)
+                if clamped != newOffset {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        offset = clamped
                     }
-                    .onChange(of: offset) { oldOffset, newOffset in
-                        let clamped = clampOffset(newOffset)
-                        if clamped != newOffset {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                offset = clamped
-                            }
-                        }
-                    }
-                    .onReceive(viewModel.model.$nodes) { newNodes in  // New: Update snapshot on nodes change
-                        DispatchQueue.main.async {
-                            self.snapshotNodes = newNodes  // Copy to local state for render stability
-                        }
-                    }
-                    .onAppear {
-                        isCrownFocused = true
-                        snapshotNodes = viewModel.model.nodes  // Initial snapshot
-                    }
-                    .ignoresSafeArea()
                 }
+            }
+            .onAppear {
+                isCrownFocused = true
+            }
+            .ignoresSafeArea()
+        }
+    }
 }
 
 extension Array where Element == any NodeProtocol {
