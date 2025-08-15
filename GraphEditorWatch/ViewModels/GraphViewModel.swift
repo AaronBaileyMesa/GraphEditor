@@ -17,6 +17,7 @@ class GraphViewModel: ObservableObject {
     @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
     @Published var offset: CGPoint = .zero
     @Published var zoomScale: CGFloat = 1.0
+    private var saveTimer: Timer? = nil
     
     private var cancellable: AnyCancellable?
     
@@ -60,8 +61,12 @@ class GraphViewModel: ObservableObject {
     
     // New method to save (call from views)
     func saveViewState() {
-        print("Saving view state: selectedNodeID = \(selectedNodeID?.uuidString ?? "nil")")
-        try? model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")  // Optional debug
+            try? self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
+        }
     }
     
     deinit {
