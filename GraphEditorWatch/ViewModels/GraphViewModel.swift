@@ -14,6 +14,7 @@ import WatchKit  // For WKApplication
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
     @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
+    @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
     @Published var offset: CGPoint = .zero
     @Published var zoomScale: CGFloat = 1.0
     
@@ -44,6 +45,19 @@ class GraphViewModel: ObservableObject {
         resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
             self?.resumeSimulationAfterDelay()
         }
+        
+        // Load view state (fixes error at line 50)
+        if let state = try? model.loadViewState() {
+            self.offset = state.offset
+            self.zoomScale = state.zoomScale
+            self.selectedNodeID = state.selectedNodeID
+            self.selectedEdgeID = state.selectedEdgeID
+        }
+    }
+    
+    // New method to save (call from views)
+    func saveViewState() {
+        try? model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
     }
     
     deinit {
