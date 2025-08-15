@@ -55,7 +55,7 @@ class GraphViewModel: ObservableObject {
             self.objectWillChange.send()  // Add this to refresh views with loaded selection
         }
         
-        print("Loaded ID: \(selectedNodeID), Node exists? \(model.nodes.contains { $0.id == selectedNodeID })")
+        print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
     }
     
     // New method to save (call from views)
