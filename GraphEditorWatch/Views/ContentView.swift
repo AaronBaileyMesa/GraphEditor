@@ -68,6 +68,7 @@ struct ContentView: View {
         clampOffset()  // Apply your existing clamping after adjustment
     }
     
+    
     // Updated: Always recenter after updates unless panning
     private var onUpdateZoomRanges: () -> Void {
         return {
@@ -77,6 +78,8 @@ struct ContentView: View {
             }
         }
     }
+    
+    
     
     var body: some View {
         let geoReader: some View = GeometryReader { geo in
@@ -140,7 +143,7 @@ struct ContentView: View {
                     previousSelection.0 = newValue
                     if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
-                            recenterOn(position: selectedNode.position)
+                           // recenterOn(position: selectedNode.position)
                         }
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -164,7 +167,7 @@ struct ContentView: View {
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
                         let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
-                            recenterOn(position: midpoint)
+                            //recenterOn(position: midpoint)
                         }
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -435,12 +438,12 @@ struct ContentView: View {
         }
         // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
         if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            recenterOn(position: selectedNode.position)
+            //recenterOn(position: selectedNode.position)
         } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                   let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
             let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-            recenterOn(position: midpoint)
+            //recenterOn(position: midpoint)
         }
     }
 }
