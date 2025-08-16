@@ -5,7 +5,7 @@
 //  Created by handcart on 8/13/25.
 //
 
-import SwiftUICore
+import SwiftUI
 import GraphEditorShared
 
 

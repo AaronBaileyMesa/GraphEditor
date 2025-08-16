@@ -96,7 +96,8 @@ struct GraphGesturesModifier: ViewModifier {
                         WKInterfaceDevice.current().play(.click)
                         if let toggleNode = hitNode as? ToggleNode {
                             print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")
-                            // Call handlingTap and update model (assuming you have a method; e.g., viewModel.updateNode(toggleNode.handlingTap()))
+                            let updated = toggleNode.handlingTap()  // Assuming handlingTap() returns updated node
+                            viewModel.updateNode(updated)  // Add method to GraphViewModel to replace node
                         }
                     } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in  // Use visibleEdges if available
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
