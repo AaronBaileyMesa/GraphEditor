@@ -92,13 +92,11 @@ struct GraphCanvasView: View {
             
             let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
             
-            ScrollView {
-                ZStack {
-                    Circle()
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                               height: min(viewSize.width, viewSize.height) * 0.4)
-                        .position(viewCenter)
+            ZStack {
+                Circle()
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
+                           height: min(viewSize.width, viewSize.height) * 0.4)
                     
                     // Render nodes as Views for transitions
                     ForEach(culledNodes, id: \.id) { node in
@@ -138,9 +136,10 @@ struct GraphCanvasView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .offset(x: offset.width, y: offset.height)
                 .scaleEffect(zoomScale)
+                .offset(x: offset.width, y: offset.height)
              
-            }
-            .scrollDisabled(true)
+           // }
+            //.scrollDisabled(true)
         }
         .ignoresSafeArea()
     }
