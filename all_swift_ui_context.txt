@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-15 11:28:15
+Current date: 2025-08-16 10:22:10
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -180,7 +180,7 @@ public enum Constants {
 --------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-12 15:06:43
+Last modified: 2025-08-16 10:19:46
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -200,7 +200,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
 public class GraphModel: ObservableObject {
     @Published public var nodes: [any NodeProtocol] = []
     @Published public var edges: [GraphEdge] = []
-    
+
     @Published public var isSimulating: Bool = false
     private var simulationTimer: Timer? = nil
     
@@ -234,6 +234,7 @@ public class GraphModel: ObservableObject {
             }
         )
     }()
+    
     // Indicates if undo is possible.
     public var canUndo: Bool {
         !undoStack.isEmpty
@@ -399,6 +400,22 @@ public class GraphModel: ObservableObject {
         self.physicsEngine.resetSimulation()
     }
     
+    public func updateNode(_ updatedNode: any NodeProtocol) {
+        if let index = nodes.firstIndex(where: { $0.id == updatedNode.id }) {
+            nodes[index] = updatedNode
+            objectWillChange.send()  // Ensure views refresh
+            startSimulation()  // Optional: Restart sim if toggle affects layout
+        }
+    }
+    
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
+        try storage.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+    }
+
+    public func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+        try storage.loadViewState()
+    }
+    
     public func startSimulation() {
 #if os(watchOS)
         guard WKApplication.shared().applicationState == .active else {
@@ -429,6 +446,7 @@ public class GraphModel: ObservableObject {
         self.physicsEngine.boundingBox(nodes: nodes)
     }
     
+
     private func buildRoots() -> [any NodeProtocol] {
         var incoming = Set<NodeID>()
         for edge in edges {
@@ -544,7 +562,8 @@ public class GraphModel: ObservableObject {
         }
         
         return dfs(edge.from)
-    }}
+    }
+}
 
 @available(iOS 13.0, watchOS 6.0, *)
 extension GraphModel {
@@ -1014,7 +1033,7 @@ public extension NodeProtocol {
 --------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-09 13:16:47
+Last modified: 2025-08-15 15:21:36
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -1150,6 +1169,31 @@ public class PersistenceManager: GraphStorage {
         if fm.fileExists(atPath: edgeURL.path) {
             try fm.removeItem(at: edgeURL)
         }
+    }
+
+    // Updated helper struct
+    struct ViewState: Codable {
+        let offset: CGPoint
+        let zoomScale: CGFloat
+        let selectedNodeID: UUID?  // NodeID is UUID from GraphTypes.swift
+        let selectedEdgeID: UUID?  // Matches @Published in GraphViewModel
+    }
+
+    // Updated save method
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
+        let state = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        let data = try JSONEncoder().encode(state)
+        UserDefaults.standard.set(data, forKey: "graphViewState")
+        // In saveViewState()
+        UserDefaults.standard.set(data, forKey: "graphViewState")
+        UserDefaults.standard.synchronize()  // Add this
+    }
+
+    // Updated load method
+    public func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+        guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
+        let state = try JSONDecoder().decode(ViewState.self, from: data)
+        return (offset: state.offset, zoomScale: state.zoomScale, selectedNodeID: state.selectedNodeID, selectedEdgeID: state.selectedEdgeID)
     }
 }
 --------------------------------------------------
@@ -1356,7 +1400,7 @@ struct PositionUpdater {
 --------------------------------------------------
 File: Protocols.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-Last modified: 2025-08-09 09:15:03
+Last modified: 2025-08-15 13:19:34
 
 Contents:
 //
@@ -1366,7 +1410,7 @@ Contents:
 //  Created by handcart on 8/1/25.
 //
 
-
+import SwiftUI
 // Sources/GraphEditorShared/Protocols.swift
 
 @available(iOS 13.0, watchOS 6.0, *)
@@ -1376,6 +1420,23 @@ public protocol GraphStorage {
     /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
     func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
     func clear() throws  // Unchanged
+    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws
+    func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)?
+}
+
+// In GraphEditorShared/Sources/GraphEditorShared/Protocols.swift (add inside protocol GraphStorage)
+
+
+
+// Add a protocol extension for defaults (at bottom of file)
+extension GraphStorage {
+    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
+        // Default: Do nothing (for storages that don't support view state)
+    }
+    
+    func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+        return nil  // Default: No state
+    }
 }
 --------------------------------------------------
 --------------------------------------------------
@@ -1955,7 +2016,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-13 15:51:39
+Last modified: 2025-08-16 10:20:22
 
 Contents:
 //
@@ -1974,6 +2035,10 @@ import WatchKit  // For WKApplication
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
     @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
+    @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
+    @Published var offset: CGPoint = .zero
+    @Published var zoomScale: CGFloat = 1.0
+    private var saveTimer: Timer? = nil
     
     private var cancellable: AnyCancellable?
     
@@ -2001,6 +2066,27 @@ class GraphViewModel: ObservableObject {
         }
         resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
             self?.resumeSimulationAfterDelay()
+        }
+        
+        if let state = try? model.loadViewState() {
+            print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
+            self.offset = state.offset
+            self.zoomScale = state.zoomScale
+            self.selectedNodeID = state.selectedNodeID
+            self.selectedEdgeID = state.selectedEdgeID
+            self.objectWillChange.send()  // Add this to refresh views with loaded selection
+        }
+        
+        print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
+    }
+    
+    // New method to save (call from views)
+    func saveViewState() {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")  // Optional debug
+            try? self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
         }
     }
     
@@ -2037,6 +2123,10 @@ class GraphViewModel: ObservableObject {
     
     func addNode(at position: CGPoint) {
         model.addNode(at: position)
+    }
+    
+    func updateNode(_ updatedNode: any NodeProtocol) {
+        model.updateNode(updatedNode)
     }
     
     func addToggleNode(at position: CGPoint) {
@@ -2079,7 +2169,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-13 14:06:34
+Last modified: 2025-08-15 15:51:58
 
 Contents:
 //
@@ -2102,8 +2192,6 @@ struct ContentView: View {
     @State private var draggedNode: (any NodeProtocol)? = nil
     @State private var dragOffset: CGPoint = .zero
     @State private var potentialEdgeTarget: (any NodeProtocol)? = nil
-    @State private var selectedNodeID: NodeID? = nil
-    @State private var selectedEdgeID: UUID? = nil
     @State private var panStartOffset: CGSize? = nil
     @State private var showMenu = false
     @State private var showOverlays = false
@@ -2152,6 +2240,7 @@ struct ContentView: View {
         clampOffset()  // Apply your existing clamping after adjustment
     }
     
+    
     // Updated: Always recenter after updates unless panning
     private var onUpdateZoomRanges: () -> Void {
         return {
@@ -2162,6 +2251,8 @@ struct ContentView: View {
         }
     }
     
+    
+    
     var body: some View {
         let geoReader: some View = GeometryReader { geo in
             GraphCanvasView(
@@ -2171,32 +2262,36 @@ struct ContentView: View {
                 draggedNode: $draggedNode,
                 dragOffset: $dragOffset,
                 potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
+                selectedNodeID: $viewModel.selectedNodeID,  // Change to this (binds to viewModel)
                 viewSize: geo.size,
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
-                selectedEdgeID: $selectedEdgeID,
+                selectedEdgeID: $viewModel.selectedEdgeID,  // Change to this (binds to viewModel)
                 showOverlays: $showOverlays
             )
-            .focusable()  // Applied directly to GraphCanvasView
-            .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)  // Applied directly
+            .focusable(true) { focused in  // Add this before digitalCrownRotation; handles focus
+                    if focused {
+                        print("Crown focused")  // Optional debug; remove later
+                    }
+                }
+                .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
         }
-        
+            .background(Color.black)
         let withIgnore: some View = geoReader.ignoresSafeArea()
         
         let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
             List {
                 // Show Add only if no edge is selected (and optionally if a node is selected or none)
-                if selectedEdgeID == nil {
-                    AddSection(viewModel: viewModel, selectedNodeID: selectedNodeID, onDismiss: { showMenu = false })
+                if viewModel.selectedEdgeID == nil {
+                    AddSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, onDismiss: { showMenu = false })
                 }
                 
                 // Show Edit only if it would have at least one button
-                if selectedNodeID != nil || selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
-                    EditSection(viewModel: viewModel, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID, onDismiss: { showMenu = false })
+                if viewModel.selectedNodeID != nil || viewModel.selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
+                    EditSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, selectedEdgeID: viewModel.selectedEdgeID, onDismiss: { showMenu = false })
                 }
                 
                 // Always show View
@@ -2218,13 +2313,13 @@ struct ContentView: View {
             }
             .listStyle(.carousel)
         }
-            .onChange(of: selectedNodeID) { oldValue, newValue in
+            .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
                 print("Selection change (node): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.0 {  // This is fine; no strings here
                     previousSelection.0 = newValue
                     if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
-                            recenterOn(position: selectedNode.position)
+                           // recenterOn(position: selectedNode.position)
                         }
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -2239,7 +2334,7 @@ struct ContentView: View {
                 }
                 print("Offset after node selection change: width \(offset.width), height \(offset.height)")
             }
-            .onChange(of: selectedEdgeID) { oldValue, newValue in
+            .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
                 print("Selection change (edge): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.1 {
                     previousSelection.1 = newValue
@@ -2248,7 +2343,7 @@ struct ContentView: View {
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
                         let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
                         withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
-                            recenterOn(position: midpoint)
+                            //recenterOn(position: midpoint)
                         }
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -2327,7 +2422,7 @@ struct ContentView: View {
         }
         
         // New: Combined onChange for selections
-        let withSelectionsChange: some View = withEdgesChange.onChange(of: [selectedNodeID, selectedEdgeID]) {
+        let withSelectionsChange: some View = withEdgesChange.onChange(of: [viewModel.selectedNodeID, viewModel.selectedEdgeID]) {
             handleSelectionChange()  // No parameters; ignores old/new values
         }
         
@@ -2341,7 +2436,7 @@ struct ContentView: View {
     
     // New: Handle selection change with transitional offset
     private func handleSelectionChange() {
-        let currentSelection = (selectedNodeID, selectedEdgeID)
+        let currentSelection = (viewModel.selectedNodeID, viewModel.selectedEdgeID)
         let oldSelection = previousSelection
         previousSelection = currentSelection
         
@@ -2493,7 +2588,7 @@ struct ContentView: View {
         print("Zoom: \(zoomScale), Clamped Offset: \(offset), X Range: \(minOffsetX)...\(maxOffsetX), Y Range: \(minOffsetY)...\(maxOffsetY)")
 #endif
         if offset != oldOffset {
-                print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(selectedNodeID == nil && selectedEdgeID == nil)")
+            print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
             } else {
                 print("ClampOffset called but no adjustment needed.")
             }
@@ -2518,13 +2613,13 @@ struct ContentView: View {
             }
         }
         // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
-        if let selectedID = selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            recenterOn(position: selectedNode.position)
-        } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+        if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+            //recenterOn(position: selectedNode.position)
+        } else if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                   let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
             let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-            recenterOn(position: midpoint)
+            //recenterOn(position: midpoint)
         }
     }
 }
@@ -2652,7 +2747,7 @@ struct GraphSection: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-15 11:24:37
+Last modified: 2025-08-16 09:40:57
 
 Contents:
 import SwiftUI
@@ -2669,16 +2764,23 @@ struct FocusableView<Content: View>: View {
     
     var body: some View {
         content
-            .focusable(true)
+            .focusable(true) { focused in  // Add closure to handle focus changes
+                if focused {
+                    print("View focused for crown")  // Optional debug
+                }
+            }
             .onAppear {
-                // Force focus on appear for crown
-                // Removed redundant self.focusable(true) as it's unused and incorrect
+                // No need for extra; .focusable handles
             }
     }
 }
 
-class CrownHandler: ObservableObject {
-    @Published var accumulator: Double = 0.0  // Persistent crown value
+class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
+    @Published var accumulator: Double = 0.0
+    
+    func crownDidRotate(_ crownSequencer: WKCrownSequencer?, rotationalDelta: Double) {
+        accumulator += Double(rotationalDelta) * 10.0  // Sensitivity; adjust
+    }
 }
 
 struct GraphCanvasView: View {
@@ -2701,7 +2803,6 @@ struct GraphCanvasView: View {
     @Binding var showOverlays: Bool
     
     // Persistent crown handler
-    @StateObject private var crownHandler = CrownHandler()
     // Re-added for focus management
     @FocusState private var isCrownFocused: Bool
     
@@ -2794,15 +2895,7 @@ struct GraphCanvasView: View {
                 .offset(x: offset.width, y: offset.height)
                 .scaleEffect(zoomScale)
                 .focusable(true)  // Enable crown focus here too
-                .digitalCrownRotation(  // Moved here for direct association
-                    $crownHandler.accumulator,
-                    from: 0.0,
-                    through: Double(Constants.App.numZoomLevels - 1),
-                    by: 1.0,
-                    sensitivity: .medium,
-                    isContinuous: false,
-                    isHapticFeedbackEnabled: true
-                )
+             
             }
             .scrollDisabled(true)
         }
@@ -3016,6 +3109,26 @@ struct GraphCanvasView: View {
             }
     }
     
+    struct AnimatableEdge: Shape {
+        var from: CGPoint
+        var to: CGPoint
+        
+        var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
+            get { AnimatablePair(from.animatableData, to.animatableData) }
+            set {
+                from.animatableData = newValue.first
+                to.animatableData = newValue.second
+            }
+        }
+        
+        func path(in rect: CGRect) -> Path {
+            var path = Path()
+            path.move(to: from)
+            path.addLine(to: to)
+            return path
+        }
+    }
+    
     var body: some View {
         FocusableView {
             Group {
@@ -3036,48 +3149,17 @@ struct GraphCanvasView: View {
                         crownPosition: $crownPosition,
                         onUpdateZoomRanges: onUpdateZoomRanges
                     ))
+ 
             }
-            .onChange(of: crownHandler.accumulator) { oldValue, newValue in
-                let targetZoomIndex = max(0, min(Int(newValue), zoomLevels.count - 1))
-                let targetZoom = zoomLevels[targetZoomIndex]
-                let oldZoom = zoomScale
-                
-                if abs(targetZoom - oldZoom) < 0.01 { return }
-                
-                viewModel.pauseSimulation()
-                
-                let screenCenter = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-                let modelCenterBefore = CGPoint(
-                    x: (screenCenter.x - offset.width) / oldZoom,
-                    y: (screenCenter.y - offset.height) / oldZoom
-                )
-                
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    zoomScale = targetZoom
-                    offset = CGSize(
-                        width: screenCenter.x - modelCenterBefore.x * targetZoom,
-                        height: screenCenter.y - modelCenterBefore.y * targetZoom
-                    )
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        onUpdateZoomRanges()
-                    }
-                }
-                
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    viewModel.resumeSimulation()
-                }
+            .onChange(of: selectedNodeID) {
+                viewModel.saveViewState()
             }
-            .onChange(of: offset) { oldOffset, newOffset in
-                let clamped = clampOffset(newOffset)
-                if clamped != newOffset {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        offset = clamped
-                    }
-                }
+            .onChange(of: selectedEdgeID) {
+                viewModel.saveViewState()
             }
             .onAppear {
                 isCrownFocused = true
-            }
+             }
             .ignoresSafeArea()
         }
     }
@@ -3105,7 +3187,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-15 11:25:44
+Last modified: 2025-08-16 10:20:40
 
 Contents:
 //
@@ -3202,10 +3284,12 @@ struct GraphGesturesModifier: ViewModifier {
                         print("Node hit detected with tightened radius: \(hitNode.label)")
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
+                        print("Set selectedNodeID to \(selectedNodeID?.uuidString ?? "nil") in gesture")
                         WKInterfaceDevice.current().play(.click)
                         if let toggleNode = hitNode as? ToggleNode {
                             print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")
-                            // Call handlingTap and update model (assuming you have a method; e.g., viewModel.updateNode(toggleNode.handlingTap()))
+                            let updated = toggleNode.handlingTap()
+                            viewModel.updateNode(updated)
                         }
                     } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in  // Use visibleEdges if available
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
@@ -3299,7 +3383,7 @@ struct GraphGesturesModifier: ViewModifier {
 --------------------------------------------------
 File: NodeView.swift
 Path: GraphEditorWatch/Views/NodeView.swift
-Last modified: 2025-08-13 11:37:51
+Last modified: 2025-08-16 10:12:42
 
 Contents:
 //
@@ -3309,7 +3393,7 @@ Contents:
 //  Created by handcart on 8/13/25.
 //
 
-import SwiftUICore
+import SwiftUI
 import GraphEditorShared
 
 

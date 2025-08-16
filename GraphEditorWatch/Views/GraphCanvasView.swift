@@ -50,10 +50,6 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
-    // Persistent crown handler
-    // Re-added for focus management
-    @FocusState private var isCrownFocused: Bool
-    
     // Define zoomLevels array
     private let zoomLevels: [CGFloat] = {
         let minZoom: CGFloat = 0.5
@@ -142,7 +138,6 @@ struct GraphCanvasView: View {
                 .frame(width: geometry.size.width, height: geometry.size.height)
                 .offset(x: offset.width, y: offset.height)
                 .scaleEffect(zoomScale)
-                .focusable(true)  // Enable crown focus here too
              
             }
             .scrollDisabled(true)
@@ -378,38 +373,32 @@ struct GraphCanvasView: View {
     }
     
     var body: some View {
-        FocusableView {
-            Group {
-                accessibleCanvas
-                    .modifier(GraphGesturesModifier(
-                        viewModel: viewModel,
-                        zoomScale: $zoomScale,
-                        offset: $offset,
-                        draggedNode: $draggedNode,
-                        dragOffset: $dragOffset,
-                        potentialEdgeTarget: $potentialEdgeTarget,
-                        selectedNodeID: $selectedNodeID,
-                        selectedEdgeID: $selectedEdgeID,
-                        viewSize: viewSize,
-                        panStartOffset: $panStartOffset,
-                        showMenu: $showMenu,
-                        maxZoom: maxZoom,
-                        crownPosition: $crownPosition,
-                        onUpdateZoomRanges: onUpdateZoomRanges
-                    ))
- 
-            }
-            .onChange(of: selectedNodeID) {
-                viewModel.saveViewState()
-            }
-            .onChange(of: selectedEdgeID) {
-                viewModel.saveViewState()
-            }
-            .onAppear {
-                isCrownFocused = true
-             }
-            .ignoresSafeArea()
+        Group {
+            accessibleCanvas
+                .modifier(GraphGesturesModifier(
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $selectedNodeID,
+                    selectedEdgeID: $selectedEdgeID,
+                    viewSize: viewSize,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: onUpdateZoomRanges
+                ))
         }
+        .onChange(of: selectedNodeID) {
+            viewModel.saveViewState()
+        }
+        .onChange(of: selectedEdgeID) {
+            viewModel.saveViewState()
+        }
+        .ignoresSafeArea()
     }
 }
 

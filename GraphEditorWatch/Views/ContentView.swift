@@ -1,4 +1,3 @@
-//
 //  ContentView.swift
 //  GraphEditor
 //
@@ -30,13 +29,8 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var previousCrownPosition: Double = 0.5
     @State private var clampTimer: Timer?
-    
-    
-    // New: Timer for debouncing simulation resume
     @State private var resumeTimer: Timer? = nil
-    
     @State private var logOffsetChanges = true  // Toggle for console logs
-    
     @State private var isPanning: Bool = false  // New: Track panning to pause clamping/simulation
     
     
@@ -77,38 +71,34 @@ struct ContentView: View {
         }
     }
     
-    
-    
     var body: some View {
-        let geoReader: some View = GeometryReader { geo in
-            GraphCanvasView(
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $viewModel.selectedNodeID,  // Change to this (binds to viewModel)
-                viewSize: geo.size,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                maxZoom: maxZoom,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges,
-                selectedEdgeID: $viewModel.selectedEdgeID,  // Change to this (binds to viewModel)
-                showOverlays: $showOverlays
-            )
-            .focusable(true) { focused in  // Add this before digitalCrownRotation; handles focus
-                    if focused {
-                        print("Crown focused")  // Optional debug; remove later
-                    }
-                }
-                .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)
+        let geoReader = FocusableView {  // Wrap with your custom FocusableView for reliable crown focus
+            GeometryReader { geo in
+                GraphCanvasView(
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $viewModel.selectedNodeID,
+                    viewSize: geo.size,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: onUpdateZoomRanges,
+                    selectedEdgeID: $viewModel.selectedEdgeID,
+                    showOverlays: $showOverlays
+                )
+            }
+            .background(Color.black)  // Move inside wrapper if needed; keeps background on the GeometryReader
         }
-            .background(Color.black)
-        let withIgnore: some View = geoReader.ignoresSafeArea()
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: false, isHapticFeedbackEnabled: true)  // Attach to wrapper
+
+        let withIgnore = geoReader.ignoresSafeArea()
         
-        let withSheet: some View = withIgnore.sheet(isPresented: $showMenu) {
+        let withSheet = withIgnore.sheet(isPresented: $showMenu) {
             List {
                 // Show Add only if no edge is selected (and optionally if a node is selected or none)
                 if viewModel.selectedEdgeID == nil {
@@ -144,7 +134,7 @@ struct ContentView: View {
                 if newValue != oldValue && newValue != previousSelection.0 {  // This is fine; no strings here
                     previousSelection.0 = newValue
                     if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
+                        withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
                            // recenterOn(position: selectedNode.position)
                         }
                         viewModel.model.isSimulating = false
@@ -168,7 +158,7 @@ struct ContentView: View {
                        let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
                         let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-                        withAnimation(.spring(response: 0.5, dampingFraction: 0.8, blendDuration: 0.3)) {
+                        withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
                             //recenterOn(position: midpoint)
                         }
                         viewModel.model.isSimulating = false
@@ -185,7 +175,7 @@ struct ContentView: View {
                 print("Offset after edge selection change: width \(offset.width), height \(offset.height)")
             }
                 
-        let withCrownChange: some View = withSheet.onChange(of: crownPosition) { oldValue, newValue in
+        let withCrownChange = withSheet.onChange(of: crownPosition) { oldValue, newValue in
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 return
@@ -211,11 +201,11 @@ struct ContentView: View {
             }
         }
         
-        let withNodesReceive: some View = withCrownChange.onReceive(viewModel.model.$nodes) { _ in
+        let withNodesReceive = withCrownChange.onReceive(viewModel.model.$nodes) { _ in
             onUpdateZoomRanges()
         }
         
-        let withPanChange: some View = withNodesReceive.onChange(of: panStartOffset) {
+        let withPanChange = withNodesReceive.onChange(of: panStartOffset) {
             isPanning = panStartOffset != nil
             if isPanning {
                 viewModel.model.stopSimulation()
@@ -228,11 +218,13 @@ struct ContentView: View {
             }
         }
         
-        let withScene: some View = withPanChange.onChange(of: scenePhase) {
+        let withScene = withPanChange.onChange(of: scenePhase) {
             switch scenePhase {
             case .active:
                 viewModel.model.startSimulation()
-            case .inactive, .background:
+            case .inactive:
+                viewModel.model.pauseSimulation()
+            case .background:
                 viewModel.model.stopSimulation()
             @unknown default:
                 break
