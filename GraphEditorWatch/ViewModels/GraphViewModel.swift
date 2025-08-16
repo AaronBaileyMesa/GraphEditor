@@ -104,6 +104,10 @@ class GraphViewModel: ObservableObject {
         model.addNode(at: position)
     }
     
+    func updateNode(_ updatedNode: any NodeProtocol) {
+        model.updateNode(updatedNode)
+    }
+    
     func addToggleNode(at position: CGPoint) {
         model.addToggleNode(at: position)
     }
