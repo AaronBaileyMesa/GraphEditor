@@ -210,9 +210,7 @@ struct ContentView: View {
                 isPanning = panStartOffset != nil
                 if isPanning {
                     viewModel.model.stopSimulation()
-                    WKInterfaceDevice.current().play(.start)  // Haptic for pan start
                 } else {
-                    WKInterfaceDevice.current().play(.stop)  // Haptic for pan end
                     // Delay clamp for smoother "settle"
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                         if !self.isPanning {  // Re-check to avoid race

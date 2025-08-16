@@ -2,8 +2,7 @@
 //  GraphGesturesModifier.swift
 //  GraphEditorWatch
 //
-//  Created by handcart on [some date].
-//  (Assuming original header; update as needed)
+//  Created by handcart on 2025-08-16
 
 import SwiftUI
 import WatchKit
@@ -27,6 +26,11 @@ struct GraphGesturesModifier: ViewModifier {
     
     @State private var dragStartNode: (any NodeProtocol)? = nil
     @State private var isMovingSelectedNode: Bool = false
+    @State private var longPressTimer: Timer? = nil  // New: For detecting long-press inside drag
+    @State private var isLongPressTriggered: Bool = false  // New: Flag to cancel drag if menu shown
+    
+    // New: Threshold for starting drag (matches your minDistance:5)
+    private let dragStartThreshold: CGFloat = 5.0
     
     // New: Helper to convert screen coords to model coords (full inverse transform)
     private func screenToModel(_ screenPos: CGPoint) -> CGPoint {
@@ -48,17 +52,40 @@ struct GraphGesturesModifier: ViewModifier {
     }
     
     func body(content: Content) -> some View {
-        let dragGesture = DragGesture(minimumDistance: 0)
+        let dragGesture = DragGesture(minimumDistance: 0)  // Set to 0 so .onEnded fires for taps
             .onChanged { value in
-                let touchPos = screenToModel(value.location)  // Updated: Use full inverse
+                if isLongPressTriggered { return }  // Ignore if long-press already triggered
                 
+                let translationDistance = hypot(value.translation.width, value.translation.height)
+                let touchPos = screenToModel(value.location)
+                
+                // Initial hit test for node drag (run always, even for potential taps)
                 if dragStartNode == nil {
-                    let startModelPos = screenToModel(value.startLocation)  // Updated: Use full inverse for initial hit
+                    let startModelPos = screenToModel(value.startLocation)
                     if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
                         dragStartNode = hitNode
                         isMovingSelectedNode = (hitNode.id == selectedNodeID)
                     }
                 }
+                
+                // Start long-press timer if this is the first change (translation ~0) and not already running
+                if translationDistance < 1.0 && longPressTimer == nil {  // ~ stationary touch down
+                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                        self.showMenu = true
+                        WKInterfaceDevice.current().play(.click)
+                        self.isLongPressTriggered = true  // Flag to cancel rest of gesture
+                        self.longPressTimer = nil
+                    }
+                }
+                
+                // If movement is small, do nothing else (potential tap or long-press)
+                if translationDistance < dragStartThreshold {
+                    return
+                }
+                
+                // Movement >= threshold: Cancel timer and start drag/pan logic
+                longPressTimer?.invalidate()
+                longPressTimer = nil
                 
                 if isMovingSelectedNode, let node = dragStartNode {
                     dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
@@ -77,29 +104,33 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             }
             .onEnded { value in
+                if isLongPressTriggered {
+                    isLongPressTriggered = false
+                    longPressTimer?.invalidate()
+                    longPressTimer = nil
+                    return  // Ignore ended (menu already shown)
+                }
+                
+                longPressTimer?.invalidate()
+                longPressTimer = nil
+                
                 viewModel.resumeSimulation()
                 
                 let dragDistance = hypot(value.translation.width, value.translation.height)
                 let tapModelPos = screenToModel(value.startLocation)  // Use startLocation for tap position
                 
-                if dragDistance < Constants.App.tapThreshold {  // Tap detected
+                if dragDistance < Constants.App.tapThreshold {  // Tap detected (small movement)
                     print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
                     
                     // Tighten hit radius for taps (e.g., half of drag radius to favor background)
                     let tapHitRadius = Constants.App.hitScreenRadius / (2 * zoomScale)  // Smaller for precision
                     
-                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < tapHitRadius }) {  // Use visibleNodes() to ignore hidden
-                        print("Node hit detected with tightened radius: \(hitNode.label)")
+                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < tapHitRadius }) {
+                        print("Node hit detected with tightened radius.")
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
-                        print("Set selectedNodeID to \(selectedNodeID?.uuidString ?? "nil") in gesture")
                         WKInterfaceDevice.current().play(.click)
-                        if let toggleNode = hitNode as? ToggleNode {
-                            print("Tapped toggle node \(toggleNode.label). Expansion state before: \(toggleNode.isExpanded)")
-                            let updated = toggleNode.handlingTap()
-                            viewModel.updateNode(updated)
-                        }
-                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in  // Use visibleEdges if available
+                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                            let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
                            pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < tapHitRadius {
@@ -119,7 +150,7 @@ struct GraphGesturesModifier: ViewModifier {
                     }
                     
                     print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
-                } else {
+                } else {  // Drag ended (movement >= threshold)
                     viewModel.snapshot()
                     if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
                         let newEdge = GraphEdge(from: startNode.id, to: target.id)
@@ -142,7 +173,7 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 
                 // After handling, clamp with smooth animation
-                withAnimation(.spring(duration: 0.3, bounce: 0.2)) {  // Updated for modern SwiftUI
+                withAnimation(.spring(duration: 0.3, bounce: 0.2)) {  // Damped spring for "soft" return
                     onUpdateZoomRanges()  // This calls clampOffset()
                 }
                 
@@ -155,15 +186,8 @@ struct GraphGesturesModifier: ViewModifier {
                 onUpdateZoomRanges()
             }
         
-        let longPressGesture = LongPressGesture(minimumDuration: 0.5)
-            .onEnded { _ in
-                showMenu = true
-                WKInterfaceDevice.current().play(.click)
-            }
-        
         content
-            .gesture(dragGesture)
-            .highPriorityGesture(longPressGesture)
+            .gesture(dragGesture)  // Only one gesture now—no separate long-press or highPriority
     }
     
     // Existing pointToLineDistance and distance functions (ensure they're defined or imported)
@@ -172,18 +196,18 @@ struct GraphGesturesModifier: ViewModifier {
     }
     
     private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
-            let lineVec = to - from
-            let pointVec = point - from
-            let lineLen = hypot(lineVec.x, lineVec.y)
-            if lineLen == 0 { return hypot(point.x - from.x, point.y - from.y) }  // Inline distance to avoid redeclaration
+        let lineVec = to - from
+        let pointVec = point - from
+        let lineLen = hypot(lineVec.x, lineVec.y)
+        if lineLen == 0 { return hypot(point.x - from.x, point.y - from.y) }  // Inline distance to avoid redeclaration
 
-            // Break up the expression
-            let dot = pointVec.x * lineVec.x + pointVec.y * lineVec.y
-            let denom = lineLen * lineLen
-            let tUnclamped = dot / denom
-            let t = max(0, min(1, tUnclamped))
+        // Break up the expression
+        let dot = pointVec.x * lineVec.x + pointVec.y * lineVec.y
+        let denom = lineLen * lineLen
+        let tUnclamped = dot / denom
+        let t = max(0, min(1, tUnclamped))
 
-            let projection = from + (lineVec * t)
-            return hypot(point.x - projection.x, point.y - projection.y)  // Inline distance
-        }
+        let projection = from + (lineVec * t)
+        return hypot(point.x - projection.x, point.y - projection.y)  // Inline distance
+    }
 }
