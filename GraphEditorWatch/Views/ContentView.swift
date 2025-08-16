@@ -205,18 +205,26 @@ struct ContentView: View {
             onUpdateZoomRanges()
         }
         
-        let withPanChange = withNodesReceive.onChange(of: panStartOffset) {
-            isPanning = panStartOffset != nil
-            if isPanning {
-                viewModel.model.stopSimulation()
-            } else {
-                clampOffset()
-                resumeTimer?.invalidate()
-                resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                    self.viewModel.model.startSimulation()
+        let withPanChange = withNodesReceive
+            .onChange(of: panStartOffset) {
+                isPanning = panStartOffset != nil
+                if isPanning {
+                    viewModel.model.stopSimulation()
+                    WKInterfaceDevice.current().play(.start)  // Haptic for pan start
+                } else {
+                    WKInterfaceDevice.current().play(.stop)  // Haptic for pan end
+                    // Delay clamp for smoother "settle"
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        if !self.isPanning {  // Re-check to avoid race
+                            self.clampOffset()
+                        }
+                    }
+                    resumeTimer?.invalidate()
+                    resumeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                        self.viewModel.model.startSimulation()
+                    }
                 }
             }
-        }
         
         let withScene = withPanChange.onChange(of: scenePhase) {
             switch scenePhase {
