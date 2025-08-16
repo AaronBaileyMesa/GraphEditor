@@ -142,7 +142,7 @@ struct GraphGesturesModifier: ViewModifier {
                 }
                 
                 // After handling, clamp with smooth animation
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {  // Damped spring for "soft" return
+                withAnimation(.spring(duration: 0.3, bounce: 0.2)) {  // Updated for modern SwiftUI
                     onUpdateZoomRanges()  // This calls clampOffset()
                 }
                 
