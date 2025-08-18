@@ -41,31 +41,33 @@ struct GraphModelTests {
         let initialNodeCount = model.nodes.count // 3
         let initialEdgeCount = model.edges.count // 3
         
-        model.snapshot() // Snapshot 1: initial (3n, 3e)
+        model.snapshot() // Snapshot 1: initial
         
-        let nodeToDelete = model.nodes.first!.id
-        model.deleteNode(withID: nodeToDelete) // Now 2n, 1e (assuming triangle, delete removes 2 edges)
-        model.snapshot() // Snapshot 2: after delete (2n, 1e)
+        // Specify node to delete (e.g., first in cycle removes 2 edges)
+        let nodeToDelete = model.nodes[0].id // Explicit
+        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count // 2 in triangle
+        model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
+        model.snapshot() // Snapshot 2: after delete
         
-        model.addNode(at: CGPoint.zero) // Now 3n, 1e — NO snapshot here, so current is unsnapshotted post-add
+        model.addNode(at: CGPoint.zero) // Now 3n, 1e — no snapshot
         
         #expect(model.nodes.count == initialNodeCount, "After add: count back to initial")
-        #expect(model.edges.count < initialEdgeCount, "Edges still decreased")
+        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
         
-        model.undo() // Undo from post-add to Snapshot 2: after delete (2n, 1e)
+        model.undo() // To Snapshot 2: after delete
         #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
+        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
         
-        model.undo() // Undo to Snapshot 1: initial (3n, 3e)
+        model.undo() // To Snapshot 1: initial
         #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
         #expect(model.edges.count == initialEdgeCount, "Edges restored")
         
-        model.redo() // Redo to post-delete (2n, 1e)
+        model.redo() // To post-delete
         #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
         
-        model.redo() // Redo to post-add (3n, 1e)
+        model.redo() // To post-add
         #expect(model.nodes.count == initialNodeCount, "Redo applies add")
     }
-    
     @Test func testInitializationWithDefaults() {
         let storage = MockGraphStorage()
         let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
