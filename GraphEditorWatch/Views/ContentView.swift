@@ -133,9 +133,7 @@ struct ContentView: View {
                 print("Selection change (node): from \(oldValue?.uuidString ?? "nil") to \(newValue?.uuidString ?? "nil"). Offset before: width \(offset.width), height \(offset.height)")
                 if newValue != oldValue && newValue != previousSelection.0 {  // This is fine; no strings here
                     previousSelection.0 = newValue
-                    if let newID = newValue, let selectedNode = viewModel.model.nodes.first(where: { $0.id == newID }) {
-                        withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
-                           // recenterOn(position: selectedNode.position)
+                    if let selectedID = viewModel.selectedNodeID, let _ = viewModel.model.nodes.first(where: { $0.id == selectedID }) {                        withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
                         }
                         viewModel.model.isSimulating = false
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
@@ -157,7 +155,7 @@ struct ContentView: View {
                     if let newID = newValue, let edge = viewModel.model.edges.first(where: { $0.id == newID }),
                        let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                        let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                        let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
+                        //let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
                         withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
                             //recenterOn(position: midpoint)
                         }
@@ -437,13 +435,12 @@ struct ContentView: View {
             }
         }
         // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
-        if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+        if let selectedID = viewModel.selectedNodeID, let _ = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
             //recenterOn(position: selectedNode.position)
         } else if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                   let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                   let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-            let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-            //recenterOn(position: midpoint)
+            let _ = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
         }
     }
 }
