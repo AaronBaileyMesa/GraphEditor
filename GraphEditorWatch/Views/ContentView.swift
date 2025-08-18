@@ -153,8 +153,8 @@ struct ContentView: View {
                 if newValue != oldValue && newValue != previousSelection.1 {
                     previousSelection.1 = newValue
                     if let newID = newValue, let edge = viewModel.model.edges.first(where: { $0.id == newID }),
-                       let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                       let _ = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                       let _ = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
                         //let midpoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
                         withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
                             //recenterOn(position: midpoint)

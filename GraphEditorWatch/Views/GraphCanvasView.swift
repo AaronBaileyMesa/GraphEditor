@@ -5,7 +5,7 @@ import GraphEditorShared
 // New: Custom wrapper for reliable crown focus
 struct FocusableView<Content: View>: View {
     let content: Content
-    @FocusState private var isFocused: Bool  // New: FocusState property
+    @FocusState private var isFocused: Bool
     
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -13,15 +13,16 @@ struct FocusableView<Content: View>: View {
     
     var body: some View {
         content
-            .focused($isFocused)  // Replace .focusable
+            .focused($isFocused)
             .onAppear {
-                isFocused = true  // Set focus on appear
+                isFocused = true
             }
-            .onChange(of: isFocused) { newValue in  // Handle changes
+            .onChange(of: isFocused) { oldValue, newValue in  // Or just { _, newValue in
                 if newValue {
                     print("View focused for crown")  // Optional debug
                 }
             }
+        
     }
 }
 
