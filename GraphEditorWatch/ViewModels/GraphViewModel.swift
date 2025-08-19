@@ -1,11 +1,8 @@
-//
 //  GraphViewModel.swift
 //  GraphEditor
 //
 //  Created by handcart on 8/1/25.
-//
 
-// ViewModels/GraphViewModel.swift
 import SwiftUI
 import Combine
 import GraphEditorShared
@@ -47,16 +44,9 @@ class GraphViewModel: ObservableObject {
             self?.resumeSimulationAfterDelay()
         }
         
-        if let state = try? model.loadViewState() {
-            print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
-            self.offset = state.offset
-            self.zoomScale = state.zoomScale
-            self.selectedNodeID = state.selectedNodeID
-            self.selectedEdgeID = state.selectedEdgeID
-            self.objectWillChange.send()  // Add this to refresh views with loaded selection
-        }
-        
-        print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
+        // Call new methods to load on init (preserves original behavior without duplication)
+        loadGraph()
+        loadViewState()
     }
     
     // New method to save (call from views)
@@ -67,6 +57,30 @@ class GraphViewModel: ObservableObject {
             print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")  // Optional debug
             try? self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
         }
+    }
+    
+    // Added: Reloads graph data from storage (mirrors init logic)
+    func loadGraph() {
+        do {
+            try model.loadFromStorage()  // Use public wrapper (avoids private 'storage' access)
+        } catch {
+            print("Load graph failed: \(error.localizedDescription)")  // Or log as in model
+        }
+        objectWillChange.send()
+    }
+    
+    // Added: Loads and applies view state (extracted from original init)
+    func loadViewState() {
+        if let state = try? model.loadViewState() {
+            print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
+            self.offset = state.offset
+            self.zoomScale = state.zoomScale
+            self.selectedNodeID = state.selectedNodeID
+            self.selectedEdgeID = state.selectedEdgeID
+            self.objectWillChange.send()  // Refresh views with loaded selection
+        }
+        
+        print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
     }
     
     deinit {
