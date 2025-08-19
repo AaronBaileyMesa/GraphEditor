@@ -121,13 +121,9 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         let oldScale = zoomScale
         
-        // New: Log pre-zoom center (model coordinates; assumes viewSize is set)
-        let preCenterX = -offset.width / oldScale + viewSize.width / (2 * oldScale)
-        let preCenterY = -offset.height / oldScale + viewSize.height / (2 * oldScale)
-        print("Pre-zoom center (model): (\(preCenterX), \(preCenterY))")
-        
-        // New: Log target zoom
-        print("Target zoom from crown: \(newScale)")
+        // Compute current center in model coordinates
+        let centerX = -offset.width / oldScale + viewSize.width / (2 * oldScale)
+        let centerY = -offset.height / oldScale + viewSize.height / (2 * oldScale)
         
         zoomScale = newScale
         
@@ -135,30 +131,15 @@ struct ContentView: View {
         offset.width *= zoomRatio
         offset.height *= zoomRatio
         
-        // Debounce clamp to after zoom stops (prevents mid-zoom snaps)
-        clampTimer?.invalidate()
-        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
-            withAnimation(.easeOut(duration: 0.2)) {
-                clampOffset()
-                
-                // New: Log post-zoom center and offset delta after clamp
-                let postCenterX = -offset.width / zoomScale + viewSize.width / (2 * zoomScale)
-                let postCenterY = -offset.height / zoomScale + viewSize.height / (2 * zoomScale)
-                print("Post-zoom center (model): (\(postCenterX), \(postCenterY))")
-                let offsetDeltaX = offset.width - (offset.width / zoomRatio)  // Approximate pre-scale offset
-                let offsetDeltaY = offset.height - (offset.height / zoomRatio)
-                print("Offset delta after zoom/clamp: (\(offsetDeltaX), \(offsetDeltaY))")
-            }
-        }
+        // Preserve center by adjusting offset
+        offset = adjustedOffset(for: newScale, currentCenter: CGPoint(x: centerX, y: centerY))
         
-        // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
-        if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-            recenterOn(position: selectedNode.position)
-        } else if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
-                  let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-            let midPoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
-            recenterOn(position: midPoint)
+        // Debounce clamp to after zoom stops (increased to 0.5s for rapid rotations)
+        clampTimer?.invalidate()
+        clampTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            withAnimation(.easeOut(duration: 0.3)) {  // Increased from 0.2 for smoother feel
+                clampOffset()
+            }
         }
     }
     
