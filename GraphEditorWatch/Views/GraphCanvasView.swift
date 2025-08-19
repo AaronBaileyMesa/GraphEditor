@@ -24,6 +24,7 @@ struct FocusableView<Content: View>: View {
             }
         
     }
+    
 }
 
 class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
@@ -141,10 +142,11 @@ struct GraphCanvasView: View {
                 .scaleEffect(zoomScale)
                 .offset(x: offset.width, y: offset.height)
              
-           // }
-            //.scrollDisabled(true)
         }
         .ignoresSafeArea()
+        .onAppear {
+            print("showMenu on appear: \(showMenu)")  // Should print false
+        }
     }
     
     private func computeEffectiveCentroid(visibleNodes: [any NodeProtocol]) -> CGPoint {

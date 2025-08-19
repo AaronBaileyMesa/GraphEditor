@@ -28,6 +28,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var isMovingSelectedNode: Bool = false
     @State private var longPressTimer: Timer? = nil  // New: For detecting long-press inside drag
     @State private var isLongPressTriggered: Bool = false  // New: Flag to cancel drag if menu shown
+    @State private var hasStartedGesture: Bool = false
     
     // New: Threshold for starting drag (matches your minDistance:5)
     private let dragStartThreshold: CGFloat = 5.0
@@ -53,39 +54,43 @@ struct GraphGesturesModifier: ViewModifier {
     
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)  // Set to 0 so .onEnded fires for taps
-            .onChanged { value in
-                if isLongPressTriggered { return }  // Ignore if long-press already triggered
-                
-                let translationDistance = hypot(value.translation.width, value.translation.height)
-                let touchPos = screenToModel(value.location)
-                
-                // Initial hit test for node drag (run always, even for potential taps)
-                if dragStartNode == nil {
-                    let startModelPos = screenToModel(value.startLocation)
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
-                        dragStartNode = hitNode
-                        isMovingSelectedNode = (hitNode.id == selectedNodeID)
-                    }
+        // Updated .onChanged in dragGesture
+        .onChanged { value in
+            if isLongPressTriggered { return }
+
+            let translationDistance = hypot(value.translation.width, value.translation.height)
+            let touchPos = screenToModel(value.location)
+
+            if dragStartNode == nil {
+                let startModelPos = screenToModel(value.startLocation)
+                if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
+                    dragStartNode = hitNode
+                    isMovingSelectedNode = (hitNode.id == selectedNodeID)
                 }
-                
-                // Start long-press timer if this is the first change (translation ~0) and not already running
-                if translationDistance < 1.0 && longPressTimer == nil {  // ~ stationary touch down
-                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                        self.showMenu = true
-                        WKInterfaceDevice.current().play(.click)
-                        self.isLongPressTriggered = true  // Flag to cancel rest of gesture
-                        self.longPressTimer = nil
-                    }
+            }
+
+            // New: Mark gesture as started on first non-zero change
+            if translationDistance > 0.0 {
+                hasStartedGesture = true
+            }
+
+            // Updated timer start: Only if stationary, timer nil, and gesture has started (avoids launch misfires)
+            if translationDistance < 1.0 && longPressTimer == nil && hasStartedGesture {
+                longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                    self.showMenu = true
+                    WKInterfaceDevice.current().play(.click)
+                    self.isLongPressTriggered = true
+                    self.longPressTimer = nil
                 }
-                
-                // If movement is small, do nothing else (potential tap or long-press)
-                if translationDistance < dragStartThreshold {
-                    return
-                }
-                
-                // Movement >= threshold: Cancel timer and start drag/pan logic
-                longPressTimer?.invalidate()
-                longPressTimer = nil
+                print("Long-press timer started")  // Debug: Log when it triggers
+            }
+
+            if translationDistance < dragStartThreshold {
+                return
+            }
+
+            longPressTimer?.invalidate()
+            longPressTimer = nil
                 
                 if isMovingSelectedNode, let node = dragStartNode {
                     dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
@@ -104,6 +109,7 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             }
             .onEnded { value in
+                hasStartedGesture = false  // Reset for next gesture
                 if isLongPressTriggered {
                     isLongPressTriggered = false
                     longPressTimer?.invalidate()

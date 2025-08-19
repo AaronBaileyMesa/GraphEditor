@@ -54,6 +54,13 @@ struct ContentView: View {
         }
     }
     
+    private func adjustedOffset(for newZoom: CGFloat, currentCenter: CGPoint) -> CGSize {
+        // Calculate new offset to keep the same center in view
+        let newOffsetX = -(currentCenter.x - viewSize.width / (2 * newZoom)) * newZoom
+        let newOffsetY = -(currentCenter.y - viewSize.height / (2 * newZoom)) * newZoom
+        return CGSize(width: newOffsetX, height: newOffsetY)
+    }
+    
     private func clampOffset() {
         let oldOffset = offset  // For logging changes
         
@@ -113,6 +120,15 @@ struct ContentView: View {
         let newProgress = crownPosition
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         let oldScale = zoomScale
+        
+        // New: Log pre-zoom center (model coordinates; assumes viewSize is set)
+        let preCenterX = -offset.width / oldScale + viewSize.width / (2 * oldScale)
+        let preCenterY = -offset.height / oldScale + viewSize.height / (2 * oldScale)
+        print("Pre-zoom center (model): (\(preCenterX), \(preCenterY))")
+        
+        // New: Log target zoom
+        print("Target zoom from crown: \(newScale)")
+        
         zoomScale = newScale
         
         let zoomRatio = newScale / oldScale
@@ -124,8 +140,17 @@ struct ContentView: View {
         clampTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in  // 0.3s delay
             withAnimation(.easeOut(duration: 0.2)) {
                 clampOffset()
+                
+                // New: Log post-zoom center and offset delta after clamp
+                let postCenterX = -offset.width / zoomScale + viewSize.width / (2 * zoomScale)
+                let postCenterY = -offset.height / zoomScale + viewSize.height / (2 * zoomScale)
+                print("Post-zoom center (model): (\(postCenterX), \(postCenterY))")
+                let offsetDeltaX = offset.width - (offset.width / zoomRatio)  // Approximate pre-scale offset
+                let offsetDeltaY = offset.height - (offset.height / zoomRatio)
+                print("Offset delta after zoom/clamp: (\(offsetDeltaX), \(offsetDeltaY))")
             }
         }
+        
         // Inside updateZoomScale(...), after lines like offset.width *= zoomRatio and offset.height *= zoomRatio:
         if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
             recenterOn(position: selectedNode.position)
@@ -143,34 +168,33 @@ struct ContentView: View {
             set: { viewModel.model.isSimulating = $0 }
         )
         
-        FocusableView {
-            GeometryReader { geo in
-                ZStack {
-                    GraphCanvasView(
-                        viewModel: viewModel,
-                        zoomScale: $zoomScale,
-                        offset: $offset,
-                        draggedNode: $draggedNode,
-                        dragOffset: $dragOffset,
-                        potentialEdgeTarget: $potentialEdgeTarget,
-                        selectedNodeID: $viewModel.selectedNodeID,
-                        viewSize: geo.size,
-                        panStartOffset: $panStartOffset,
-                        showMenu: $showMenu,
-                        maxZoom: maxZoom,
-                        crownPosition: $crownPosition,
-                        onUpdateZoomRanges: { clampOffset() },
-                        selectedEdgeID: $viewModel.selectedEdgeID,
-                        showOverlays: $showOverlays
-                    )
-                }
+        GeometryReader { geo in
+            ZStack {
+                GraphCanvasView(
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $viewModel.selectedNodeID,
+                    viewSize: geo.size,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: { clampOffset() },
+                    selectedEdgeID: $viewModel.selectedEdgeID,
+                    showOverlays: $showOverlays
+                )
             }
         }
-        .digitalCrownRotation(  // Moved here (top-level) to fix sequencer warning
+        .focusable()  // Add this BEFORE .digitalCrownRotation
+        .digitalCrownRotation(
             $crownPosition,
             from: 0.0,
             through: 1.0,
-            sensitivity: .high,
+            sensitivity: .high,  // Try .medium if too fast
             isContinuous: true,
             isHapticFeedbackEnabled: true
         )
@@ -181,16 +205,21 @@ struct ContentView: View {
                 viewModel.loadViewState()
                 isLoaded = true
             }
+            
         }
-        .onChange(of: scenePhase) { newPhase in  // Updated to new syntax (1 param)
+        .onChange(of: scenePhase) { newPhase in
             if newPhase == .active && !isLoaded {
                 viewModel.loadGraph()
                 viewModel.loadViewState()
                 isLoaded = true
             }
         }
-        .onChange(of: crownPosition) { newValue in  // Updated to new syntax (1 param); added debug print
+        .onChange(of: crownPosition) { newValue in
             print("Crown position changed to: \(newValue)")  // Debug to confirm triggers
+            guard !showMenu else {  // NEW: Skip zoom if menu is shown (lets crown scroll menu instead)
+                previousCrownPosition = newValue  // Still update to avoid delta issues
+                return
+            }
             let delta = abs(newValue - previousCrownPosition)
             if delta < 0.01 || ignoreNextCrownChange {
                 ignoreNextCrownChange = false
@@ -210,6 +239,8 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .sheet(isPresented: $showMenu) {
+            // ... (unchanged)
+        }
             List {
                 if viewModel.selectedEdgeID == nil {
                     AddSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, onDismiss: { showMenu = false })
@@ -235,7 +266,7 @@ struct ContentView: View {
                 
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
-        }
+        
     }
 }
 
@@ -330,13 +361,13 @@ struct ViewSection: View {
     var body: some View {
         Section(header: Text("View & Simulation")) {
             Toggle("Show Overlays", isOn: $showOverlays)
-                .onChange(of: showOverlays) {  // Updated to new syntax (0 params, ignore value)
+                .onChange(of: showOverlays) { _ in  // Use _ since we ignore the new value
                     onDismiss()
                 }
-            
+
             Toggle("Run Simulation", isOn: $isSimulating)
-                .onChange(of: isSimulating) { new in  // Updated to new syntax (1 param)
-                    onSimulationChange(new)
+                .onChange(of: isSimulating) { newValue in  // Rename 'new' to 'newValue' for clarity
+                    onSimulationChange(newValue)
                     onDismiss()
                 }
         }
