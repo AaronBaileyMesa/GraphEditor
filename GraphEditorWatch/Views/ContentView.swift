@@ -17,7 +17,7 @@ struct ContentView: View {
     @State private var dragOffset: CGPoint = .zero
     @State private var potentialEdgeTarget: (any NodeProtocol)? = nil
     @State private var panStartOffset: CGSize? = nil
-    @State private var showMenu = false
+    @State private var showMenu: Bool = false
     @State private var showOverlays = false
     @State private var minZoom: CGFloat = 0.5  // Reduced range
     @State private var maxZoom: CGFloat = 2.5  // Reduced range
@@ -165,25 +165,50 @@ struct ContentView: View {
         
         GeometryReader { geo in
             ZStack {
-                GraphCanvasView(
-                    viewModel: viewModel,
-                    zoomScale: $zoomScale,
-                    offset: $offset,
-                    draggedNode: $draggedNode,
-                    dragOffset: $dragOffset,
-                    potentialEdgeTarget: $potentialEdgeTarget,
-                    selectedNodeID: $viewModel.selectedNodeID,
-                    viewSize: geo.size,
-                    panStartOffset: $panStartOffset,
-                    showMenu: $showMenu,
-                    maxZoom: maxZoom,
-                    crownPosition: $crownPosition,
-                    onUpdateZoomRanges: { clampOffset() },
-                    selectedEdgeID: $viewModel.selectedEdgeID,
-                    showOverlays: $showOverlays
-                )
-            }
-        }
+                if showMenu {
+                    MenuView(viewModel: viewModel, showOverlays: $showOverlays, showMenu: $showMenu)
+                } else {
+                    GraphCanvasView(
+                                       viewModel: viewModel,
+                                       zoomScale: $zoomScale,
+                                       offset: $offset,
+                                       draggedNode: $draggedNode,
+                                       dragOffset: $dragOffset,
+                                       potentialEdgeTarget: $potentialEdgeTarget,
+                                       selectedNodeID: $viewModel.selectedNodeID,
+                                       viewSize: geo.size,
+                                       panStartOffset: $panStartOffset,
+                                       showMenu: $showMenu,
+                                       maxZoom: maxZoom,
+                                       crownPosition: $crownPosition,
+                                       onUpdateZoomRanges: { clampOffset() },
+                                       selectedEdgeID: $viewModel.selectedEdgeID,
+                                       showOverlays: $showOverlays
+                                   )
+                }
+                VStack {
+                            Spacer()  // Push to bottom
+                            Button(action: {
+                                print("Button tapped! Toggling showMenu from \(showMenu) to \(!showMenu)")  // Debug: Confirm in console
+                                showMenu.toggle()
+                                WKInterfaceDevice.current().play(.click)
+                            }) {
+                                Image(systemName: showMenu ? "chart.bar.fill" : "line.3.horizontal.circle.fill")  // Filled icons for better tap area
+                                    .font(.system(size: 20))
+                                    .foregroundColor(.white)
+                            }
+                            .buttonStyle(PlainButtonStyle())
+                            .frame(width: 40, height: 40)
+                            .background(Circle().fill(Color.clear))
+                            .overlay(Circle().stroke(Color.white, lineWidth: 0))
+                            .contentShape(Circle())  // New: Makes entire circle tappable
+                            .allowsHitTesting(true)  // New: Explicitly enable hits
+                            .padding(.bottom, 10)
+                            .accessibilityLabel(showMenu ? "Switch to Graph" : "Switch to Menu")
+                        }
+                        .zIndex(10)  // New: Ensure on top of everything
+                    }
+  
         .focusable()  // Add this BEFORE .digitalCrownRotation
         .digitalCrownRotation(
             $crownPosition,
@@ -256,35 +281,8 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
-        .sheet(isPresented: $showMenu) {
-            // ... (unchanged)
-        }
-            List {
-                if viewModel.selectedEdgeID == nil {
-                    AddSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, onDismiss: { showMenu = false })
-                }
-                
-                if viewModel.selectedNodeID != nil || viewModel.selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
-                    EditSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, selectedEdgeID: viewModel.selectedEdgeID, onDismiss: { showMenu = false })
-                }
-                
-                ViewSection(
-                    showOverlays: $showOverlays,
-                    isSimulating: isSimulatingBinding,
-                    onDismiss: { showMenu = false },
-                    onSimulationChange: { newValue in
-                        viewModel.model.isSimulating = newValue
-                        if newValue {
-                            viewModel.model.startSimulation()
-                        } else {
-                            viewModel.model.stopSimulation()
-                        }
-                    }
-                )
-                
-                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
-            }
         
+    }
     }
 }
 

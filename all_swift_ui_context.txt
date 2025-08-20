@@ -1,69 +1,38 @@
+## Focused Project Concatenation
+This file includes only UI, interactivity, model, and core logic files.
+Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
+Current date: 2025-08-20 09:30:53
+
 Table of Contents:
-1. GraphEditorShared/Package.swift
-2. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
-3. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
-4. GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-5. GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-6. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-7. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-8. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-9. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-10. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-11. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-12. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-13. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-14. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-15. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-16. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-17. GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
-18. GraphEditorWatch/AppDelegate.swift
-19. GraphEditorWatch/GraphEditorWatch.swift
-20. GraphEditorWatch/Models/AppConstants.swift
-21. GraphEditorWatch/ViewModels/GraphViewModel.swift
-22. GraphEditorWatch/Views/ContentView.swift
-23. GraphEditorWatch/Views/GraphCanvasView.swift
-24. GraphEditorWatch/Views/GraphGesturesModifier.swift
-25. GraphEditorWatch/Views/NodeView.swift
-26. GraphEditorWatchTests/GraphEditorWatchTests.swift
-27. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-28. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
+1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
+2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
+3. GraphEditorShared/Sources/GraphEditorShared/Constants.swift
+4. GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
+5. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+6. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+7. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+8. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+9. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
+10. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+11. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+12. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+13. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+14. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+15. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+16. GraphEditorWatch/GraphEditorWatch.swift
+17. GraphEditorWatch/Models/AppConstants.swift
+18. GraphEditorWatch/ViewModels/GraphViewModel.swift
+19. GraphEditorWatch/Views/ContentView.swift
+20. GraphEditorWatch/Views/GraphCanvasView.swift
+21. GraphEditorWatch/Views/GraphGesturesModifier.swift
+22. GraphEditorWatch/Views/NodeView.swift
+23. GraphEditorWatchTests/GraphEditorWatchTests.swift
+24. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+25. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
 
---------------------------------------------------
-File: Package.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Package.swift
-Last modified: 2025-08-02 11:37:40
-
-Contents:
-// swift-tools-version: 5.9
-// The swift-tools-version declares the minimum version of Swift required to build this package.
-
-import PackageDescription
-
-let package = Package(
-    name: "GraphEditorShared",
-    platforms: [.watchOS(.v9)],  // Set to your project's min watchOS version
-    products: [
-        .library(
-            name: "GraphEditorShared",
-            targets: ["GraphEditorShared"]),
-    ],
-    targets: [
-        .target(
-            name: "GraphEditorShared",
-            path: "Sources/GraphEditorShared"  // Explicitly set path if needed
-        ),
-        .testTarget(
-            name: "GraphEditorSharedTests",
-            dependencies: ["GraphEditorShared"],
-            path: "Tests/GraphEditorSharedTests"  // Explicitly set path if needed
-        ),
-    ]
-)
-
---------------------------------------------------
 --------------------------------------------------
 File: AttractionCalculator.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 Last modified: 2025-08-12 09:46:40
 
 Contents:
@@ -124,11 +93,10 @@ struct AttractionCalculator {
         return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: CenteringCalculator.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
 Last modified: 2025-08-12 09:46:40
 
 Contents:
@@ -164,11 +132,10 @@ struct CenteringCalculator {
         return updatedForces
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: Constants.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Constants.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
 Last modified: 2025-08-18 10:51:53
 
 Contents:
@@ -210,11 +177,10 @@ public enum Constants {
     
     // Add more enums as needed (e.g., UI, Testing)
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphModel.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
 Last modified: 2025-08-19 11:24:26
 
 Contents:
@@ -651,11 +617,10 @@ public class GraphModel: ObservableObject {
     }
     
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphSimulator.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 Last modified: 2025-08-18 11:13:36
 
 Contents:
@@ -782,11 +747,10 @@ class GraphSimulator {
         timer = nil
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphTypes.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
 Last modified: 2025-08-13 11:11:13
 
 Contents:
@@ -937,11 +901,10 @@ public enum NodeWrapper: Codable {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: NodeProtocol.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 Last modified: 2025-08-17 21:47:32
 
 Contents:
@@ -1084,11 +1047,10 @@ public extension NodeProtocol {
         context.draw(resolved, at: labelPosition, anchor: .center)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: PersistenceManager.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
 Last modified: 2025-08-15 15:21:36
 
 Contents:
@@ -1252,11 +1214,10 @@ public class PersistenceManager: GraphStorage {
         return (offset: state.offset, zoomScale: state.zoomScale, selectedNodeID: state.selectedNodeID, selectedEdgeID: state.selectedEdgeID)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: PhysicsEngine.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
 Last modified: 2025-08-18 11:12:35
 
 Contents:
@@ -1357,11 +1318,10 @@ public class PhysicsEngine {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: PositionUpdater.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 Last modified: 2025-08-19 11:36:48
 
 Contents:
@@ -1467,11 +1427,10 @@ struct PositionUpdater {
         return (updatedNodes, isActive)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: Protocols.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
 Last modified: 2025-08-15 13:19:34
 
 Contents:
@@ -1510,11 +1469,10 @@ extension GraphStorage {
         return nil  // Default: No state
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: Quadtree.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 Last modified: 2025-08-18 10:52:44
 
 Contents:
@@ -1746,11 +1704,10 @@ public class Quadtree {  // Made public for consistency/test access
         return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: RepulsionCalculator.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
 Last modified: 2025-08-18 11:12:14
 
 Contents:
@@ -1858,11 +1815,10 @@ struct RepulsionCalculator {
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: ToggleNode.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 Last modified: 2025-08-13 13:47:33
 
 Contents:
@@ -1967,11 +1923,10 @@ public struct ToggleNode: NodeProtocol {
         try container.encode(velocity.y, forKey: .velocityY)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: Utilities.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 Last modified: 2025-08-11 10:37:37
 
 Contents:
@@ -2055,312 +2010,10 @@ public extension CGSize {
 public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
     hypot(a.x - b.x, a.y - b.y)
 }
-
---------------------------------------------------
---------------------------------------------------
-File: GraphEditorSharedTests.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorShared/Tests/GraphEditorSharedTests/GraphEditorSharedTests.swift
-Last modified: 2025-08-09 09:50:57
-
-Contents:
-import Testing
-import Foundation  // For UUID, JSONEncoder, JSONDecoder
-import CoreGraphics  // For CGPoint
-import GraphEditorShared
-
-struct GraphEditorSharedTests {
-    
-    @Test func testNodeInitializationAndEquality() {
-        let id = UUID()
-        let node1 = Node(id: id, label: 1, position: CGPoint(x: 10, y: 20))
-        let node2 = Node(id: id, label: 1, position: CGPoint(x: 10, y: 20))
-        #expect(node1 == node2, "Nodes with same properties should be equal")
-        
-        let node3 = Node(id: UUID(), label: 2, position: .zero)
-        #expect(node1 != node3, "Nodes with different IDs/labels should not be equal")
-    }
-    
-    @Test func testNodeCodingRoundTrip() throws {
-        let node = Node(id: UUID(), label: 1, position: CGPoint(x: 5, y: 10), velocity: CGPoint(x: 1, y: 2))
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(node)
-        let decoder = JSONDecoder()
-        let decoded = try decoder.decode(Node.self, from: data)
-        #expect(node == decoded, "Node should encode and decode without data loss")
-    }
-    
-    @Test func testGraphEdgeInitializationAndEquality() {
-        let id = UUID()
-        let from = UUID()
-        let to = UUID()
-        let edge1 = GraphEdge(id: id, from: from, to: to)
-        let edge2 = GraphEdge(id: id, from: from, to: to)
-        #expect(edge1 == edge2, "Edges with same properties should be equal")
-        
-        let edge3 = GraphEdge(from: to, to: from)
-        #expect(edge1 != edge3, "Edges with swapped from/to should not be equal")
-    }
-    
-    @Test func testCGPointExtensions() {
-        let point1 = CGPoint(x: 3, y: 4)
-        let point2 = CGPoint(x: 1, y: 2)
-        
-        #expect(point1 + point2 == CGPoint(x: 4, y: 6), "Addition should work")
-        #expect(point1 - point2 == CGPoint(x: 2, y: 2), "Subtraction should work")
-        #expect(point1 * 2 == CGPoint(x: 6, y: 8), "Scalar multiplication should work")
-        #expect(point1.magnitude == 5, "Magnitude should be correct")
-    }
-    
-    @Test func testDistanceFunction() {
-        let a = CGPoint(x: 0, y: 0)
-        let b = CGPoint(x: 3, y: 4)
-        #expect(distance(a, b) == 5, "Distance should be calculated correctly")
-    }
-    
-    @Test func testGraphStateInitialization() {
-        let nodes: [any NodeProtocol] = [Node(id: UUID(), label: 1, position: .zero)]
-        let edges = [GraphEdge(from: UUID(), to: UUID())]
-        let state = GraphState(nodes: nodes, edges: edges)
-        #expect(state.nodes.map { $0.id } == nodes.map { $0.id }, "Nodes should match")
-        #expect(state.edges == edges, "Edges should match")
-    }
-    
-    @Test func testCGFloatClamping() {
-        let value: CGFloat = 15
-        let clamped = value.clamped(to: 0...10)
-        #expect(clamped == 10, "Value should clamp to upper bound")
-        
-        let lowValue: CGFloat = -5
-        let clampedLow = lowValue.clamped(to: 0...10)
-        #expect(clampedLow == 0, "Value should clamp to lower bound")
-    }
-    
-    @Test func testCGPointMagnitudeEdgeCases() {
-        let zeroPoint = CGPoint.zero
-        #expect(zeroPoint.magnitude == 0, "Zero point magnitude should be 0")
-        
-        let negativePoint = CGPoint(x: -3, y: -4)
-        #expect(negativePoint.magnitude == 5, "Magnitude should be positive for negative coordinates")
-    }
-    @Test func testNodeDecodingWithMissingKeys() throws {
-        // Test partial data to cover error paths in init(from decoder:)
-        let json = "{\"id\": \"\(UUID())\", \"label\": 1}"  // Missing position/velocity
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-        #expect(throws: DecodingError.self) {
-            _ = try decoder.decode(Node.self, from: data)
-        }
-    }
-    
-    @Test func testGraphEdgeCodingRoundTrip() throws {
-        let edge = GraphEdge(id: UUID(), from: UUID(), to: UUID())
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(edge)
-        let decoder = JSONDecoder()
-        let decoded = try decoder.decode(GraphEdge.self, from: data)
-        #expect(edge == decoded, "Edge should encode and decode without loss")
-    }
-    
-    @Test func testCGSizeExtensions() {
-        let size1 = CGSize(width: 10, height: 20)
-        let size2 = CGSize(width: 5, height: 10)
-        
-        #expect(size1 / 2 == CGSize(width: 5, height: 10), "Division should work")
-        #expect(size1 + size2 == CGSize(width: 15, height: 30), "Addition should work")
-        
-        var mutableSize = size1
-        mutableSize += size2
-        #expect(mutableSize == CGSize(width: 15, height: 30), "In-place addition should work")
-    }
-    
-    @Test func testDoubleClamping() {
-        let value: Double = 15
-        let clamped = value.clamped(to: 0...10)
-        #expect(clamped == 10, "Double should clamp to upper bound")
-        
-        let lowValue: Double = -5
-        let clampedLow = lowValue.clamped(to: 0...10)
-        #expect(clampedLow == 0, "Double should clamp to lower bound")
-    }
-    
-    @Test func testGraphEdgeDecodingWithMissingKeys() throws {
-        // Cover error paths in init(from decoder:)
-        let json = "{\"id\": \"\(UUID())\", \"from\": \"\(UUID())\"}"  // Missing 'to'
-        let data = json.data(using: .utf8)!
-        let decoder = JSONDecoder()
-        #expect(throws: DecodingError.self) {
-            _ = try decoder.decode(GraphEdge.self, from: data)
-        }
-    }
-    
-    @Test func testCGPointDivisionAndZeroMagnitude() {
-        let point = CGPoint(x: 10, y: 20)
-        #expect(point / 2 == CGPoint(x: 5, y: 10), "Division should work")
-        
-        let zeroPoint = CGPoint.zero
-        #expect(zeroPoint.magnitude == 0, "Zero magnitude confirmed")
-        #expect(zeroPoint / 1 == .zero, "Division of zero point should remain zero")
-    }
-    
-    @Test func testDoubleAndCGFloatClampingEdgeCases() {
-        let doubleMax: Double = .greatestFiniteMagnitude
-        #expect(doubleMax.clamped(to: 0...1) == 1, "Clamps max value")
-        
-        let cgfloatMin: CGFloat = -.greatestFiniteMagnitude
-        #expect(cgfloatMin.clamped(to: 0...1) == 0, "Clamps min value")
-    }
-    
-    @Test func testCGPointAllOperators() {
-        var point1 = CGPoint(x: 5, y: 10)
-        let point2 = CGPoint(x: 3, y: 4)
-        let scalar: CGFloat = 2
-        
-        // Cover + and +=
-        #expect(point1 + point2 == CGPoint(x: 8, y: 14), "Addition should work")
-        point1 += point2
-        #expect(point1 == CGPoint(x: 8, y: 14), "In-place addition should work")
-        
-        // Cover - and -=
-        #expect(point1 - point2 == CGPoint(x: 5, y: 10), "Subtraction should work")
-        point1 -= point2
-        #expect(point1 == CGPoint(x: 5, y: 10), "In-place subtraction should work")
-        
-        // Cover * and *=
-        #expect(point1 * scalar == CGPoint(x: 10, y: 20), "Multiplication should work")
-        point1 *= scalar
-        #expect(point1 == CGPoint(x: 10, y: 20), "In-place multiplication should work")
-        
-        // Cover /
-        #expect(point1 / scalar == CGPoint(x: 5, y: 10), "Division should work")
-    }
-    
-    @Test func testCGPointWithSizeOperators() {
-        var point = CGPoint(x: 5, y: 10)
-        let size = CGSize(width: 3, height: 4)
-        
-        #expect(point + size == CGPoint(x: 8, y: 14), "Addition with size should work")
-        point += size
-        #expect(point == CGPoint(x: 8, y: 14), "In-place addition with size should work")
-    }
-    
-    @Test func testCGSizeAllOperators() {
-        var size1 = CGSize(width: 10, height: 20)
-        let size2 = CGSize(width: 5, height: 10)
-        let scalar: CGFloat = 2
-        
-        // Cover + and +=
-        #expect(size1 + size2 == CGSize(width: 15, height: 30), "Addition should work")
-        size1 += size2
-        #expect(size1 == CGSize(width: 15, height: 30), "In-place addition should work")
-        
-        // Cover /
-        #expect(size1 / scalar == CGSize(width: 7.5, height: 15), "Division should work")
-    }
-    
-    @Test func testClampingEdgeCases() {
-        // Double clamping with extremes
-        let infDouble = Double.infinity
-        #expect(infDouble.clamped(to: 0...100) == 100, "Infinity clamps to upper")
-        #expect((-infDouble).clamped(to: 0...100) == 0, "Negative infinity clamps to lower")
-        
-        // CGFloat clamping with extremes
-        let infCGFloat = CGFloat.infinity
-        #expect(infCGFloat.clamped(to: 0...100) == 100, "Infinity clamps to upper")
-        #expect((-infCGFloat).clamped(to: 0...100) == 0, "Negative infinity clamps to lower")
-        
-        // NaN handling: Actual impl clamps to lower bound, so expect that
-        let nanDouble = Double.nan
-        #expect(nanDouble.clamped(to: 0...100) == 0, "NaN clamps to lower bound")
-    }
-    
-    @Test func testDistanceEdgeCases() {
-        let samePoint = CGPoint(x: 5, y: 5)
-        #expect(distance(samePoint, samePoint) == 0, "Distance to self is 0")
-        
-        let negativePoints = CGPoint(x: -3, y: -4)
-        let origin = CGPoint.zero
-        #expect(distance(negativePoints, origin) == 5, "Distance with negatives is positive")
-    }
-    
-    @Test func testDirectedEdgeCreation() {
-        let edge = GraphEdge(from: UUID(), to: UUID())
-        #expect(edge.from != edge.to, "Directed edge has distinct from/to")
-    }
-    
-    @Test func testAsymmetricAttraction() throws {
-        let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        engine.useAsymmetricAttraction = true  // Assumes this property is added (see implementation below)
-        let fromID = UUID()
-        let toID = UUID()
-        var nodes: [any NodeProtocol] = [Node(id: fromID, label: 1, position: CGPoint(x: 0, y: 0)),
-                     Node(id: toID, label: 2, position: CGPoint(x: 200, y: 0))]
-        let edges = [GraphEdge(from: fromID, to: toID)]
-        let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
-        nodes = updatedNodes
-        #expect(abs(nodes[0].position.x - 0) < 1, "From node position unchanged in asymmetric")
-        #expect(nodes[1].position.x < 200, "To node pulled towards from")
-    }
-}
-
-struct PerformanceTests {
-
-    @available(watchOS 9.0, *)  // Guard for availability
-    @Test func testSimulationPerformance() {
-        let engine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        var nodes: [any NodeProtocol] = (1...100).map { Node(label: $0, position: CGPoint(x: CGFloat.random(in: 0...300), y: CGFloat.random(in: 0...300))) }
-        let edges: [GraphEdge] = []
-
-        let start = Date()
-        for _ in 0..<10 {
-            let (updatedNodes, _) = engine.simulationStep(nodes: nodes, edges: edges)
-            nodes = updatedNodes
-        }
-        let duration = Date().timeIntervalSince(start)
-
-        print("Duration for 10 simulation steps with 100 nodes: \(duration) seconds")
-
-        #expect(duration < 0.5, "Simulation should be performant")
-    }
-    
-}
-
---------------------------------------------------
---------------------------------------------------
-File: AppDelegate.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/AppDelegate.swift
-Last modified: 2025-08-12 09:59:09
-
-Contents:
-//
-//  AppDelegate.swift  // Optional rename for clarity
-//  GraphEditorWatch
-//
-//  Created by handcart on 8/11/25.
-//
-
-import WatchKit
-import Foundation
-
-class AppDelegate: NSObject, WKApplicationDelegate {
-    func didEnterBackground() {
-        NotificationCenter.default.post(name: .graphSimulationPause, object: nil)
-    }
-    
-    func willEnterForeground() {
-        NotificationCenter.default.post(name: .graphSimulationResume, object: nil)
-    }
-}
-
-// Define custom notifications (add to a shared file like AppConstants.swift if you prefer)
-extension Notification.Name {
-    static let graphSimulationPause = Notification.Name("GraphSimulationPause")
-    static let graphSimulationResume = Notification.Name("GraphSimulationResume")
-}
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphEditorWatch.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/GraphEditorWatch.swift
+Path: GraphEditorWatch/GraphEditorWatch.swift
 Last modified: 2025-08-13 09:04:04
 
 Contents:
@@ -2388,11 +2041,10 @@ struct GraphEditorWatch: App {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: AppConstants.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Models/AppConstants.swift
+Path: GraphEditorWatch/Models/AppConstants.swift
 Last modified: 2025-08-07 18:42:52
 
 Contents:
@@ -2417,11 +2069,10 @@ struct AppConstants {
     static let defaultMinZoom: CGFloat = 0.2
     static let defaultMaxZoom: CGFloat = 5.0
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphViewModel.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/ViewModels/GraphViewModel.swift
+Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
 Last modified: 2025-08-19 11:11:28
 
 Contents:
@@ -2585,11 +2236,10 @@ class GraphViewModel: ObservableObject {
         resumeSimulationAfterDelay()  // Use debounced method
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: ContentView.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/ContentView.swift
+Path: GraphEditorWatch/Views/ContentView.swift
 Last modified: 2025-08-19 21:06:00
 
 Contents:
@@ -3000,11 +2650,10 @@ struct GraphSection: View {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphCanvasView.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphCanvasView.swift
+Path: GraphEditorWatch/Views/GraphCanvasView.swift
 Last modified: 2025-08-19 13:20:47
 
 Contents:
@@ -3434,11 +3083,10 @@ extension CGRect {
         self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphGesturesModifier.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/GraphGesturesModifier.swift
+Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
 Last modified: 2025-08-19 13:23:56
 
 Contents:
@@ -3661,11 +3309,10 @@ struct GraphGesturesModifier: ViewModifier {
         return hypot(point.x - projection.x, point.y - projection.y)  // Inline distance
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: NodeView.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatch/Views/NodeView.swift
+Path: GraphEditorWatch/Views/NodeView.swift
 Last modified: 2025-08-16 10:12:42
 
 Contents:
@@ -3710,11 +3357,10 @@ struct NodeView: View {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphEditorWatchTests.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatchTests/GraphEditorWatchTests.swift
+Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
 Last modified: 2025-08-18 10:07:03
 
 Contents:
@@ -3988,11 +3634,10 @@ struct AccessibilityTests {
         #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")  // Updated expectation
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphEditorWatchUITests.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
 Last modified: 2025-08-09 17:07:24
 
 Contents:
@@ -4127,11 +3772,10 @@ final class GraphEditorWatchUITests: XCTestCase {
         }
     }
 }
-
 --------------------------------------------------
 --------------------------------------------------
 File: GraphEditorWatchUITestsLaunchTests.swift
-Path: /Users/handcart/Development/GraphEditor/GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
+Path: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
 Last modified: 2025-08-04 15:45:24
 
 Contents:
@@ -4168,5 +3812,4 @@ final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
         add(attachment)
     }
 }
-
 --------------------------------------------------
