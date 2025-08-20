@@ -203,7 +203,7 @@ struct ContentView: View {
             
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active && !isLoaded {
+                     if newPhase == .active && !isLoaded {
                 viewModel.loadGraph()
                 viewModel.loadViewState()
                 isLoaded = true
@@ -240,13 +240,13 @@ struct ContentView: View {
             previousCrownPosition = newValue
         }
         
-        .onChange(of: viewModel.selectedNodeID) { _ in
+        .onChange(of: viewModel.selectedNodeID) {
             if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
                 recenterOn(position: selectedNode.position)
                 clampOffset()  // Immediate clamp after recenter
             }
         }
-        .onChange(of: viewModel.selectedEdgeID) { _ in
+        .onChange(of: viewModel.selectedEdgeID) {
             if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
                let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
@@ -379,12 +379,12 @@ struct ViewSection: View {
     var body: some View {
         Section(header: Text("View & Simulation")) {
             Toggle("Show Overlays", isOn: $showOverlays)
-                .onChange(of: showOverlays) { _ in  // Use _ since we ignore the new value
+                .onChange(of: showOverlays) {
                     onDismiss()
                 }
 
             Toggle("Run Simulation", isOn: $isSimulating)
-                .onChange(of: isSimulating) { newValue in  // Rename 'new' to 'newValue' for clarity
+                .onChange(of: isSimulating) { newValue in
                     onSimulationChange(newValue)
                     onDismiss()
                 }
