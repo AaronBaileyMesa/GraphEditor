@@ -58,6 +58,8 @@ struct ContentView: View {
         // Calculate new offset to keep the same center in view
         let newOffsetX = -(currentCenter.x - viewSize.width / (2 * newZoom)) * newZoom
         let newOffsetY = -(currentCenter.y - viewSize.height / (2 * newZoom)) * newZoom
+        // Optional: Log for verification (remove after testing)
+            print("Adjusted offset to preserve center: (\(newOffsetX), \(newOffsetY))")
         return CGSize(width: newOffsetX, height: newOffsetY)
     }
     
@@ -121,9 +123,10 @@ struct ContentView: View {
         let newScale = minZoom * CGFloat(pow(Double(maxZoom / minZoom), Double(newProgress)))
         let oldScale = zoomScale
         
-        // Compute current center in model coordinates
+        // Re-added: Log pre-zoom center
         let centerX = -offset.width / oldScale + viewSize.width / (2 * oldScale)
         let centerY = -offset.height / oldScale + viewSize.height / (2 * oldScale)
+        print("Pre-zoom center (model): (\(centerX), \(centerY))")
         
         zoomScale = newScale
         
@@ -134,12 +137,23 @@ struct ContentView: View {
         // Preserve center by adjusting offset
         offset = adjustedOffset(for: newScale, currentCenter: CGPoint(x: centerX, y: centerY))
         
-        // Debounce clamp to after zoom stops (increased to 0.5s for rapid rotations)
+        // Re-added: Log post-adjustment center (before clamp)
+        let postAdjCenterX = -offset.width / newScale + viewSize.width / (2 * newScale)
+        let postAdjCenterY = -offset.height / newScale + viewSize.height / (2 * newScale)
+        print("Post-adjustment center (model, pre-clamp): (\(postAdjCenterX), \(postAdjCenterY))")
+        
+        // Debounce clamp...
         clampTimer?.invalidate()
         clampTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-            withAnimation(.easeOut(duration: 0.3)) {  // Increased from 0.2 for smoother feel
-                clampOffset()
+            withAnimation(.easeOut(duration: 0.3)) {
+                self.clampOffset()
             }
+            // Re-added: Log post-clamp center
+            let postClampCenterX = -self.offset.width / self.zoomScale + self.viewSize.width / (2 * self.zoomScale)
+            let postClampCenterY = -self.offset.height / self.zoomScale + self.viewSize.height / (2 * self.zoomScale)
+            print("Post-clamp center (model): (\(postClampCenterX), \(postClampCenterY))")
+        
+            
         }
     }
     
@@ -196,9 +210,9 @@ struct ContentView: View {
             }
         }
         .onChange(of: crownPosition) { newValue in
-            print("Crown position changed to: \(newValue)")  // Debug to confirm triggers
-            guard !showMenu else {  // NEW: Skip zoom if menu is shown (lets crown scroll menu instead)
-                previousCrownPosition = newValue  // Still update to avoid delta issues
+            print("Crown position changed to: \(newValue)")  // Already there
+            guard !showMenu else {
+                previousCrownPosition = newValue
                 return
             }
             let delta = abs(newValue - previousCrownPosition)
@@ -206,6 +220,13 @@ struct ContentView: View {
                 ignoreNextCrownChange = false
                 return
             }
+            
+            // New: Simple throttle to skip if too soon after last update (reduces rapid fires)
+            var lastUpdateTime: Date = .distantPast
+            if Date().timeIntervalSince(lastUpdateTime) < 0.05 {  // 50ms min interval
+                return
+            }
+            lastUpdateTime = Date()
             
             updateZoomScale(oldCrown: previousCrownPosition)
             
@@ -217,6 +238,22 @@ struct ContentView: View {
             }
             
             previousCrownPosition = newValue
+        }
+        
+        .onChange(of: viewModel.selectedNodeID) { _ in
+            if let selectedID = viewModel.selectedNodeID, let selectedNode = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                recenterOn(position: selectedNode.position)
+                clampOffset()  // Immediate clamp after recenter
+            }
+        }
+        .onChange(of: viewModel.selectedEdgeID) { _ in
+            if let selectedEdgeID = viewModel.selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
+               let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+               let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                let midPoint = CGPoint(x: (fromNode.position.x + toNode.position.x) / 2, y: (fromNode.position.y + toNode.position.y) / 2)
+                recenterOn(position: midPoint)
+                clampOffset()  // Immediate clamp after recenter
+            }
         }
         .ignoresSafeArea()
         .sheet(isPresented: $showMenu) {
