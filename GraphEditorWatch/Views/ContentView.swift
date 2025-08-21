@@ -271,9 +271,16 @@ struct InnerView: View {
             )
         ) : AnyView(EmptyView())
         
-        ZStack {
-            canvasView
-            menuContent
-        }
+
+         if config.showMenu.wrappedValue {
+             MenuView(
+                 viewModel: config.viewModel,
+                 showOverlays: config.showOverlays,
+                 showMenu: config.showMenu
+             )
+             .navigationTitle("Menu")  // Optional: Improve navigation
+         } else {
+             canvasView
+         }
     }
 }
