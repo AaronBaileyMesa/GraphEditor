@@ -205,20 +205,11 @@ struct ContentView: View {
             onUpdateZoomRanges()  // Ensure min/max are up-to-date
             
             // Quantize to discrete levels
-            let numLevels = Constants.App.numZoomLevels  // e.g., 20
-            let quantized = round(newValue * Double(numLevels - 1)) / Double(numLevels - 1)
-            
-            // Prevent loop: If already quantized (within epsilon), skip
-            let epsilon = 1e-6
-            if abs(newValue - quantized) < epsilon {
-                return
-            }
-            
-            // Snap without triggering loop by ignoring next change
-            ignoreNextCrownChange = true
-            crownPosition = quantized
-            
-            let newZoom = (minZoom + (maxZoom - minZoom) * CGFloat(quantized)).rounded(to: 3)  // Round for precision
+            // Exponential mapping for natural zoom (small rotations = fine control, large = fast zoom)
+            let zoomSensitivity: CGFloat = 2.0  // Adjust: higher = faster zoom per rotation
+            let normalized = CGFloat(newValue)  // 0.0 to 1.0 from crown
+            let newZoom = minZoom * pow(maxZoom / minZoom, normalized * zoomSensitivity)
+            let clampedNewZoom = newZoom.clamped(to: minZoom...maxZoom).rounded(to: 3)
             
             // Pause simulation
             viewModel.model.isSimulating = false
@@ -233,7 +224,7 @@ struct ContentView: View {
             
             // Temporarily set new zoom
             let oldZoom = zoomScale
-            zoomScale = newZoom
+            zoomScale = clampedNewZoom
             
             // Adjust offset to keep preZoomModelCenter at screen center
             let newOffsetX = (screenCenter.x - (preZoomModelCenter.x - viewModel.effectiveCentroid.x) * newZoom).rounded(to: 2)

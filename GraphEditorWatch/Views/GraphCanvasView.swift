@@ -27,6 +27,7 @@ struct FocusableView<Content: View>: View {
     
 }
 
+/* Remove if possible
 class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
     @Published var accumulator: Double = 0.0
     
@@ -34,6 +35,7 @@ class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
         accumulator += Double(rotationalDelta) * 10.0  // Sensitivity; adjust
     }
 }
+*/
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel

@@ -29,6 +29,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var longPressTimer: Timer? = nil
     @State private var isLongPressTriggered: Bool = false
     @State private var hasStartedGesture: Bool = false
+    @State private var dragTimer: Timer? = nil
     
     private let dragStartThreshold: CGFloat = 5.0
     
@@ -75,71 +76,79 @@ struct GraphGesturesModifier: ViewModifier {
         
             .onChanged { value in
                 if isLongPressTriggered { return }
-
-                // New: Define hit radius once at top for consistency
-                let screenHitRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed on-screen size
-                let modelHitRadius = screenHitRadius / zoomScale  // Dynamic model-space conversion
-
-                let translationDistance = hypot(value.translation.width, value.translation.height)
-                let touchPos = screenToModel(value.location, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
-
-                if dragStartNode == nil {
-                    let startModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < modelHitRadius }) {
-                        dragStartNode = hitNode
-                        isMovingSelectedNode = (hitNode.id == selectedNodeID)
-                    }
-                }
-
-                if translationDistance > 0.0 {
-                    hasStartedGesture = true
-                }
-
-                if translationDistance < 1.0 && longPressTimer == nil && hasStartedGesture {
-                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                        self.showMenu = true
-                        WKInterfaceDevice.current().play(.click)
-                        self.isLongPressTriggered = true
-                        self.longPressTimer = nil
-                    }
-                    print("Long-press timer started")
-                }
-
-                if translationDistance < dragStartThreshold {
-                    return
-                }
-
-                longPressTimer?.invalidate()
-                longPressTimer = nil
+                dragTimer?.invalidate()
+                dragTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: false) { _ in
                     
-                if isMovingSelectedNode, let node = dragStartNode {
-                    dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                    draggedNode = node
-                } else {
-                    if panStartOffset == nil {
-                        panStartOffset = offset
+                    // New: Define hit radius once at top for consistency
+                    let screenHitRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed on-screen size
+                    let modelHitRadius = screenHitRadius / zoomScale  // Dynamic model-space conversion
+
+                    let translationDistance = hypot(value.translation.width, value.translation.height)
+                    let touchPos = screenToModel(value.location, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+
+                    if dragStartNode == nil {
+                        let startModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+                        if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < modelHitRadius }) {
+                            dragStartNode = hitNode
+                            isMovingSelectedNode = (hitNode.id == selectedNodeID)
+                        }
                     }
-                    offset = CGSize(width: panStartOffset!.width + value.translation.width,
-                                    height: panStartOffset!.height + value.translation.height)
-                }
+
+                    if translationDistance > 0.0 {
+                        hasStartedGesture = true
+                    }
+
+                    if translationDistance < 1.0 && longPressTimer == nil && hasStartedGesture {
+                        longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                            self.showMenu = true
+                            WKInterfaceDevice.current().play(.click)
+                            self.isLongPressTriggered = true
+                            self.longPressTimer = nil
+                        }
+                        print("Long-press timer started")
+                    }
+
+                    if translationDistance < dragStartThreshold {
+                        return
+                    }
+
+                    longPressTimer?.invalidate()
+                    longPressTimer = nil
+                        
+                    if isMovingSelectedNode, let node = dragStartNode {
+                        dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
+                        draggedNode = node
+                    } else {
+                        if panStartOffset == nil {
+                            panStartOffset = offset
+                        }
+                        offset = CGSize(width: panStartOffset!.width + value.translation.width,
+                                        height: panStartOffset!.height + value.translation.height)
+                    }
+                    
+                    potentialEdgeTarget = viewModel.model.nodes.first {
+                        dragStartNode?.id != $0.id && distance($0.position, touchPos) < modelHitRadius  // Use consistent var
+                    }
+                    
+                    // Diagnostic logs for .onChanged (unchanged)
+                    let effectiveCentroid = focalPointForCentering()
+                    let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
+                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+                    print("--- .onChanged Diagnostic ---")
+                    print("Effective Centroid: \(effectiveCentroid)")
+                    print("Screen Pos: \(value.location)")
+                    print("Translated: \(translated)")
+                    print("Unscaled: \(unscaled)")
+                    print("Model Pos (touchPos): \(touchPos)")
+                    print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
+                    print("-----------------------------")
                 
-                potentialEdgeTarget = viewModel.model.nodes.first {
-                    dragStartNode?.id != $0.id && distance($0.position, touchPos) < modelHitRadius  // Use consistent var
+                    
                 }
-                
-                // Diagnostic logs for .onChanged (unchanged)
-                let effectiveCentroid = focalPointForCentering()
-                let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
-                let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                print("--- .onChanged Diagnostic ---")
-                print("Effective Centroid: \(effectiveCentroid)")
-                print("Screen Pos: \(value.location)")
-                print("Translated: \(translated)")
-                print("Unscaled: \(unscaled)")
-                print("Model Pos (touchPos): \(touchPos)")
-                print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                print("-----------------------------")
-            }
+                return
+
+                }
+        
             .onEnded { value in
                 hasStartedGesture = false
                 if isLongPressTriggered {
