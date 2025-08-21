@@ -45,7 +45,7 @@ struct ContentView: View {
     @State private var panStartOffset: CGSize? = nil
     @State private var showMenu: Bool = false
     @State private var showOverlays = false
-    @State private var minZoom: CGFloat = 0.5
+    @State private var minZoom: CGFloat = 0.1
     @State private var maxZoom: CGFloat = 2.5
     @State private var crownPosition: Double = 0.5
     @State private var ignoreNextCrownChange: Bool = false
@@ -84,32 +84,51 @@ struct ContentView: View {
         return CGSize(width: newOffsetX, height: newOffsetY)
     }
     
-    private func clampOffset() {
+    private func clampOffset(animate: Bool = true) {
         let oldOffset = offset
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
         let scaledWidth = (graphBounds.width * zoomScale).rounded(to: 2)
         let scaledHeight = (graphBounds.height * zoomScale).rounded(to: 2)
         let effectiveViewWidth = viewSize.width
         let effectiveViewHeight = viewSize.height
-        let extraPadding: CGFloat = 50.0  // Increased for less aggressive clamping
+        let extraPadding: CGFloat = 200.0  // Large: Allow off-screen panning
         let panRoomX = max(0, (scaledWidth - effectiveViewWidth) / 2 + extraPadding)
         let panRoomY = max(0, (scaledHeight - effectiveViewHeight) / 2 + extraPadding)
-        var clampedX = offset.width.clamped(to: -panRoomX...panRoomX).rounded(to: 2)
-        var clampedY = offset.height.clamped(to: -panRoomY...panRoomY).rounded(to: 2)
-        if scaledWidth <= effectiveViewWidth { clampedX = 0 }
-        if scaledHeight <= effectiveViewHeight { clampedY = 0 }
-        offset = CGSize(width: clampedX, height: clampedY)
+        let threshold: CGFloat = 100.0  // Higher: Only clamp if far off
+        
+        var clampedX = offset.width
+        var clampedY = offset.height
+        
+        // Skip clamp if zoomed out (allow free pan)
+        if scaledWidth < effectiveViewWidth || scaledHeight < effectiveViewHeight {
+            // Only force center if extremely off (e.g., graph invisible)
+            if abs(offset.width) > effectiveViewWidth || abs(offset.height) > effectiveViewHeight {
+                clampedX = 0
+                clampedY = 0
+            }
+        } else if abs(offset.width) > panRoomX + threshold {
+            clampedX = offset.width.clamped(to: -panRoomX...panRoomX).rounded(to: 2)
+        } else if abs(offset.height) > panRoomY + threshold {
+            clampedY = offset.height.clamped(to: -panRoomY...panRoomY).rounded(to: 2)
+        }
+        
+        let newOffset = CGSize(width: clampedX, height: clampedY)
+        if animate {
+            withAnimation(.easeOut(duration: 0.2)) {
+                offset = newOffset
+            }
+        } else {
+            offset = newOffset
+        }
         if logOffsetChanges && (abs(offset.width - oldOffset.width) > 0.01 || abs(offset.height - oldOffset.height) > 0.01) {
             print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
         }
     }
-    
     private func onUpdateZoomRanges() {
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
         let padding: CGFloat = 20.0
         let contentWidth = graphBounds.width + padding * 2
         let contentHeight = graphBounds.height + padding * 2
-        minZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
         maxZoom = 2.5
         zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
         clampOffset()

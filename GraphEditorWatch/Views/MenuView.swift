@@ -140,6 +140,7 @@ struct MenuView: View {
             }
             
             ViewSection(
+                
                 showOverlays: $showOverlays,
                 isSimulating: isSimulatingBinding,
                 onDismiss: { showMenu = false },
