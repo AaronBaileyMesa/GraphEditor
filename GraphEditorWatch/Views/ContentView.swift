@@ -186,11 +186,31 @@ struct ContentView: View {
             isCanvasFocused = true  // Force focus on load
         }
         .onChange(of: showMenu) { newValue in
-            print("Crown position changed to \(newValue). Updating zoom.")
+            print("Show menu changed to \(newValue)")
             if !newValue {
                 isCanvasFocused = true  // Refocus canvas when menu closes
             }
         }
+         .onChange(of: crownPosition) { newValue in
+             if ignoreNextCrownChange {
+                 ignoreNextCrownChange = false
+                 return
+             }
+             print("Crown position changed to \(newValue). Updating zoom.")
+             onUpdateZoomRanges()  // Ensure min/max are up-to-date
+             let newZoom = minZoom + (maxZoom - minZoom) * CGFloat(newValue)
+             let currentCenter = viewModel.effectiveCentroid  // Or use a visible center point
+             withAnimation(.easeInOut(duration: 0.2)) {
+                 zoomScale = newZoom.clamped(to: minZoom...maxZoom)
+                 offset = adjustedOffset(for: newZoom, currentCenter: currentCenter)
+             }
+             clampOffset()  // Prevent overflow after zoom
+             isZooming = true
+             zoomTimer?.invalidate()
+             zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                 isZooming = false
+             }
+         }
         .onChange(of: isCanvasFocused) { newValue in
             print("Canvas focus changed to \(newValue)")  // Debug focus state
         }
@@ -242,7 +262,6 @@ struct InnerView: View {
         .accessibilityIdentifier("GraphCanvas")
         .focused(config.canvasFocus)
         .focusable(true)
-        .digitalCrownRotation(config.crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: true, isHapticFeedbackEnabled: true)  // Moved here
         
         let menuContent: some View = config.showMenu.wrappedValue ? AnyView(
             MenuView(
