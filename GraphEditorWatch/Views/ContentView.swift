@@ -156,9 +156,13 @@ struct ContentView: View {
                 Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
                     .font(.system(size: 24))
                     .foregroundColor(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(Color.gray.opacity(0.1))  // Subtle fill; remove for full transparency
+                    .clipShape(Circle())
+                    .contentShape(Circle())  // Circular tappable area
             }
-            .frame(width: 44, height: 44)
-            .contentShape(Rectangle())  // Ensures full tappable area
+            .buttonStyle(.plain)  // Removes default padding/background
+            .padding(.bottom, 8)  // Space from bottom edge
         }
         .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
