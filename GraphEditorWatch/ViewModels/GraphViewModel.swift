@@ -32,6 +32,18 @@ class GraphViewModel: ObservableObject {
     // New: Timer for debounced resumes
     private var resumeTimer: Timer?
     
+    var effectiveCentroid: CGPoint {
+        let visibleNodes = model.visibleNodes()
+        if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
+            return node.position
+        } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }),
+                  let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+        }
+        return visibleNodes.centroid() ?? .zero
+    }
+    
     init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in

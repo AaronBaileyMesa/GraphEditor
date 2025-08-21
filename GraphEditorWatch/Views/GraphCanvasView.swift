@@ -54,6 +54,41 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     
+    init(
+        viewModel: GraphViewModel,
+        zoomScale: Binding<CGFloat>,
+        offset: Binding<CGSize>,
+        draggedNode: Binding<(any NodeProtocol)?>,
+        dragOffset: Binding<CGPoint>,
+        potentialEdgeTarget: Binding<(any NodeProtocol)?>,
+        selectedNodeID: Binding<NodeID?>,
+        viewSize: CGSize,
+        panStartOffset: Binding<CGSize?>,
+        showMenu: Binding<Bool>,
+        maxZoom: CGFloat,
+        crownPosition: Binding<Double>,
+        onUpdateZoomRanges: @escaping () -> Void,
+        selectedEdgeID: Binding<UUID?>,
+        showOverlays: Binding<Bool>
+    ) {
+        self.viewModel = viewModel
+        _zoomScale = zoomScale
+        _offset = offset
+        _draggedNode = draggedNode
+        _dragOffset = dragOffset
+        _potentialEdgeTarget = potentialEdgeTarget
+        _selectedNodeID = selectedNodeID
+        self.viewSize = viewSize
+        _panStartOffset = panStartOffset
+        _showMenu = showMenu
+        self.maxZoom = maxZoom
+        _crownPosition = crownPosition
+        self.onUpdateZoomRanges = onUpdateZoomRanges
+        _selectedEdgeID = selectedEdgeID
+        _showOverlays = showOverlays
+    }
+    
+    
     // Define zoomLevels array
     private let zoomLevels: [CGFloat] = {
         let minZoom: CGFloat = 0.5
