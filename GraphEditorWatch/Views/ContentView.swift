@@ -145,9 +145,20 @@ struct ContentView: View {
                     updateZoomRangesHandler: onUpdateZoomRanges,
                     selectedNodeID: $viewModel.selectedNodeID,
                     selectedEdgeID: $viewModel.selectedEdgeID,
-                    canvasFocus: $isCanvasFocused  // Pass FocusState.Binding
+                    canvasFocus: $isCanvasFocused
                 )
             )
+        }
+        .overlay(alignment: .bottom) {
+            Button {
+                showMenu.toggle()
+            } label: {
+                Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
+                    .font(.system(size: 24))
+                    .foregroundColor(.primary)
+            }
+            .frame(width: 44, height: 44)
+            .contentShape(Rectangle())  // Ensures full tappable area
         }
         .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
@@ -191,30 +202,29 @@ struct ContentView: View {
                 isCanvasFocused = true  // Refocus canvas when menu closes
             }
         }
-         .onChange(of: crownPosition) { newValue in
-             if ignoreNextCrownChange {
-                 ignoreNextCrownChange = false
-                 return
-             }
-             print("Crown position changed to \(newValue). Updating zoom.")
-             onUpdateZoomRanges()  // Ensure min/max are up-to-date
-             let newZoom = minZoom + (maxZoom - minZoom) * CGFloat(newValue)
-             let currentCenter = viewModel.effectiveCentroid  // Or use a visible center point
-             withAnimation(.easeInOut(duration: 0.2)) {
-                 zoomScale = newZoom.clamped(to: minZoom...maxZoom)
-                 offset = adjustedOffset(for: newZoom, currentCenter: currentCenter)
-             }
-             clampOffset()  // Prevent overflow after zoom
-             isZooming = true
-             zoomTimer?.invalidate()
-             zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-                 isZooming = false
-             }
-         }
+        .onChange(of: crownPosition) { newValue in
+            if ignoreNextCrownChange {
+                ignoreNextCrownChange = false
+                return
+            }
+            print("Crown position changed to \(newValue). Updating zoom.")
+            onUpdateZoomRanges()  // Ensure min/max are up-to-date
+            let newZoom = minZoom + (maxZoom - minZoom) * CGFloat(newValue)
+            let currentCenter = viewModel.effectiveCentroid  // Or use a visible center point
+            withAnimation(.easeInOut(duration: 0.2)) {
+                zoomScale = newZoom.clamped(to: minZoom...maxZoom)
+                offset = adjustedOffset(for: newZoom, currentCenter: currentCenter)
+            }
+            clampOffset()  // Prevent overflow after zoom
+            isZooming = true
+            zoomTimer?.invalidate()
+            zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                isZooming = false
+            }
+        }
         .onChange(of: isCanvasFocused) { newValue in
             print("Canvas focus changed to \(newValue)")  // Debug focus state
         }
-        
     }
 }
 
