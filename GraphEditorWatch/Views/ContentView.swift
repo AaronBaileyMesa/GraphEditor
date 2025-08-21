@@ -87,30 +87,19 @@ struct ContentView: View {
     private func clampOffset() {
         let oldOffset = offset
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let scaledWidth = graphBounds.width * zoomScale
-        let scaledHeight = graphBounds.height * zoomScale
+        let scaledWidth = (graphBounds.width * zoomScale).rounded(to: 2)
+        let scaledHeight = (graphBounds.height * zoomScale).rounded(to: 2)
         let effectiveViewWidth = viewSize.width
         let effectiveViewHeight = viewSize.height
-        let panRoomX = (scaledWidth - effectiveViewWidth) / 2
-        let panRoomY = (scaledHeight - effectiveViewHeight) / 2
-        var clampedX = offset.width
-        var clampedY = offset.height
-        if scaledWidth > effectiveViewWidth {
-            let minX = -panRoomX
-            let maxX = panRoomX
-            clampedX = clampedX.clamped(to: minX...maxX)
-        } else {
-            clampedX = 0
-        }
-        if scaledHeight > effectiveViewHeight {
-            let minY = -panRoomY
-            let maxY = panRoomY
-            clampedY = clampedY.clamped(to: minY...maxY)
-        } else {
-            clampedY = 0
-        }
+        let extraPadding: CGFloat = 50.0  // Increased for less aggressive clamping
+        let panRoomX = max(0, (scaledWidth - effectiveViewWidth) / 2 + extraPadding)
+        let panRoomY = max(0, (scaledHeight - effectiveViewHeight) / 2 + extraPadding)
+        var clampedX = offset.width.clamped(to: -panRoomX...panRoomX).rounded(to: 2)
+        var clampedY = offset.height.clamped(to: -panRoomY...panRoomY).rounded(to: 2)
+        if scaledWidth <= effectiveViewWidth { clampedX = 0 }
+        if scaledHeight <= effectiveViewHeight { clampedY = 0 }
         offset = CGSize(width: clampedX, height: clampedY)
-        if logOffsetChanges && offset != oldOffset {
+        if logOffsetChanges && (abs(offset.width - oldOffset.width) > 0.01 || abs(offset.height - oldOffset.height) > 0.01) {
             print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
         }
     }
@@ -207,26 +196,72 @@ struct ContentView: View {
             }
         }
         .onChange(of: crownPosition) { newValue in
+            print("Crown event received: \(newValue)")
             if ignoreNextCrownChange {
                 ignoreNextCrownChange = false
                 return
             }
             print("Crown position changed to \(newValue). Updating zoom.")
             onUpdateZoomRanges()  // Ensure min/max are up-to-date
-            let newZoom = minZoom + (maxZoom - minZoom) * CGFloat(newValue)
-            let currentCenter = viewModel.effectiveCentroid  // Or use a visible center point
-            withAnimation(.easeInOut(duration: 0.2)) {
-                zoomScale = newZoom.clamped(to: minZoom...maxZoom)
-                offset = adjustedOffset(for: newZoom, currentCenter: currentCenter)
+            
+            // Quantize to discrete levels
+            let numLevels = Constants.App.numZoomLevels  // e.g., 20
+            let quantized = round(newValue * Double(numLevels - 1)) / Double(numLevels - 1)
+            
+            // Prevent loop: If already quantized (within epsilon), skip
+            let epsilon = 1e-6
+            if abs(newValue - quantized) < epsilon {
+                return
             }
-            clampOffset()  // Prevent overflow after zoom
+            
+            // Snap without triggering loop by ignoring next change
+            ignoreNextCrownChange = true
+            crownPosition = quantized
+            
+            let newZoom = (minZoom + (maxZoom - minZoom) * CGFloat(quantized)).rounded(to: 3)  // Round for precision
+            
+            // Pause simulation
+            viewModel.model.isSimulating = false
+            viewModel.model.stopSimulation()
+            
+            // Preserve center: Get model point at screen center before zoom
+            let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let preZoomModelCenter = CGPoint(
+                x: ((screenCenter.x - offset.width) / zoomScale + viewModel.effectiveCentroid.x).rounded(to: 2),
+                y: ((screenCenter.y - offset.height) / zoomScale + viewModel.effectiveCentroid.y).rounded(to: 2)
+            )
+            
+            // Temporarily set new zoom
+            let oldZoom = zoomScale
+            zoomScale = newZoom
+            
+            // Adjust offset to keep preZoomModelCenter at screen center
+            let newOffsetX = (screenCenter.x - (preZoomModelCenter.x - viewModel.effectiveCentroid.x) * newZoom).rounded(to: 2)
+            let newOffsetY = (screenCenter.y - (preZoomModelCenter.y - viewModel.effectiveCentroid.y) * newZoom).rounded(to: 2)
+            
+            withAnimation(.easeInOut(duration: 0.25)) {
+                offset = CGSize(width: newOffsetX, height: newOffsetY)
+                zoomScale = newZoom
+            }
+            
+            // Clamp only if significant change, after animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let oldOffset = offset
+                clampOffset()
+                // Skip log/clamp if change is tiny (precision noise)
+                if abs(offset.width - oldOffset.width) < 0.01 && abs(offset.height - oldOffset.height) < 0.01 {
+                    offset = oldOffset  // Revert micro-adjustment
+                }
+            }
+            
             isZooming = true
             zoomTimer?.invalidate()
-            zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in  // Longer debounce
                 isZooming = false
+                viewModel.model.isSimulating = true
+                viewModel.model.startSimulation()
             }
-        }
-        .onChange(of: isCanvasFocused) { newValue in
+        }        .onChange(of: isCanvasFocused) { newValue in
             print("Canvas focus changed to \(newValue)")  // Debug focus state
         }
     }

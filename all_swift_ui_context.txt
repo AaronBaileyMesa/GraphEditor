@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-21 07:00:00
+Current date: 2025-08-21 09:02:45
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -1928,7 +1928,7 @@ public struct ToggleNode: NodeProtocol {
 --------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-08-11 10:37:37
+Last modified: 2025-08-21 08:05:59
 
 Contents:
 import Foundation
@@ -1943,6 +1943,13 @@ public extension Double {
 public extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
+}
+
+public extension CGFloat {
+    func rounded(to decimalPlaces: Int) -> CGFloat {
+        let divisor = pow(10.0, CGFloat(decimalPlaces))
+        return (self * divisor).rounded() / divisor
     }
 }
 
@@ -2253,7 +2260,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-20 23:34:16
+Last modified: 2025-08-21 09:00:48
 
 Contents:
 //  ContentView.swift
@@ -2345,30 +2352,19 @@ struct ContentView: View {
     private func clampOffset() {
         let oldOffset = offset
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let scaledWidth = graphBounds.width * zoomScale
-        let scaledHeight = graphBounds.height * zoomScale
+        let scaledWidth = (graphBounds.width * zoomScale).rounded(to: 2)
+        let scaledHeight = (graphBounds.height * zoomScale).rounded(to: 2)
         let effectiveViewWidth = viewSize.width
         let effectiveViewHeight = viewSize.height
-        let panRoomX = (scaledWidth - effectiveViewWidth) / 2
-        let panRoomY = (scaledHeight - effectiveViewHeight) / 2
-        var clampedX = offset.width
-        var clampedY = offset.height
-        if scaledWidth > effectiveViewWidth {
-            let minX = -panRoomX
-            let maxX = panRoomX
-            clampedX = clampedX.clamped(to: minX...maxX)
-        } else {
-            clampedX = 0
-        }
-        if scaledHeight > effectiveViewHeight {
-            let minY = -panRoomY
-            let maxY = panRoomY
-            clampedY = clampedY.clamped(to: minY...maxY)
-        } else {
-            clampedY = 0
-        }
+        let extraPadding: CGFloat = 50.0  // Increased for less aggressive clamping
+        let panRoomX = max(0, (scaledWidth - effectiveViewWidth) / 2 + extraPadding)
+        let panRoomY = max(0, (scaledHeight - effectiveViewHeight) / 2 + extraPadding)
+        var clampedX = offset.width.clamped(to: -panRoomX...panRoomX).rounded(to: 2)
+        var clampedY = offset.height.clamped(to: -panRoomY...panRoomY).rounded(to: 2)
+        if scaledWidth <= effectiveViewWidth { clampedX = 0 }
+        if scaledHeight <= effectiveViewHeight { clampedY = 0 }
         offset = CGSize(width: clampedX, height: clampedY)
-        if logOffsetChanges && offset != oldOffset {
+        if logOffsetChanges && (abs(offset.width - oldOffset.width) > 0.01 || abs(offset.height - oldOffset.height) > 0.01) {
             print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
         }
     }
@@ -2403,9 +2399,24 @@ struct ContentView: View {
                     updateZoomRangesHandler: onUpdateZoomRanges,
                     selectedNodeID: $viewModel.selectedNodeID,
                     selectedEdgeID: $viewModel.selectedEdgeID,
-                    canvasFocus: $isCanvasFocused  // Pass FocusState.Binding
+                    canvasFocus: $isCanvasFocused
                 )
             )
+        }
+        .overlay(alignment: .bottom) {
+            Button {
+                showMenu.toggle()
+            } label: {
+                Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
+                    .font(.system(size: 24))
+                    .foregroundColor(.primary)
+                    .frame(width: 44, height: 44)
+                    .background(Color.gray.opacity(0.1))  // Subtle fill; remove for full transparency
+                    .clipShape(Circle())
+                    .contentShape(Circle())  // Circular tappable area
+            }
+            .buttonStyle(.plain)  // Removes default padding/background
+            .padding(.bottom, 8)  // Space from bottom edge
         }
         .onAppear {
             viewSize = WKInterfaceDevice.current().screenBounds.size
@@ -2449,30 +2460,75 @@ struct ContentView: View {
                 isCanvasFocused = true  // Refocus canvas when menu closes
             }
         }
-         .onChange(of: crownPosition) { newValue in
-             if ignoreNextCrownChange {
-                 ignoreNextCrownChange = false
-                 return
-             }
-             print("Crown position changed to \(newValue). Updating zoom.")
-             onUpdateZoomRanges()  // Ensure min/max are up-to-date
-             let newZoom = minZoom + (maxZoom - minZoom) * CGFloat(newValue)
-             let currentCenter = viewModel.effectiveCentroid  // Or use a visible center point
-             withAnimation(.easeInOut(duration: 0.2)) {
-                 zoomScale = newZoom.clamped(to: minZoom...maxZoom)
-                 offset = adjustedOffset(for: newZoom, currentCenter: currentCenter)
-             }
-             clampOffset()  // Prevent overflow after zoom
-             isZooming = true
-             zoomTimer?.invalidate()
-             zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
-                 isZooming = false
-             }
-         }
-        .onChange(of: isCanvasFocused) { newValue in
+        .onChange(of: crownPosition) { newValue in
+            print("Crown event received: \(newValue)")
+            if ignoreNextCrownChange {
+                ignoreNextCrownChange = false
+                return
+            }
+            print("Crown position changed to \(newValue). Updating zoom.")
+            onUpdateZoomRanges()  // Ensure min/max are up-to-date
+            
+            // Quantize to discrete levels
+            let numLevels = Constants.App.numZoomLevels  // e.g., 20
+            let quantized = round(newValue * Double(numLevels - 1)) / Double(numLevels - 1)
+            
+            // Prevent loop: If already quantized (within epsilon), skip
+            let epsilon = 1e-6
+            if abs(newValue - quantized) < epsilon {
+                return
+            }
+            
+            // Snap without triggering loop by ignoring next change
+            ignoreNextCrownChange = true
+            crownPosition = quantized
+            
+            let newZoom = (minZoom + (maxZoom - minZoom) * CGFloat(quantized)).rounded(to: 3)  // Round for precision
+            
+            // Pause simulation
+            viewModel.model.isSimulating = false
+            viewModel.model.stopSimulation()
+            
+            // Preserve center: Get model point at screen center before zoom
+            let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+            let preZoomModelCenter = CGPoint(
+                x: ((screenCenter.x - offset.width) / zoomScale + viewModel.effectiveCentroid.x).rounded(to: 2),
+                y: ((screenCenter.y - offset.height) / zoomScale + viewModel.effectiveCentroid.y).rounded(to: 2)
+            )
+            
+            // Temporarily set new zoom
+            let oldZoom = zoomScale
+            zoomScale = newZoom
+            
+            // Adjust offset to keep preZoomModelCenter at screen center
+            let newOffsetX = (screenCenter.x - (preZoomModelCenter.x - viewModel.effectiveCentroid.x) * newZoom).rounded(to: 2)
+            let newOffsetY = (screenCenter.y - (preZoomModelCenter.y - viewModel.effectiveCentroid.y) * newZoom).rounded(to: 2)
+            
+            withAnimation(.easeInOut(duration: 0.25)) {
+                offset = CGSize(width: newOffsetX, height: newOffsetY)
+                zoomScale = newZoom
+            }
+            
+            // Clamp only if significant change, after animation
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let oldOffset = offset
+                clampOffset()
+                // Skip log/clamp if change is tiny (precision noise)
+                if abs(offset.width - oldOffset.width) < 0.01 && abs(offset.height - oldOffset.height) < 0.01 {
+                    offset = oldOffset  // Revert micro-adjustment
+                }
+            }
+            
+            isZooming = true
+            zoomTimer?.invalidate()
+            zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in  // Longer debounce
+                isZooming = false
+                viewModel.model.isSimulating = true
+                viewModel.model.startSimulation()
+            }
+        }        .onChange(of: isCanvasFocused) { newValue in
             print("Canvas focus changed to \(newValue)")  // Debug focus state
         }
-        
     }
 }
 
@@ -3014,7 +3070,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-20 14:39:43
+Last modified: 2025-08-21 08:55:26
 
 Contents:
 //
@@ -3051,24 +3107,34 @@ struct GraphGesturesModifier: ViewModifier {
     
     private let dragStartThreshold: CGFloat = 5.0
     
-    private func screenToModel(_ screenPos: CGPoint) -> CGPoint {
+    
+    private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
+        guard zoomScale > 0 else {
+            print("Warning: Invalid zoomScale (\(zoomScale)) in screenToModel—returning .zero")
+            return .zero  // Fallback to avoid crashes; adjust as needed
+        }
+        
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let effectiveCentroid = focalPointForCentering()
-
+        
         let translated = CGPoint(
             x: screenPos.x - viewCenter.x - panOffset.x,
             y: screenPos.y - viewCenter.y - panOffset.y
         )
-        let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+        let unscaled = CGPoint(
+            x: (translated.x / zoomScale).rounded(to: 2),  // Round for precision
+            y: (translated.y / zoomScale).rounded(to: 2)
+        )
         return CGPoint(
-            x: unscaled.x + effectiveCentroid.x,
-            y: unscaled.y + effectiveCentroid.y
+            x: (unscaled.x + effectiveCentroid.x).rounded(to: 2),
+            y: (unscaled.y + effectiveCentroid.y).rounded(to: 2)
         )
     }
     
     private func focalPointForCentering() -> CGPoint {
         let visibleNodes = viewModel.model.visibleNodes()
+        guard !visibleNodes.isEmpty else { return .zero }  // New: Guard against empty graph
         var effectiveCentroid = visibleNodes.centroid() ?? .zero
         if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
             effectiveCentroid = selected.position
@@ -3081,163 +3147,169 @@ struct GraphGesturesModifier: ViewModifier {
     
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
-        .onChanged { value in
-            if isLongPressTriggered { return }
+        
+            .onChanged { value in
+                if isLongPressTriggered { return }
 
-            let translationDistance = hypot(value.translation.width, value.translation.height)
-            let touchPos = screenToModel(value.location)
+                // New: Define hit radius once at top for consistency
+                let screenHitRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed on-screen size
+                let modelHitRadius = screenHitRadius / zoomScale  // Dynamic model-space conversion
 
-            if dragStartNode == nil {
-                let startModelPos = screenToModel(value.startLocation)
-                if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < Constants.App.hitScreenRadius / zoomScale }) {
-                    dragStartNode = hitNode
-                    isMovingSelectedNode = (hitNode.id == selectedNodeID)
+                let translationDistance = hypot(value.translation.width, value.translation.height)
+                let touchPos = screenToModel(value.location, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+
+                if dragStartNode == nil {
+                    let startModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < modelHitRadius }) {
+                        dragStartNode = hitNode
+                        isMovingSelectedNode = (hitNode.id == selectedNodeID)
+                    }
                 }
-            }
 
-            if translationDistance > 0.0 {
-                hasStartedGesture = true
-            }
-
-            if translationDistance < 1.0 && longPressTimer == nil && hasStartedGesture {
-                longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                    self.showMenu = true
-                    WKInterfaceDevice.current().play(.click)
-                    self.isLongPressTriggered = true
-                    self.longPressTimer = nil
+                if translationDistance > 0.0 {
+                    hasStartedGesture = true
                 }
-                print("Long-press timer started")
-            }
 
-            if translationDistance < dragStartThreshold {
-                return
-            }
-
-            longPressTimer?.invalidate()
-            longPressTimer = nil
-                
-            if isMovingSelectedNode, let node = dragStartNode {
-                dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                draggedNode = node
-            } else {
-                if panStartOffset == nil {
-                    panStartOffset = offset
+                if translationDistance < 1.0 && longPressTimer == nil && hasStartedGesture {
+                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                        self.showMenu = true
+                        WKInterfaceDevice.current().play(.click)
+                        self.isLongPressTriggered = true
+                        self.longPressTimer = nil
+                    }
+                    print("Long-press timer started")
                 }
-                offset = CGSize(width: panStartOffset!.width + value.translation.width,
-                                height: panStartOffset!.height + value.translation.height)
-            }
-            
-            potentialEdgeTarget = viewModel.model.nodes.first {
-                dragStartNode?.id != $0.id && distance($0.position, touchPos) < Constants.App.hitScreenRadius / zoomScale
-            }
-            
-            // Diagnostic logs for .onChanged
-            let effectiveCentroid = focalPointForCentering()
-            let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
-            let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-            print("--- .onChanged Diagnostic ---")
-            print("Effective Centroid: \(effectiveCentroid)")
-            print("Screen Pos: \(value.location)")
-            print("Translated: \(translated)")
-            print("Unscaled: \(unscaled)")
-            print("Model Pos (touchPos): \(touchPos)")
-            print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-            print("-----------------------------")
-        }
-        .onEnded { value in
-            hasStartedGesture = false
-            if isLongPressTriggered {
-                isLongPressTriggered = false
+
+                if translationDistance < dragStartThreshold {
+                    return
+                }
+
                 longPressTimer?.invalidate()
                 longPressTimer = nil
-                return
-            }
-            
-            longPressTimer?.invalidate()
-            longPressTimer = nil
-            
-            viewModel.resumeSimulation()
-            
-            let dragDistance = hypot(value.translation.width, value.translation.height)
-            let tapModelPos = screenToModel(value.startLocation)
-            
-            if dragDistance < Constants.App.tapThreshold {
-                print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
-                
-                let tapHitRadius = Constants.App.hitScreenRadius / (2 * zoomScale)
-                
-                if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < tapHitRadius }) {
-                    print("Node hit detected with tightened radius.")
-                    selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
-                    selectedEdgeID = nil
-                    WKInterfaceDevice.current().play(.click)
-                } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
-                    if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                       pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < tapHitRadius {
-                        return true
-                    }
-                    return false
-                }) {
-                    print("Edge hit detected with tightened radius.")
-                    selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
-                    selectedNodeID = nil
-                    WKInterfaceDevice.current().play(.click)
+                    
+                if isMovingSelectedNode, let node = dragStartNode {
+                    dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
+                    draggedNode = node
                 } else {
-                    print("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
-                    selectedNodeID = nil
-                    selectedEdgeID = nil
+                    if panStartOffset == nil {
+                        panStartOffset = offset
+                    }
+                    offset = CGSize(width: panStartOffset!.width + value.translation.width,
+                                    height: panStartOffset!.height + value.translation.height)
                 }
                 
-                print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
+                potentialEdgeTarget = viewModel.model.nodes.first {
+                    dragStartNode?.id != $0.id && distance($0.position, touchPos) < modelHitRadius  // Use consistent var
+                }
                 
-                // Diagnostic logs for tap in .onEnded
+                // Diagnostic logs for .onChanged (unchanged)
                 let effectiveCentroid = focalPointForCentering()
-                let translated = CGPoint(x: value.startLocation.x - viewSize.width / 2 - offset.width, y: value.startLocation.y - viewSize.height / 2 - offset.height)
+                let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
                 let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                print("--- Tap (.onEnded) Diagnostic ---")
+                print("--- .onChanged Diagnostic ---")
                 print("Effective Centroid: \(effectiveCentroid)")
-                print("Screen Pos: \(value.startLocation)")
+                print("Screen Pos: \(value.location)")
                 print("Translated: \(translated)")
                 print("Unscaled: \(unscaled)")
-                print("Model Pos (tapModelPos): \(tapModelPos)")
+                print("Model Pos (touchPos): \(touchPos)")
                 print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                print("--------------------------------")
-            } else {
-                viewModel.snapshot()
-                if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
-                    let newEdge = GraphEdge(from: startNode.id, to: target.id)
-                    if !viewModel.model.hasCycle(adding: newEdge) &&
-                       !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                        viewModel.model.edges.append(newEdge)
-                        viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.success)
-                    }
-                } else if isMovingSelectedNode, let node = dragStartNode,
-                          let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                    var updatedNode = viewModel.model.nodes[index]
-                    updatedNode.position.x += value.translation.width / zoomScale
-                    updatedNode.position.y += value.translation.height / zoomScale
-                    viewModel.model.nodes[index] = updatedNode
-                    viewModel.model.startSimulation()
-                    WKInterfaceDevice.current().play(.click)
-                }
-                viewModel.handleTap()
+                print("-----------------------------")
             }
-            
-            withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+            .onEnded { value in
+                hasStartedGesture = false
+                if isLongPressTriggered {
+                    isLongPressTriggered = false
+                    longPressTimer?.invalidate()  // New: Explicit cleanup
+                    longPressTimer = nil
+                    return
+                }
+                
+                longPressTimer?.invalidate()
+                longPressTimer = nil
+                
+                viewModel.resumeSimulation()
+                
+                // New: Define hit radius once at top for consistency (with tap tolerance)
+                let screenHitRadius: CGFloat = Constants.App.hitScreenRadius * 1.5  // Larger for taps
+                let modelHitRadius = screenHitRadius / zoomScale  // Dynamic model-space
+
+                let dragDistance = hypot(value.translation.width, value.translation.height)
+                let tapModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+                
+                if dragDistance < Constants.App.tapThreshold {
+                    print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
+                    
+                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
+                        print("Node hit detected with tightened radius.")
+                        selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
+                        selectedEdgeID = nil
+                        WKInterfaceDevice.current().play(.click)
+                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
+                        if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                           let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
+                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < modelHitRadius {  // Use consistent var
+                            return true
+                        }
+                        return false
+                    }) {
+                        print("Edge hit detected with tightened radius.")
+                        selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
+                        selectedNodeID = nil
+                        WKInterfaceDevice.current().play(.click)
+                    } else {
+                        print("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
+                        selectedNodeID = nil
+                        selectedEdgeID = nil
+                    }
+                    
+                    print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
+                    
+                    // Diagnostic logs for tap in .onEnded (unchanged)
+                    let effectiveCentroid = focalPointForCentering()
+                    let translated = CGPoint(x: value.startLocation.x - viewSize.width / 2 - offset.width, y: value.startLocation.y - viewSize.height / 2 - offset.height)
+                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+                    print("--- Tap (.onEnded) Diagnostic ---")
+                    print("Effective Centroid: \(effectiveCentroid)")
+                    print("Screen Pos: \(value.startLocation)")
+                    print("Translated: \(translated)")
+                    print("Unscaled: \(unscaled)")
+                    print("Model Pos (tapModelPos): \(tapModelPos)")
+                    print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
+                    print("--------------------------------")
+                } else {
+                    viewModel.snapshot()
+                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
+                        let newEdge = GraphEdge(from: startNode.id, to: target.id)
+                        if !viewModel.model.hasCycle(adding: newEdge) &&
+                           !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
+                            viewModel.model.edges.append(newEdge)
+                            viewModel.model.startSimulation()
+                            WKInterfaceDevice.current().play(.success)
+                        }
+                    } else if isMovingSelectedNode, let node = dragStartNode,
+                              let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                        var updatedNode = viewModel.model.nodes[index]
+                        updatedNode.position.x += value.translation.width / zoomScale
+                        updatedNode.position.y += value.translation.height / zoomScale
+                        viewModel.model.nodes[index] = updatedNode
+                        viewModel.model.startSimulation()
+                        WKInterfaceDevice.current().play(.click)
+                    }
+                    viewModel.handleTap()
+                }
+                
+                withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                    onUpdateZoomRanges()
+                }
+                
+                dragStartNode = nil
+                isMovingSelectedNode = false
+                draggedNode = nil
+                dragOffset = .zero
+                potentialEdgeTarget = nil
+                panStartOffset = nil
                 onUpdateZoomRanges()
             }
-            
-            dragStartNode = nil
-            isMovingSelectedNode = false
-            draggedNode = nil
-            dragOffset = .zero
-            potentialEdgeTarget = nil
-            panStartOffset = nil
-            onUpdateZoomRanges()
-        }
-        
         content
             .gesture(dragGesture)
     }
