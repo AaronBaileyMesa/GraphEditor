@@ -191,10 +191,10 @@ struct ContentView: View {
             isLoaded = true
             recenterOn(position: viewModel.effectiveCentroid)
             viewModel.model.startSimulation()  // Ensure simulation runs on load
+            isCanvasFocused = true  // New: Explicitly focus the canvas on appear to enable crown input immediately
         }
         .focusable(true)
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
-        .onChange(of: crownPosition) { newValue in
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)        .onChange(of: crownPosition) { newValue in
             zoomTimer?.invalidate()
             zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: false) { _ in
                 onUpdateZoomRanges()

@@ -60,7 +60,6 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping() -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
-    //let onUpdateZoomRanges: @escaping () -> Void
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
