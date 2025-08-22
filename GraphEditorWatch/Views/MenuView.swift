@@ -84,6 +84,7 @@ struct EditSection: View {
 struct ViewSection: View {
     @Binding var showOverlays: Bool
     @Binding var isSimulating: Bool  // Now a Binding for direct Toggle control
+    let onCenterGraph: () -> Void
     let onDismiss: () -> Void
     let onSimulationChange: (Bool) -> Void  // New: Handles pause/resume logic
 
@@ -99,6 +100,10 @@ struct ViewSection: View {
                     onSimulationChange(newValue)
                     onDismiss()
                 }
+            Button("Center Graph") {
+                onCenterGraph()
+                onDismiss()
+            }
         }
     }
 }
@@ -121,6 +126,7 @@ struct MenuView: View {
     @ObservedObject var viewModel: GraphViewModel
     @Binding var showOverlays: Bool
     @Binding var showMenu: Bool
+    let onCenterGraph: () -> Void
     
     private var isSimulatingBinding: Binding<Bool> {
         Binding(
@@ -140,10 +146,9 @@ struct MenuView: View {
             }
             
             ViewSection(
-                
                 showOverlays: $showOverlays,
                 isSimulating: isSimulatingBinding,
-                onDismiss: { showMenu = false },
+                onCenterGraph: onCenterGraph, onDismiss: { showMenu = false },
                 onSimulationChange: { newValue in
                     viewModel.model.isSimulating = newValue
                     if newValue {
