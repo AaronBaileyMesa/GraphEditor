@@ -7,14 +7,17 @@
 
 import SwiftUI
 import WatchKit
+import GraphEditorShared
 
+// In GraphEditorWatch.swift
 @main
 struct GraphEditorWatch: App {
-    @WKApplicationDelegateAdaptor(AppDelegate.self) private var delegate: AppDelegate
-
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))  // Mock bounds; adjust as needed
+            let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
+            let viewModel = GraphViewModel(model: model)  // Create viewModel here
+            ContentView(viewModel: viewModel)  // <-- Pass viewModel to ContentView init
         }
     }
 }

@@ -1,0 +1,911 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>top-level-items</key>
+	<array>
+		<dict>
+			<key>destination</key>
+			<dict>
+				<key>location-parameters</key>
+				<dict>
+					<key>EndingColumnNumber</key>
+					<string>0</string>
+					<key>EndingLineNumber</key>
+					<string>214</string>
+					<key>StartingColumnNumber</key>
+					<string>0</string>
+					<key>StartingLineNumber</key>
+					<string>0</string>
+					<key>Timestamp</key>
+					<string>777583699.348654</string>
+				</dict>
+				<key>rebasable-url</key>
+				<dict>
+					<key>base</key>
+					<string>workspace</string>
+					<key>payload</key>
+					<dict>
+						<key>relative-path</key>
+						<string>GraphEditorWatch/ViewModels/GraphViewModel.swift</string>
+					</dict>
+				</dict>
+			</dict>
+			<key>text-context</key>
+			<dict>
+				<key>focused</key>
+				<string>//  GraphViewModel.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/1/25.
+
+import SwiftUI
+import Combine
+import GraphEditorShared
+import WatchKit  // For WKApplication
+
+class GraphViewModel: ObservableObject {
+    @Published var model: GraphModel
+    @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
+    @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
+    @Published var offset: CGPoint = .zero
+    @Published var zoomScale: CGFloat = 1.0
+    
+    private var saveTimer: Timer? = nil
+    private var cancellable: AnyCancellable?
+    
+    var canUndo: Bool {
+        model.canUndo
+    }
+    
+    var canRedo: Bool {
+        model.canRedo
+    }
+    
+    private var pauseObserver: NSObjectProtocol?
+    private var resumeObserver: NSObjectProtocol?
+    
+    // New: Timer for debounced resumes
+    private var resumeTimer: Timer?
+    
+    var effectiveCentroid: CGPoint {
+        let visibleNodes = model.visibleNodes()
+        if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
+            return node.position
+        } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }),
+                  let to = visibleNodes.first(where: { $0.id == edge.to }) {
+            return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+        }
+        return visibleNodes.centroid() ?? .zero
+    }
+    
+    // New: Enum for focus state, now Equatable
+    enum AppFocusState: Equatable {
+        case graph
+        case node(UUID)
+        case edge(UUID)
+        case menu
+    }
+
+    @Published var focusState: AppFocusState = .graph  // New
+    
+    init(model: GraphModel) {
+        self.model = model
+        cancellable = model.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+            self?.model.pauseSimulation()
+        }
+        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+            self?.resumeSimulationAfterDelay()
+        }
+        
+        // Call new methods to load on init (preserves original behavior without duplication)
+        loadGraph()
+        loadViewState()
+    }
+    
+    // New method to save (call from views)
+    func saveViewState() {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            do {
+                try self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
+                print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")
+            } catch {
+                print("Failed to save view state: \(error)")
+            }
+        }
+    }
+    
+    // New method to load graph
+    private func loadGraph() {
+        do {
+            try model.loadFromStorage()
+            model.startSimulation()
+        } catch {
+            print("Failed to load graph: \(error)")
+        }
+    }
+    
+    // New method to load view state
+    private func loadViewState() {
+        do {
+            if let state = try model.loadViewState() {
+                self.offset = state.offset
+                self.zoomScale = state.zoomScale
+                self.selectedNodeID = state.selectedNodeID
+                self.selectedEdgeID = state.selectedEdgeID
+                print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
+                if let loadedID = state.selectedNodeID {
+                    print("Loaded ID: \(loadedID.uuidString), Node exists? \(model.nodes.contains { $0.id == loadedID })")
+                }
+            } else {
+                self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
+            }
+            self.objectWillChange.send()
+        } catch {
+            print("Failed to load view state: \(error)")
+        }
+        
+        // After loading IDs, set focusState
+        if let id = selectedNodeID {
+            focusState = .node(id)
+        } else if let id = selectedEdgeID {
+            focusState = .edge(id)
+        } else {
+            focusState = .graph
+        }
+    }
+    
+    deinit {
+        // Clean up to avoid leaks
+        if let pauseObserver = pauseObserver {
+            NotificationCenter.default.removeObserver(pauseObserver)
+        }
+        if let resumeObserver = resumeObserver {
+            NotificationCenter.default.removeObserver(resumeObserver)
+        }
+        resumeTimer?.invalidate()
+    }
+    
+    func snapshot() {
+        model.snapshot()
+    }
+    
+    func undo() {
+        model.undo()
+    }
+    
+    func redo() {
+        model.redo()
+    }
+    
+    func deleteNode(withID id: NodeID) {
+        model.deleteNode(withID: id)
+    }
+    
+    func deleteSelectedEdge(id: UUID?) {
+        model.deleteSelectedEdge(id: id)
+    }
+    
+    func addNode(at position: CGPoint) {
+        model.addNode(at: position)
+    }
+    
+    func updateNode(_ updatedNode: any NodeProtocol) {
+        model.updateNode(updatedNode)
+    }
+    
+    func addToggleNode(at position: CGPoint) {
+        model.addToggleNode(at: position)
+    }
+    
+    func addChild(to parentID: NodeID) {
+        model.addChild(to: parentID)
+    }
+    
+    func clearGraph() {
+        model.clearGraph()
+    }
+    
+    func pauseSimulation() {
+        model.pauseSimulation()
+    }
+    
+    func resumeSimulation() {
+        model.resumeSimulation()
+    }
+    
+    // New: Debounced resume with app state check
+    func resumeSimulationAfterDelay() {
+        resumeTimer?.invalidate()
+        resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            guard let self = self else { return }
+            if WKApplication.shared().applicationState == .active {
+                self.model.resumeSimulation()
+            }
+        }
+    }
+    
+    func handleTap() {  // Call this before/after selection in gesture
+        model.pauseSimulation()
+        resumeSimulationAfterDelay()  // Use debounced method
+    }
+    
+    func setSelectedNode(_ id: UUID?) {
+        selectedNodeID = id
+        focusState = id.map { .node($0) } ?? .graph
+        objectWillChange.send()
+    }
+
+    func setSelectedEdge(_ id: UUID?) {
+        selectedEdgeID = id
+        focusState = id.map { .edge($0) } ?? .graph
+        objectWillChange.send()
+    }
+}
+</string>
+				<key>leading</key>
+				<string></string>
+				<key>trailing</key>
+				<string></string>
+			</dict>
+			<key>title</key>
+			<string>Error: Value of type 'GraphModel' has no member 'loadGraph'</string>
+			<key>type</key>
+			<string>bookmark</string>
+		</dict>
+		<dict>
+			<key>destination</key>
+			<dict>
+				<key>location-parameters</key>
+				<dict>
+					<key>EndingColumnNumber</key>
+					<string>0</string>
+					<key>EndingLineNumber</key>
+					<string>261</string>
+					<key>StartingColumnNumber</key>
+					<string>0</string>
+					<key>StartingLineNumber</key>
+					<string>0</string>
+					<key>Timestamp</key>
+					<string>777583699.420815</string>
+				</dict>
+				<key>rebasable-url</key>
+				<dict>
+					<key>base</key>
+					<string>workspace</string>
+					<key>payload</key>
+					<dict>
+						<key>relative-path</key>
+						<string>GraphEditorWatch/Views/ContentView.swift</string>
+					</dict>
+				</dict>
+			</dict>
+			<key>text-context</key>
+			<dict>
+				<key>focused</key>
+				<string>//  ContentView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/1/25.
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+import Foundation
+import CoreGraphics  // For CGRect in clampOffset
+
+struct ViewSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -&gt; CGSize) {
+        value = nextValue()
+    }
+}
+
+struct NodeWrapper: Equatable {
+    var node: (any NodeProtocol)?
+    static func == (lhs: NodeWrapper, rhs: NodeWrapper) -&gt; Bool {
+        lhs.node?.id == rhs.node?.id
+    }
+}
+
+struct InnerViewConfig {
+    let geo: GeometryProxy
+    let viewModel: GraphViewModel
+    let zoomScale: Binding&lt;CGFloat&gt;
+    let offset: Binding&lt;CGSize&gt;
+    let draggedNode: Binding&lt;NodeWrapper&gt;
+    let dragOffset: Binding&lt;CGPoint&gt;
+    let potentialEdgeTarget: Binding&lt;NodeWrapper&gt;
+    let panStartOffset: Binding&lt;CGSize?&gt;
+    let showMenu: Binding&lt;Bool&gt;
+    let showOverlays: Binding&lt;Bool&gt;
+    let maxZoom: CGFloat
+    let crownPosition: Binding&lt;Double&gt;
+    let updateZoomRangesHandler: () -&gt; Void
+    let selectedNodeID: Binding&lt;NodeID?&gt;
+    let selectedEdgeID: Binding&lt;UUID?&gt;
+    let canvasFocus: FocusState&lt;Bool&gt;.Binding  // Non-optional
+    let onCenterGraph: () -&gt; Void
+}
+
+struct ContentView: View {
+    @StateObject var viewModel: GraphViewModel
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
+    @State private var dragOffset: CGPoint = .zero
+    @State private var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
+    @State private var panStartOffset: CGSize? = nil
+    @State private var showMenu: Bool = false
+    @State private var showOverlays = false
+    @State private var minZoom: CGFloat = 0.1
+    @State private var maxZoom: CGFloat = 2.5
+    @State private var crownPosition: Double = 0.5
+    @State private var ignoreNextCrownChange: Bool = false
+    @State private var isZooming: Bool = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var previousCrownPosition: Double = 0.5
+    @State private var clampTimer: Timer?
+    @State private var resumeTimer: Timer? = nil
+    @State private var logOffsetChanges = true
+    @State private var isPanning: Bool = false
+    @State private var zoomTimer: Timer? = nil
+    @State private var isLoaded: Bool = false
+    @State private var previousSelection: (NodeID?, UUID?) = (nil, nil)
+    @State private var viewSize: CGSize = .zero
+    @State private var previousZoomScale: CGFloat = 1.0
+    @State private var selectedNodeID: NodeID?  // &lt;-- Add this if missing
+        @State private var selectedEdgeID: UUID?    // &lt;-- Add this if missing
+    @FocusState private var isCanvasFocused: Bool
+    
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                InnerView(config: InnerViewConfig(
+                    geo: geo,
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    showOverlays: $showOverlays,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    updateZoomRangesHandler: onUpdateZoomRanges,
+                    selectedNodeID: $viewModel.selectedNodeID,
+                    selectedEdgeID: $viewModel.selectedEdgeID,
+                    canvasFocus: $isCanvasFocused,
+                    onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
+                ))
+            }
+        }
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .onChange(of: crownPosition) { newValue in
+            let delta = (newValue - previousCrownPosition) * 2.0
+            let newZoom = zoomScale * (1.0 + delta)
+            zoomScale = newZoom.clamped(to: minZoom...maxZoom)
+            
+            switch viewModel.focusState {
+            case .graph:
+                break
+            case .node(let id):
+                if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                    recenterOn(position: node.position)
+                }
+            case .edge(let id):
+                if let edge = viewModel.model.edges.first(where: { $0.id == id }),
+                   let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                   let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                    recenterOn(position: midpoint)
+                }
+            case .menu:
+                break
+            }
+            previousCrownPosition = newValue
+        }
+        .onChange(of: viewModel.focusState) { newState in
+            WKInterfaceDevice.current().play(.click)
+        }
+        .onChange(of: showMenu) { newValue in
+            print("Show menu changed to \(newValue)")
+            viewModel.focusState = newValue ? .menu : .graph
+            if !newValue {
+                isCanvasFocused = true
+            }
+        }
+        // In ContentView.swift (.onAppear block)
+        .onAppear {
+            do {
+                if let state = try? viewModel.model.loadViewState() {
+                    offset = CGSize(width: state.offset.x, height: state.offset.y)  // &lt;-- Convert CGPoint to CGSize
+                    zoomScale = state.zoomScale
+                    selectedNodeID = state.selectedNodeID
+                    selectedEdgeID = state.selectedEdgeID
+                }
+            } catch {
+                print("Failed to load view state: \(error)")
+            }
+            onUpdateZoomRanges()
+            isLoaded = true
+            recenterOn(position: viewModel.effectiveCentroid)
+            viewModel.model.startSimulation()
+            isCanvasFocused = true
+        }
+        .onChange(of: zoomScale) { newValue in
+            if abs(newValue - previousZoomScale) &gt; 0.01 {
+                previousZoomScale = newValue
+                viewModel.model.isSimulating = false
+                viewModel.model.stopSimulation()
+                zoomTimer?.invalidate()
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                    isZooming = false
+                    viewModel.model.isSimulating = true
+                    viewModel.model.startSimulation()
+                }
+            }
+        }
+        .onChange(of: showMenu) { newValue in
+            print("Show menu changed to \(newValue)")
+            if !newValue {
+                isCanvasFocused = true
+            }
+        }
+        .onChange(of: isCanvasFocused) { newValue in
+            print("Canvas focus changed to \(newValue)")
+        }
+    }
+    
+    private func recenterOn(position: CGPoint) {
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let newOffset = CGSize(width: viewCenter.x - position.x * zoomScale, height: viewCenter.y - position.y * zoomScale)
+        offset = clampOffset(newOffset)
+    }
+    
+    private func clampOffset(_ proposedOffset: CGSize) -&gt; CGSize {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let scaledWidth = graphBounds.width * zoomScale
+        let scaledHeight = graphBounds.height * zoomScale
+        let maxX = max(0, (scaledWidth - viewSize.width) / 2)
+        let maxY = max(0, (scaledHeight - viewSize.height) / 2)
+        return CGSize(width: proposedOffset.width.clamped(to: -maxX...maxX), height: proposedOffset.height.clamped(to: -maxY...maxY))
+    }
+    
+    private func onUpdateZoomRanges() {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let fitScaleWidth = viewSize.width / graphBounds.width
+        let fitScaleHeight = viewSize.height / graphBounds.height
+        minZoom = min(fitScaleWidth, fitScaleHeight) * 0.5
+        maxZoom = max(fitScaleWidth, fitScaleHeight) * 3.0
+    }
+    
+    // Add other private functions if needed
+}
+
+extension CGFloat {
+    func clamped(to range: ClosedRange&lt;CGFloat&gt;) -&gt; CGFloat {
+        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
+}
+
+// If in #Preview (update the entire preview):
+#Preview {
+    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
+    ContentView(viewModel: mockViewModel)  // &lt;-- If ContentView now takes viewModel, add it here too (see next fix)
+}
+
+struct InnerView: View {
+    let config: InnerViewConfig
+    
+    var body: some View {
+        let draggedNodeBinding = Binding&lt;(any NodeProtocol)?&gt;(
+            get: { config.draggedNode.wrappedValue.node },
+            set: { config.draggedNode.wrappedValue = NodeWrapper(node: $0) }
+        )
+        let potentialEdgeTargetBinding = Binding&lt;(any NodeProtocol)?&gt;(
+            get: { config.potentialEdgeTarget.wrappedValue.node },
+            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
+        )
+        
+        let canvasView: some View = GraphCanvasView(
+            viewModel: config.viewModel,
+            zoomScale: config.zoomScale,
+            offset: config.offset,
+            draggedNode: draggedNodeBinding,
+            dragOffset: config.dragOffset,
+            potentialEdgeTarget: potentialEdgeTargetBinding,
+            selectedNodeID: config.selectedNodeID,
+            viewSize: config.geo.size,
+            panStartOffset: config.panStartOffset,
+            showMenu: config.showMenu,
+            maxZoom: config.maxZoom,
+            crownPosition: config.crownPosition,
+            onUpdateZoomRanges: config.updateZoomRangesHandler,
+            selectedEdgeID: config.selectedEdgeID,
+            showOverlays: config.showOverlays
+        )
+        .accessibilityIdentifier("GraphCanvas")
+        .focused(config.canvasFocus)
+        .focusable(true)
+
+        if config.showMenu.wrappedValue {
+            MenuView(
+                viewModel: config.viewModel,
+                showOverlays: config.showOverlays,
+                showMenu: config.showMenu,
+                onCenterGraph: config.onCenterGraph
+            )
+            .navigationTitle("Menu")
+        } else {
+            canvasView
+        }
+    }
+}
+</string>
+				<key>leading</key>
+				<string></string>
+				<key>trailing</key>
+				<string></string>
+			</dict>
+			<key>title</key>
+			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
+			<key>type</key>
+			<string>bookmark</string>
+		</dict>
+		<dict>
+			<key>destination</key>
+			<dict>
+				<key>location-parameters</key>
+				<dict>
+					<key>EndingColumnNumber</key>
+					<string>0</string>
+					<key>EndingLineNumber</key>
+					<string>261</string>
+					<key>StartingColumnNumber</key>
+					<string>0</string>
+					<key>StartingLineNumber</key>
+					<string>0</string>
+					<key>Timestamp</key>
+					<string>777583699.4208339</string>
+				</dict>
+				<key>rebasable-url</key>
+				<dict>
+					<key>base</key>
+					<string>workspace</string>
+					<key>payload</key>
+					<dict>
+						<key>relative-path</key>
+						<string>GraphEditorWatch/Views/ContentView.swift</string>
+					</dict>
+				</dict>
+			</dict>
+			<key>text-context</key>
+			<dict>
+				<key>focused</key>
+				<string>//  ContentView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/1/25.
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+import Foundation
+import CoreGraphics  // For CGRect in clampOffset
+
+struct ViewSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -&gt; CGSize) {
+        value = nextValue()
+    }
+}
+
+struct NodeWrapper: Equatable {
+    var node: (any NodeProtocol)?
+    static func == (lhs: NodeWrapper, rhs: NodeWrapper) -&gt; Bool {
+        lhs.node?.id == rhs.node?.id
+    }
+}
+
+struct InnerViewConfig {
+    let geo: GeometryProxy
+    let viewModel: GraphViewModel
+    let zoomScale: Binding&lt;CGFloat&gt;
+    let offset: Binding&lt;CGSize&gt;
+    let draggedNode: Binding&lt;NodeWrapper&gt;
+    let dragOffset: Binding&lt;CGPoint&gt;
+    let potentialEdgeTarget: Binding&lt;NodeWrapper&gt;
+    let panStartOffset: Binding&lt;CGSize?&gt;
+    let showMenu: Binding&lt;Bool&gt;
+    let showOverlays: Binding&lt;Bool&gt;
+    let maxZoom: CGFloat
+    let crownPosition: Binding&lt;Double&gt;
+    let updateZoomRangesHandler: () -&gt; Void
+    let selectedNodeID: Binding&lt;NodeID?&gt;
+    let selectedEdgeID: Binding&lt;UUID?&gt;
+    let canvasFocus: FocusState&lt;Bool&gt;.Binding  // Non-optional
+    let onCenterGraph: () -&gt; Void
+}
+
+struct ContentView: View {
+    @StateObject var viewModel: GraphViewModel
+    @State private var zoomScale: CGFloat = 1.0
+    @State private var offset: CGSize = .zero
+    @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
+    @State private var dragOffset: CGPoint = .zero
+    @State private var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
+    @State private var panStartOffset: CGSize? = nil
+    @State private var showMenu: Bool = false
+    @State private var showOverlays = false
+    @State private var minZoom: CGFloat = 0.1
+    @State private var maxZoom: CGFloat = 2.5
+    @State private var crownPosition: Double = 0.5
+    @State private var ignoreNextCrownChange: Bool = false
+    @State private var isZooming: Bool = false
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var previousCrownPosition: Double = 0.5
+    @State private var clampTimer: Timer?
+    @State private var resumeTimer: Timer? = nil
+    @State private var logOffsetChanges = true
+    @State private var isPanning: Bool = false
+    @State private var zoomTimer: Timer? = nil
+    @State private var isLoaded: Bool = false
+    @State private var previousSelection: (NodeID?, UUID?) = (nil, nil)
+    @State private var viewSize: CGSize = .zero
+    @State private var previousZoomScale: CGFloat = 1.0
+    @State private var selectedNodeID: NodeID?  // &lt;-- Add this if missing
+        @State private var selectedEdgeID: UUID?    // &lt;-- Add this if missing
+    @FocusState private var isCanvasFocused: Bool
+    
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                InnerView(config: InnerViewConfig(
+                    geo: geo,
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    showOverlays: $showOverlays,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    updateZoomRangesHandler: onUpdateZoomRanges,
+                    selectedNodeID: $viewModel.selectedNodeID,
+                    selectedEdgeID: $viewModel.selectedEdgeID,
+                    canvasFocus: $isCanvasFocused,
+                    onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
+                ))
+            }
+        }
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .onChange(of: crownPosition) { newValue in
+            let delta = (newValue - previousCrownPosition) * 2.0
+            let newZoom = zoomScale * (1.0 + delta)
+            zoomScale = newZoom.clamped(to: minZoom...maxZoom)
+            
+            switch viewModel.focusState {
+            case .graph:
+                break
+            case .node(let id):
+                if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                    recenterOn(position: node.position)
+                }
+            case .edge(let id):
+                if let edge = viewModel.model.edges.first(where: { $0.id == id }),
+                   let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                   let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                    let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                    recenterOn(position: midpoint)
+                }
+            case .menu:
+                break
+            }
+            previousCrownPosition = newValue
+        }
+        .onChange(of: viewModel.focusState) { newState in
+            WKInterfaceDevice.current().play(.click)
+        }
+        .onChange(of: showMenu) { newValue in
+            print("Show menu changed to \(newValue)")
+            viewModel.focusState = newValue ? .menu : .graph
+            if !newValue {
+                isCanvasFocused = true
+            }
+        }
+        // In ContentView.swift (.onAppear block)
+        .onAppear {
+            do {
+                if let state = try? viewModel.model.loadViewState() {
+                    offset = CGSize(width: state.offset.x, height: state.offset.y)  // &lt;-- Convert CGPoint to CGSize
+                    zoomScale = state.zoomScale
+                    selectedNodeID = state.selectedNodeID
+                    selectedEdgeID = state.selectedEdgeID
+                }
+            } catch {
+                print("Failed to load view state: \(error)")
+            }
+            onUpdateZoomRanges()
+            isLoaded = true
+            recenterOn(position: viewModel.effectiveCentroid)
+            viewModel.model.startSimulation()
+            isCanvasFocused = true
+        }
+        .onChange(of: zoomScale) { newValue in
+            if abs(newValue - previousZoomScale) &gt; 0.01 {
+                previousZoomScale = newValue
+                viewModel.model.isSimulating = false
+                viewModel.model.stopSimulation()
+                zoomTimer?.invalidate()
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                    isZooming = false
+                    viewModel.model.isSimulating = true
+                    viewModel.model.startSimulation()
+                }
+            }
+        }
+        .onChange(of: showMenu) { newValue in
+            print("Show menu changed to \(newValue)")
+            if !newValue {
+                isCanvasFocused = true
+            }
+        }
+        .onChange(of: isCanvasFocused) { newValue in
+            print("Canvas focus changed to \(newValue)")
+        }
+    }
+    
+    private func recenterOn(position: CGPoint) {
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let newOffset = CGSize(width: viewCenter.x - position.x * zoomScale, height: viewCenter.y - position.y * zoomScale)
+        offset = clampOffset(newOffset)
+    }
+    
+    private func clampOffset(_ proposedOffset: CGSize) -&gt; CGSize {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let scaledWidth = graphBounds.width * zoomScale
+        let scaledHeight = graphBounds.height * zoomScale
+        let maxX = max(0, (scaledWidth - viewSize.width) / 2)
+        let maxY = max(0, (scaledHeight - viewSize.height) / 2)
+        return CGSize(width: proposedOffset.width.clamped(to: -maxX...maxX), height: proposedOffset.height.clamped(to: -maxY...maxY))
+    }
+    
+    private func onUpdateZoomRanges() {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let fitScaleWidth = viewSize.width / graphBounds.width
+        let fitScaleHeight = viewSize.height / graphBounds.height
+        minZoom = min(fitScaleWidth, fitScaleHeight) * 0.5
+        maxZoom = max(fitScaleWidth, fitScaleHeight) * 3.0
+    }
+    
+    // Add other private functions if needed
+}
+
+extension CGFloat {
+    func clamped(to range: ClosedRange&lt;CGFloat&gt;) -&gt; CGFloat {
+        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
+}
+
+// If in #Preview (update the entire preview):
+#Preview {
+    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
+    ContentView(viewModel: mockViewModel)  // &lt;-- If ContentView now takes viewModel, add it here too (see next fix)
+}
+
+struct InnerView: View {
+    let config: InnerViewConfig
+    
+    var body: some View {
+        let draggedNodeBinding = Binding&lt;(any NodeProtocol)?&gt;(
+            get: { config.draggedNode.wrappedValue.node },
+            set: { config.draggedNode.wrappedValue = NodeWrapper(node: $0) }
+        )
+        let potentialEdgeTargetBinding = Binding&lt;(any NodeProtocol)?&gt;(
+            get: { config.potentialEdgeTarget.wrappedValue.node },
+            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
+        )
+        
+        let canvasView: some View = GraphCanvasView(
+            viewModel: config.viewModel,
+            zoomScale: config.zoomScale,
+            offset: config.offset,
+            draggedNode: draggedNodeBinding,
+            dragOffset: config.dragOffset,
+            potentialEdgeTarget: potentialEdgeTargetBinding,
+            selectedNodeID: config.selectedNodeID,
+            viewSize: config.geo.size,
+            panStartOffset: config.panStartOffset,
+            showMenu: config.showMenu,
+            maxZoom: config.maxZoom,
+            crownPosition: config.crownPosition,
+            onUpdateZoomRanges: config.updateZoomRangesHandler,
+            selectedEdgeID: config.selectedEdgeID,
+            showOverlays: config.showOverlays
+        )
+        .accessibilityIdentifier("GraphCanvas")
+        .focused(config.canvasFocus)
+        .focusable(true)
+
+        if config.showMenu.wrappedValue {
+            MenuView(
+                viewModel: config.viewModel,
+                showOverlays: config.showOverlays,
+                showMenu: config.showMenu,
+                onCenterGraph: config.onCenterGraph
+            )
+            .navigationTitle("Menu")
+        } else {
+            canvasView
+        }
+    }
+}
+</string>
+				<key>leading</key>
+				<string></string>
+				<key>trailing</key>
+				<string></string>
+			</dict>
+			<key>title</key>
+			<string>Error: Missing argument for parameter 'viewModel' in call</string>
+			<key>type</key>
+			<string>bookmark</string>
+		</dict>
+		<dict>
+			<key>destination</key>
+			<dict>
+				<key>location-parameters</key>
+				<dict>
+					<key>EndingColumnNumber</key>
+					<string>0</string>
+					<key>EndingLineNumber</key>
+					<string>23</string>
+					<key>StartingColumnNumber</key>
+					<string>0</string>
+					<key>StartingLineNumber</key>
+					<string>23</string>
+					<key>Timestamp</key>
+					<string>777583147.29098</string>
+				</dict>
+				<key>rebasable-url</key>
+				<dict>
+					<key>base</key>
+					<string>workspace</string>
+					<key>payload</key>
+					<dict>
+						<key>relative-path</key>
+						<string>GraphEditorWatch/GraphEditorWatch.swift</string>
+					</dict>
+				</dict>
+			</dict>
+			<key>text-context</key>
+			<dict>
+				<key>focused</key>
+				<string></string>
+				<key>leading</key>
+				<string>    }
+}
+</string>
+				<key>trailing</key>
+				<string></string>
+			</dict>
+			<key>title</key>
+			<string>Missing argument for parameter 'viewModel' in call</string>
+			<key>type</key>
+			<string>bookmark</string>
+		</dict>
+	</array>
+</dict>
+</plist>

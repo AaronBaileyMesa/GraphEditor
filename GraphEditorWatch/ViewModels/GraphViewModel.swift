@@ -44,15 +44,15 @@ class GraphViewModel: ObservableObject {
         return visibleNodes.centroid() ?? .zero
     }
     
-    // New: Enum for focus state
-        enum AppFocusState {
-            case graph
-            case node(UUID)
-            case edge(UUID)
-            case menu
-        }
+    // New: Enum for focus state, now Equatable
+    enum AppFocusState: Equatable {
+        case graph
+        case node(UUID)
+        case edge(UUID)
+        case menu
+    }
 
-        @Published var focusState: AppFocusState = .graph  // New
+    @Published var focusState: AppFocusState = .graph  // New
     
     init(model: GraphModel) {
         self.model = model
@@ -74,38 +74,55 @@ class GraphViewModel: ObservableObject {
     // New method to save (call from views)
     func saveViewState() {
         saveTimer?.invalidate()
-        saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             guard let self = self else { return }
-            print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")  // Optional debug
-            try? self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
+            do {
+                try self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
+                print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")
+            } catch {
+                print("Failed to save view state: \(error)")
+            }
         }
     }
     
-    // Added: Reloads graph data from storage (mirrors init logic)
-    func loadGraph() {
+    // New method to load graph
+    private func loadGraph() {
         do {
-            try model.loadFromStorage()  // Use public wrapper (avoids private 'storage' access)
+            try model.loadFromStorage()
+            model.startSimulation()
         } catch {
-            print("Load graph failed: \(error.localizedDescription)")  // Or log as in model
+            print("Failed to load graph: \(error)")
         }
-        objectWillChange.send()
     }
     
-    // Added: Loads and applies view state (extracted from original init)
-    func loadViewState() {
-        if let state = try? model.loadViewState() {
-            print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
-            self.offset = state.offset
-            self.zoomScale = state.zoomScale
-            self.selectedNodeID = state.selectedNodeID
-            self.selectedEdgeID = state.selectedEdgeID
-            self.focusState = selectedNodeID != nil ? .node(selectedNodeID!) : (selectedEdgeID != nil ? .edge(selectedEdgeID!) : .graph)
-        } else {
+    // New method to load view state
+    private func loadViewState() {
+        do {
+            if let state = try model.loadViewState() {
+                self.offset = state.offset
+                self.zoomScale = state.zoomScale
+                self.selectedNodeID = state.selectedNodeID
+                self.selectedEdgeID = state.selectedEdgeID
+                print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
+                if let loadedID = state.selectedNodeID {
+                    print("Loaded ID: \(loadedID.uuidString), Node exists? \(model.nodes.contains { $0.id == loadedID })")
+                }
+            } else {
                 self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
             }
             self.objectWillChange.send()
+        } catch {
+            print("Failed to load view state: \(error)")
+        }
         
-        print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
+        // After loading IDs, set focusState
+        if let id = selectedNodeID {
+            focusState = .node(id)
+        } else if let id = selectedEdgeID {
+            focusState = .edge(id)
+        } else {
+            focusState = .graph
+        }
     }
     
     deinit {
@@ -184,14 +201,14 @@ class GraphViewModel: ObservableObject {
     }
     
     func setSelectedNode(_ id: UUID?) {
-            selectedNodeID = id
-            focusState = id.map { .node($0) } ?? .graph
-            objectWillChange.send()
-        }
+        selectedNodeID = id
+        focusState = id.map { .node($0) } ?? .graph
+        objectWillChange.send()
+    }
 
-        func setSelectedEdge(_ id: UUID?) {
-            selectedEdgeID = id
-            focusState = id.map { .edge($0) } ?? .graph
-            objectWillChange.send()
-        }
+    func setSelectedEdge(_ id: UUID?) {
+        selectedEdgeID = id
+        focusState = id.map { .edge($0) } ?? .graph
+        objectWillChange.send()
+    }
 }
