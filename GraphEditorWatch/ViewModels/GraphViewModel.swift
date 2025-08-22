@@ -14,8 +14,8 @@ class GraphViewModel: ObservableObject {
     @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
     @Published var offset: CGPoint = .zero
     @Published var zoomScale: CGFloat = 1.0
-    private var saveTimer: Timer? = nil
     
+    private var saveTimer: Timer? = nil
     private var cancellable: AnyCancellable?
     
     var canUndo: Bool {
@@ -43,6 +43,16 @@ class GraphViewModel: ObservableObject {
         }
         return visibleNodes.centroid() ?? .zero
     }
+    
+    // New: Enum for focus state
+        enum AppFocusState {
+            case graph
+            case node(UUID)
+            case edge(UUID)
+            case menu
+        }
+
+        @Published var focusState: AppFocusState = .graph  // New
     
     init(model: GraphModel) {
         self.model = model
@@ -89,6 +99,7 @@ class GraphViewModel: ObservableObject {
             self.zoomScale = state.zoomScale
             self.selectedNodeID = state.selectedNodeID
             self.selectedEdgeID = state.selectedEdgeID
+            self.focusState = selectedNodeID != nil ? .node(selectedNodeID!) : (selectedEdgeID != nil ? .edge(selectedEdgeID!) : .graph)
         } else {
                 self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
             }
@@ -171,4 +182,16 @@ class GraphViewModel: ObservableObject {
         model.pauseSimulation()
         resumeSimulationAfterDelay()  // Use debounced method
     }
+    
+    func setSelectedNode(_ id: UUID?) {
+            selectedNodeID = id
+            focusState = id.map { .node($0) } ?? .graph
+            objectWillChange.send()
+        }
+
+        func setSelectedEdge(_ id: UUID?) {
+            selectedEdgeID = id
+            focusState = id.map { .edge($0) } ?? .graph
+            objectWillChange.send()
+        }
 }
