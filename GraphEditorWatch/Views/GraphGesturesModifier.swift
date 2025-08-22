@@ -35,11 +35,8 @@ struct GraphGesturesModifier: ViewModifier {
     
     
     private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
-        guard zoomScale > 0 else {
-            print("Warning: Invalid zoomScale (\(zoomScale)) in screenToModel—returning .zero")
-            return .zero  // Fallback to avoid crashes; adjust as needed
-        }
-        
+        guard zoomScale > 0 else { return .zero }
+
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let effectiveCentroid = focalPointForCentering()
@@ -170,13 +167,14 @@ struct GraphGesturesModifier: ViewModifier {
                 let dragDistance = hypot(value.translation.width, value.translation.height)
                 let tapModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
                 
-                if dragDistance < Constants.App.tapThreshold {
-                    print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
-                    
-                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
-                        print("Node hit detected with tightened radius.")
-                        selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
-                        selectedEdgeID = nil
+             
+                    if dragDistance < Constants.App.tapThreshold {
+                        if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
+                            let updatedNode = hitNode.handlingTap()  // Toggle if applicable
+                            viewModel.model.updateNode(updatedNode)
+                            selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
+                            selectedEdgeID = nil
+                            print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
                         WKInterfaceDevice.current().play(.click)
                     } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),

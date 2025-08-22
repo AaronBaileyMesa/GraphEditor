@@ -89,8 +89,10 @@ class GraphViewModel: ObservableObject {
             self.zoomScale = state.zoomScale
             self.selectedNodeID = state.selectedNodeID
             self.selectedEdgeID = state.selectedEdgeID
-            self.objectWillChange.send()  // Refresh views with loaded selection
-        }
+        } else {
+                self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
+            }
+            self.objectWillChange.send()
         
         print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
     }

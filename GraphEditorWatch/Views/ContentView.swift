@@ -9,6 +9,13 @@ import GraphEditorShared
 import Foundation
 import CoreGraphics  // For CGRect in clampOffset
 
+struct ViewSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
 struct NodeWrapper: Equatable {
     var node: (any NodeProtocol)?
     static func == (lhs: NodeWrapper, rhs: NodeWrapper) -> Bool {
@@ -86,10 +93,16 @@ struct ContentView: View {
     
     private func onUpdateZoomRanges() {
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let contentWidth = graphBounds.width + Constants.App.contentPadding
-        let contentHeight = graphBounds.height + Constants.App.contentPadding
+        let contentWidth = graphBounds.width + 2 * Constants.App.contentPadding  // Add padding for margins
+        let contentHeight = graphBounds.height + 2 * Constants.App.contentPadding
         minZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
         maxZoom = Constants.App.maxZoom
+        
+        // New: Auto-fit if not loaded or zoom is default (integrates with saved state)
+        if !isLoaded || zoomScale == 1.0 {
+            zoomScale = min(minZoom * 1.1, maxZoom)  // Slight buffer to avoid over-tight fit
+            clampOffset(animate: false)  // Center without animation on init
+        }
     }
     
     private func clampOffset(animate: Bool = true) {
@@ -131,22 +144,15 @@ struct ContentView: View {
     
     var body: some View {
         GeometryReader { geo in
+            // Remove: let _ = { self.viewSize = geo.size }()
             let g1 = (geo: geo, viewModel: viewModel)
-            
             let g2 = (zoomScale: $zoomScale, offset: $offset)
-            
             let g3 = (draggedNode: $draggedNode, dragOffset: $dragOffset)
-            
             let g4 = (potentialEdgeTarget: $potentialEdgeTarget, panStartOffset: $panStartOffset)
-            
             let g5 = (showMenu: $showMenu, showOverlays: $showOverlays)
-            
             let g6 = (maxZoom: maxZoom, crownPosition: $crownPosition)
-            
             let g7 = (updateZoomRangesHandler: { onUpdateZoomRanges() }, selectedNodeID: $viewModel.selectedNodeID)
-            
             let g8 = (selectedEdgeID: $viewModel.selectedEdgeID, canvasFocus: $isCanvasFocused)
-            
             let g9 = {
                 recenterOn(position: viewModel.effectiveCentroid)
                 clampOffset()
@@ -173,10 +179,61 @@ struct ContentView: View {
             )
             
             InnerView(config: config)
+                .preference(key: ViewSizeKey.self, value: geo.size)  // Pass size via preference
         }
+        .ignoresSafeArea(.all, edges: .all)
+        .onPreferenceChange(ViewSizeKey.self) { newSize in
+            viewSize = newSize  // Safe: Runs after view commit
+        }
+        .onAppear {
+            viewModel.loadViewState()
+            onUpdateZoomRanges()
+            isLoaded = true
+            recenterOn(position: viewModel.effectiveCentroid)
+            viewModel.model.startSimulation()  // Ensure simulation runs on load
+        }
+        .focusable(true)
         .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { newValue in
-            // Existing crown logic...
+            zoomTimer?.invalidate()
+            zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: false) { _ in
+                onUpdateZoomRanges()
+                let zoomSensitivity: CGFloat = 2.0
+                let normalized = CGFloat(newValue)
+                let newZoom = minZoom * pow(maxZoom / minZoom, normalized * zoomSensitivity)
+                let clampedNewZoom = newZoom.clamped(to: minZoom...maxZoom).rounded(to: 3)
+                
+                guard clampedNewZoom > 0.001 else {
+                    zoomScale = minZoom
+                    return
+                }
+                
+                let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                let safeZoom = max(zoomScale, 0.001)
+                let preZoomModelCenter = CGPoint(
+                    x: (screenCenter.x - offset.width) / safeZoom + viewModel.effectiveCentroid.x,
+                    y: (screenCenter.y - offset.height) / safeZoom + viewModel.effectiveCentroid.y
+                )
+                
+                zoomScale = clampedNewZoom
+                
+                let postZoomOffsetX = screenCenter.x - preZoomModelCenter.x * clampedNewZoom + viewModel.effectiveCentroid.x * clampedNewZoom
+                let postZoomOffsetY = screenCenter.y - preZoomModelCenter.y * clampedNewZoom + viewModel.effectiveCentroid.y * clampedNewZoom
+                offset = CGSize(width: postZoomOffsetX.isFinite ? postZoomOffsetX : 0,
+                               height: postZoomOffsetY.isFinite ? postZoomOffsetY : 0)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    clampOffset(animate: true)
+                }
+                
+                isZooming = true
+                zoomTimer?.invalidate()
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                    isZooming = false
+                    viewModel.model.isSimulating = true
+                    viewModel.model.startSimulation()
+                }
+            }
         }
         .onChange(of: showMenu) { newValue in
             print("Show menu changed to \(newValue)")

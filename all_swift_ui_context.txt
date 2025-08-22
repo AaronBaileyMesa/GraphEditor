@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-21 11:51:10
+Current date: 2025-08-22 08:25:10
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -34,7 +34,7 @@ Table of Contents:
 --------------------------------------------------
 File: AttractionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
-Last modified: 2025-08-12 09:46:40
+Last modified: 2025-08-22 08:18:46
 
 Contents:
 //
@@ -85,14 +85,6 @@ struct AttractionCalculator {
         }
         return updatedForces
     }
-
-    private func springForce(from: CGPoint, to: CGPoint, idealLength: CGFloat) -> CGPoint {
-        let dx = to.x - from.x
-        let dy = to.y - from.y
-        let distance = max(hypot(dx, dy), Constants.Physics.distanceEpsilon)
-        let forceMagnitude = Constants.Physics.stiffness * (distance - idealLength)
-        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
-    }
 }
 --------------------------------------------------
 --------------------------------------------------
@@ -137,7 +129,7 @@ struct CenteringCalculator {
 --------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-08-18 10:51:53
+Last modified: 2025-08-21 17:27:11
 
 Contents:
 //
@@ -174,6 +166,8 @@ public enum Constants {
         public static let hitScreenRadius: CGFloat = 40.0  // Larger for watchOS tap targets
         public static let tapThreshold: CGFloat = 10.0  // Pixels for tap vs. drag distinction
         public static let numZoomLevels: Int = 20  // For crown mapping
+        public static let contentPadding: CGFloat = 50.0  // Padding for graph bounds
+        public static let maxZoom: CGFloat = 2.5  // Maximum zoom level
     }
     
     // Add more enums as needed (e.g., UI, Testing)
@@ -622,7 +616,7 @@ public class GraphModel: ObservableObject {
 --------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-08-18 11:13:36
+Last modified: 2025-08-22 08:19:07
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -688,7 +682,7 @@ class GraphSimulator {
         }
         
         timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
+            guard let self = self, self.getNodes().count >= 5 else { self?.stopSimulation(); return }
             
             DispatchQueue.global(qos: .userInitiated).async {
                 let nodes = self.getNodes()
@@ -2260,7 +2254,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-21 11:48:26
+Last modified: 2025-08-22 08:05:35
 
 Contents:
 //  ContentView.swift
@@ -2297,7 +2291,7 @@ struct InnerViewConfig {
     let updateZoomRangesHandler: () -> Void
     let selectedNodeID: Binding<NodeID?>
     let selectedEdgeID: Binding<UUID?>
-    let canvasFocus: FocusState<Bool>.Binding
+    let canvasFocus: FocusState<Bool>.Binding  // Non-optional
     let onCenterGraph: () -> Void
 }
 
@@ -2344,10 +2338,17 @@ struct ContentView: View {
     }
     
     private func adjustedOffset(for newZoom: CGFloat, currentCenter: CGPoint) -> CGSize {
-        let newOffsetX = -(currentCenter.x - viewSize.width / (2 * newZoom)) * newZoom
-        let newOffsetY = -(currentCenter.y - viewSize.height / (2 * newZoom)) * newZoom
-        print("Adjusted offset to preserve center: (\(newOffsetX), \(newOffsetY))")
+        let newOffsetX = -(currentCenter.x * newZoom - viewSize.width / 2)
+        let newOffsetY = -(currentCenter.y * newZoom - viewSize.height / 2)
         return CGSize(width: newOffsetX, height: newOffsetY)
+    }
+    
+    private func onUpdateZoomRanges() {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let contentWidth = graphBounds.width + Constants.App.contentPadding
+        let contentHeight = graphBounds.height + Constants.App.contentPadding
+        minZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
+        maxZoom = Constants.App.maxZoom
     }
     
     private func clampOffset(animate: Bool = true) {
@@ -2357,26 +2358,22 @@ struct ContentView: View {
         let scaledHeight = (graphBounds.height * zoomScale).rounded(to: 2)
         let effectiveViewWidth = viewSize.width
         let effectiveViewHeight = viewSize.height
-        let extraPadding: CGFloat = 200.0  // Large: Allow off-screen panning
+        let extraPadding: CGFloat = 50.0
         let panRoomX = max(0, (scaledWidth - effectiveViewWidth) / 2 + extraPadding)
         let panRoomY = max(0, (scaledHeight - effectiveViewHeight) / 2 + extraPadding)
-        let threshold: CGFloat = 100.0  // Higher: Only clamp if far off
+        let threshold: CGFloat = 50.0  // Only clamp if exceeding by this much
         
         var clampedX = offset.width
         var clampedY = offset.height
         
-        // Skip clamp if zoomed out (allow free pan)
-        if scaledWidth < effectiveViewWidth || scaledHeight < effectiveViewHeight {
-            // Only force center if extremely off (e.g., graph invisible)
-            if abs(offset.width) > effectiveViewWidth || abs(offset.height) > effectiveViewHeight {
-                clampedX = 0
-                clampedY = 0
-            }
-        } else if abs(offset.width) > panRoomX + threshold {
+        if abs(offset.width) > panRoomX + threshold {
             clampedX = offset.width.clamped(to: -panRoomX...panRoomX).rounded(to: 2)
-        } else if abs(offset.height) > panRoomY + threshold {
+        }
+        if abs(offset.height) > panRoomY + threshold {
             clampedY = offset.height.clamped(to: -panRoomY...panRoomY).rounded(to: 2)
         }
+        if scaledWidth <= effectiveViewWidth { clampedX = 0 }
+        if scaledHeight <= effectiveViewHeight { clampedY = 0 }
         
         let newOffset = CGSize(width: clampedX, height: clampedY)
         if animate {
@@ -2390,92 +2387,86 @@ struct ContentView: View {
             print("ClampOffset adjusted from width \(oldOffset.width), height \(oldOffset.height) to width \(offset.width), height \(offset.height). Triggered by deselection? \(viewModel.selectedNodeID == nil && viewModel.selectedEdgeID == nil)")
         }
     }
-    private func onUpdateZoomRanges() {
-        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let padding: CGFloat = 20.0
-        let contentWidth = graphBounds.width + padding * 2
-        let contentHeight = graphBounds.height + padding * 2
-        maxZoom = 2.5
-        zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
-        clampOffset()
-    }
-        
+    
     var body: some View {
         GeometryReader { geo in
-            let config = InnerViewConfig(
-                geo: geo,
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                showOverlays: $showOverlays,
-                maxZoom: maxZoom,
-                crownPosition: $crownPosition,
-                updateZoomRangesHandler: { onUpdateZoomRanges() },
-                selectedNodeID: $viewModel.selectedNodeID,  // Assuming @Published
-                selectedEdgeID: $viewModel.selectedEdgeID,  // Assuming @Published
-                canvasFocus: _isCanvasFocused,
-                onCenterGraph: {
-                    recenterOn(position: viewModel.effectiveCentroid)
-                    clampOffset()
-                }
-            )
-            InnerView(config: config)
-        }
-        .overlay(alignment: .bottom) {
-            Button {
-                showMenu.toggle()
-            } label: {
-                Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
-                    .font(.system(size: 24))
-                    .foregroundColor(.primary)
-                    .frame(width: 44, height: 44)
-                    .background(Color.gray.opacity(0.1))  // Subtle fill; remove for full transparency
-                    .clipShape(Circle())
-                    .contentShape(Circle())  // Circular tappable area
-            }
-            .buttonStyle(.plain)  // Removes default padding/background
-            .padding(.bottom, 8)  // Space from bottom edge
-        }
-        .onAppear {
-            viewSize = WKInterfaceDevice.current().screenBounds.size
-        }
-        .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active {
-                viewModel.resumeSimulationAfterDelay()
-            } else if newPhase == .inactive {
-                viewModel.pauseSimulation()
-            }
-        }
-        .onChange(of: viewModel.model.nodes.count) { _ in
-            onUpdateZoomRanges()
-        }
-        .onChange(of: viewModel.selectedNodeID) { _ in
-            if let id = viewModel.selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
-                recenterOn(position: node.position)
+            let g1 = (geo: geo, viewModel: viewModel)
+            
+            let g2 = (zoomScale: $zoomScale, offset: $offset)
+            
+            let g3 = (draggedNode: $draggedNode, dragOffset: $dragOffset)
+            
+            let g4 = (potentialEdgeTarget: $potentialEdgeTarget, panStartOffset: $panStartOffset)
+            
+            let g5 = (showMenu: $showMenu, showOverlays: $showOverlays)
+            
+            let g6 = (maxZoom: maxZoom, crownPosition: $crownPosition)
+            
+            let g7 = (updateZoomRangesHandler: { onUpdateZoomRanges() }, selectedNodeID: $viewModel.selectedNodeID)
+            
+            let g8 = (selectedEdgeID: $viewModel.selectedEdgeID, canvasFocus: $isCanvasFocused)  // Use $ for binding
+            
+            let g9 = {
+                recenterOn(position: viewModel.effectiveCentroid)
                 clampOffset()
             }
-        }
-        .onChange(of: viewModel.selectedEdgeID) { _ in
-            guard let id = viewModel.selectedEdgeID else { return }
-            guard let edge = viewModel.model.edges.first(where: { $0.id == id }) else { return }
-            guard let from = viewModel.model.nodes.first(where: { $0.id == edge.from }) else { return }
-            guard let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return }
             
-            let mid = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
-            recenterOn(position: mid)
-            clampOffset()
+            let config = InnerViewConfig(
+                geo: g1.geo,
+                viewModel: g1.viewModel,
+                zoomScale: g2.zoomScale,
+                offset: g2.offset,
+                draggedNode: g3.draggedNode,
+                dragOffset: g3.dragOffset,
+                potentialEdgeTarget: g4.potentialEdgeTarget,
+                panStartOffset: g4.panStartOffset,
+                showMenu: g5.showMenu,
+                showOverlays: g5.showOverlays,
+                maxZoom: g6.maxZoom,
+                crownPosition: g6.crownPosition,
+                updateZoomRangesHandler: g7.updateZoomRangesHandler,
+                selectedNodeID: g7.selectedNodeID,
+                selectedEdgeID: g8.selectedEdgeID,
+                canvasFocus: g8.canvasFocus,
+                onCenterGraph: g9
+            )
+            
+            InnerView(config: config)
         }
-        .focusable()
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .low, isContinuous: true, isHapticFeedbackEnabled: true)
-        .ignoresSafeArea()
-        .onAppear {
-            viewSize = WKInterfaceDevice.current().screenBounds.size
-            isCanvasFocused = true  // Force focus on load
+        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .onChange(of: crownPosition) { newValue in
+            zoomTimer?.invalidate()
+            zoomTimer = Timer.scheduledTimer(withTimeInterval: 0.016, repeats: false) { _ in
+                onUpdateZoomRanges()
+                let zoomSensitivity: CGFloat = 2.0
+                let normalized = CGFloat(newValue)
+                let newZoom = minZoom * pow(maxZoom / minZoom, normalized * zoomSensitivity)
+                let clampedNewZoom = newZoom.clamped(to: minZoom...maxZoom).rounded(to: 3)
+                
+                let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                let preZoomModelCenter = CGPoint(
+                    x: (screenCenter.x - offset.width) / zoomScale + viewModel.effectiveCentroid.x,
+                    y: (screenCenter.y - offset.height) / zoomScale + viewModel.effectiveCentroid.y
+                )
+                
+                zoomScale = clampedNewZoom
+                
+                let postZoomOffsetX = screenCenter.x - preZoomModelCenter.x * clampedNewZoom + viewModel.effectiveCentroid.x * clampedNewZoom
+                let postZoomOffsetY = screenCenter.y - preZoomModelCenter.y * clampedNewZoom + viewModel.effectiveCentroid.y * clampedNewZoom
+                offset = CGSize(width: postZoomOffsetX, height: postZoomOffsetY)
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    clampOffset(animate: true)
+                }
+                
+                isZooming = true
+                zoomTimer?.invalidate()
+                zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
+                    isZooming = false
+                    viewModel.model.isSimulating = true
+                    viewModel.model.startSimulation()
+                }
+            }
         }
         .onChange(of: showMenu) { newValue in
             print("Show menu changed to \(newValue)")
@@ -2483,64 +2474,7 @@ struct ContentView: View {
                 isCanvasFocused = true  // Refocus canvas when menu closes
             }
         }
-        .onChange(of: crownPosition) { newValue in
-            print("Crown event received: \(newValue)")
-            if ignoreNextCrownChange {
-                ignoreNextCrownChange = false
-                return
-            }
-            print("Crown position changed to \(newValue). Updating zoom.")
-            onUpdateZoomRanges()  // Ensure min/max are up-to-date
-            
-            // Quantize to discrete levels
-            // Exponential mapping for natural zoom (small rotations = fine control, large = fast zoom)
-            let zoomSensitivity: CGFloat = 2.0  // Adjust: higher = faster zoom per rotation
-            let normalized = CGFloat(newValue)  // 0.0 to 1.0 from crown
-            let newZoom = minZoom * pow(maxZoom / minZoom, normalized * zoomSensitivity)
-            let clampedNewZoom = newZoom.clamped(to: minZoom...maxZoom).rounded(to: 3)
-            
-            // Pause simulation
-            viewModel.model.isSimulating = false
-            viewModel.model.stopSimulation()
-            
-            // Preserve center: Get model point at screen center before zoom
-            let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-            let preZoomModelCenter = CGPoint(
-                x: ((screenCenter.x - offset.width) / zoomScale + viewModel.effectiveCentroid.x).rounded(to: 2),
-                y: ((screenCenter.y - offset.height) / zoomScale + viewModel.effectiveCentroid.y).rounded(to: 2)
-            )
-            
-            // Temporarily set new zoom
-            let oldZoom = zoomScale
-            zoomScale = clampedNewZoom
-            
-            // Adjust offset to keep preZoomModelCenter at screen center
-            let newOffsetX = (screenCenter.x - (preZoomModelCenter.x - viewModel.effectiveCentroid.x) * newZoom).rounded(to: 2)
-            let newOffsetY = (screenCenter.y - (preZoomModelCenter.y - viewModel.effectiveCentroid.y) * newZoom).rounded(to: 2)
-            
-            withAnimation(.easeInOut(duration: 0.25)) {
-                offset = CGSize(width: newOffsetX, height: newOffsetY)
-                zoomScale = newZoom
-            }
-            
-            // Clamp only if significant change, after animation
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                let oldOffset = offset
-                clampOffset()
-                // Skip log/clamp if change is tiny (precision noise)
-                if abs(offset.width - oldOffset.width) < 0.01 && abs(offset.height - oldOffset.height) < 0.01 {
-                    offset = oldOffset  // Revert micro-adjustment
-                }
-            }
-            
-            isZooming = true
-            zoomTimer?.invalidate()
-            zoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in  // Longer debounce
-                isZooming = false
-                viewModel.model.isSimulating = true
-                viewModel.model.startSimulation()
-            }
-        }        .onChange(of: isCanvasFocused) { newValue in
+        .onChange(of: isCanvasFocused) { newValue in
             print("Canvas focus changed to \(newValue)")  // Debug focus state
         }
     }
@@ -2608,7 +2542,7 @@ struct InnerView: View {
 --------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-21 11:05:33
+Last modified: 2025-08-22 08:22:08
 
 Contents:
 import SwiftUI
@@ -2639,16 +2573,6 @@ struct FocusableView<Content: View>: View {
     }
     
 }
-
-/* Remove if possible
-class CrownHandler: NSObject, ObservableObject, WKCrownDelegate {
-    @Published var accumulator: Double = 0.0
-    
-    func crownDidRotate(_ crownSequencer: WKCrownSequencer?, rotationalDelta: Double) {
-        accumulator += Double(rotationalDelta) * 10.0  // Sensitivity; adjust
-    }
-}
-*/
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -2682,369 +2606,143 @@ struct GraphCanvasView: View {
         showMenu: Binding<Bool>,
         maxZoom: CGFloat,
         crownPosition: Binding<Double>,
-        onUpdateZoomRanges: @escaping () -> Void,
+        onUpdateZoomRanges: @escaping() -> Void,
         selectedEdgeID: Binding<UUID?>,
-        showOverlays: Binding<Bool>
+        showOverlays: Binding<Bool>,
+    //let onUpdateZoomRanges: @escaping () -> Void
     ) {
         self.viewModel = viewModel
-        _zoomScale = zoomScale
-        _offset = offset
-        _draggedNode = draggedNode
-        _dragOffset = dragOffset
-        _potentialEdgeTarget = potentialEdgeTarget
-        _selectedNodeID = selectedNodeID
+        self._zoomScale = zoomScale
+        self._offset = offset
+        self._draggedNode = draggedNode
+        self._dragOffset = dragOffset
+        self._potentialEdgeTarget = potentialEdgeTarget
+        self._selectedNodeID = selectedNodeID
         self.viewSize = viewSize
-        _panStartOffset = panStartOffset
-        _showMenu = showMenu
+        self._panStartOffset = panStartOffset
+        self._showMenu = showMenu
         self.maxZoom = maxZoom
-        _crownPosition = crownPosition
+        self._crownPosition = crownPosition
         self.onUpdateZoomRanges = onUpdateZoomRanges
-        _selectedEdgeID = selectedEdgeID
-        _showOverlays = showOverlays
+        self._selectedEdgeID = selectedEdgeID
+        self._showOverlays = showOverlays
     }
     
-    
-    // Define zoomLevels array
-    private let zoomLevels: [CGFloat] = {
-        let minZoom: CGFloat = 0.5
-        let maxZoom: CGFloat = 2.5
-        let steps = Constants.App.numZoomLevels
-        let stepSize = (maxZoom - minZoom) / CGFloat(steps - 1)
-        return (0..<steps).map { minZoom + CGFloat($0) * stepSize }
-    }()
-    
-    // Define simulationBounds
-    private let simulationBounds: CGSize = CGSize(width: 300, height: 300)  // Match PhysicsEngine bounds
-    
-    // Clamp function to cap extreme offsets
-    private func clampOffset(_ offset: CGSize) -> CGSize {
-        let maxOffset: CGFloat = 500.0  // Arbitrary cap; adjust based on graph size
-        return CGSize(
-            width: max(-maxOffset, min(offset.width, maxOffset)),
-            height: max(-maxOffset, min(offset.height, maxOffset))
+    private var boundingBoxOverlay: some View {
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let scaledBounds = CGRect(
+            x: (graphBounds.minX - viewModel.effectiveCentroid.x) * zoomScale + viewSize.width / 2 + offset.width,
+            y: (graphBounds.minY - viewModel.effectiveCentroid.y) * zoomScale + viewSize.height / 2 + offset.height,
+            width: graphBounds.width * zoomScale,
+            height: graphBounds.height * zoomScale
         )
-    }
-    
-    private func displayPosition(for worldPos: CGPoint, effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> CGPoint {
-        let relative = CGPoint(x: worldPos.x - effectiveCentroid.x, y: worldPos.y - effectiveCentroid.y)
-        let scaled = CGPoint(x: relative.x * zoomScale, y: relative.y * zoomScale)
-        return CGPoint(x: scaled.x + viewCenter.x + panOffset.x, y: scaled.y + viewCenter.y + panOffset.y)
-    }
-    
-    private var canvasBase: some View {
-        GeometryReader { geometry in
-            let viewSize = geometry.size
-            let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-            let panOffset = CGPoint(x: offset.width, y: offset.height)
-            let visibleNodes = viewModel.model.visibleNodes()
-            
-            let effectiveCentroid = computeEffectiveCentroid(visibleNodes: visibleNodes)
-            
-            let visibleRect = computeVisibleRect(panOffset: panOffset, effectiveCentroid: effectiveCentroid, viewCenter: viewCenter, viewSize: viewSize)
-            
-            let culledNodes = cullNodes(visibleNodes: visibleNodes, visibleRect: visibleRect)
-            
-            let culledEdges = cullEdges(visibleEdges: viewModel.model.visibleEdges(), culledNodes: culledNodes, visibleRect: visibleRect)
-            
-            ZStack {
-                Circle()
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: min(viewSize.width, viewSize.height) * 0.4,
-                           height: min(viewSize.width, viewSize.height) * 0.4)
-                    
-                    // Render nodes as Views for transitions
-                    ForEach(culledNodes, id: \.id) { node in
-                        let isDragged = draggedNode?.id == node.id
-                        let worldPos = isDragged ? CGPoint(x: node.position.x + dragOffset.x, y: node.position.y + dragOffset.y) : node.position
-                        NodeView(node: node, isSelected: selectedNodeID == node.id, zoomScale: zoomScale)
-                            .position(displayPosition(for: worldPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter))  // Use worldPos
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.1, anchor: .center).combined(with: .opacity),
-                                removal: .opacity
-                            ))
-                            .animation(.easeInOut(duration: 0.3), value: node.id)  // Trigger on appearance/change
-                    }
-                    
-                    // Keep edges in Canvas for performance, but add animation for sync
-                    Canvas { context, _ in
-                        drawEdges(in: context, culledEdges: culledEdges, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                        
-                        if let dragged = draggedNode, let target = potentialEdgeTarget {
-                            let fromPos = CGPoint(x: dragged.position.x + dragOffset.x, y: dragged.position.y + dragOffset.y)
-                            let toPos = target.position
-                            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                            context.stroke(Path { path in
-                                path.move(to: fromDisplay)
-                                path.addLine(to: toDisplay)
-                            }, with: .color(.green), style: StrokeStyle(lineWidth: 2.0, dash: [5.0]))
-                        }
-                    }
-                    .drawingGroup()
-                    .animation(.easeInOut(duration: 0.3), value: culledEdges.map { $0.id })  // Sync animation with edge IDs
-                    
-                    if showOverlays {
-                        overlaysView(visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                    }
-                }
-                .frame(width: geometry.size.width, height: geometry.size.height)
-                .offset(x: offset.width, y: offset.height)
-                .scaleEffect(zoomScale)
-                .offset(x: offset.width, y: offset.height)
-             
-        }
-        .ignoresSafeArea()
-        .onAppear {
-            print("showMenu on appear: \(showMenu)")  // Should print false
-        }
-    }
-    
-    private func computeEffectiveCentroid(visibleNodes: [any NodeProtocol]) -> CGPoint {
-        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-            return selected.position
-        } else if let selectedEdge = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdge }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
-        }
-        return visibleNodes.centroid() ?? .zero
-    }
-    
-    private func computeVisibleRect(panOffset: CGPoint, effectiveCentroid: CGPoint, viewCenter: CGPoint, viewSize: CGSize) -> CGRect {
-        let originX = effectiveCentroid.x + (-viewCenter.x - panOffset.x) / zoomScale
-        let originY = effectiveCentroid.y + (-viewCenter.y - panOffset.y) / zoomScale
-        let worldWidth = viewSize.width / zoomScale
-        let worldHeight = viewSize.height / zoomScale
-        let visibleRect = CGRect(x: originX, y: originY, width: worldWidth, height: worldHeight)
-        
-        let bufferWorld = 50.0 / zoomScale
-        return visibleRect.insetBy(dx: -bufferWorld, dy: -bufferWorld)
-    }
-    
-    private func cullNodes(visibleNodes: [any NodeProtocol], visibleRect: CGRect) -> [any NodeProtocol] {
-        visibleNodes.filter { node in
-            let buffer = node.radius / 2
-            let nodeRectOrigin = CGPoint(x: node.position.x - (node.radius + buffer), y: node.position.y - (node.radius + buffer))
-            let nodeRectSize = CGSize(width: (node.radius + buffer) * 2, height: (node.radius + buffer) * 2)
-            let nodeRect = CGRect(origin: nodeRectOrigin, size: nodeRectSize)
-            return visibleRect.intersects(nodeRect)
-        }
-    }
-    
-    private func cullEdges(visibleEdges: [GraphEdge], culledNodes: [any NodeProtocol], visibleRect: CGRect) -> [GraphEdge] {
-        visibleEdges.filter { edge in
-            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return false }
-            let bufferWorld = 10.0 / zoomScale
-            let minX = min(fromNode.position.x, toNode.position.x) - bufferWorld
-            let minY = min(fromNode.position.y, toNode.position.y) - bufferWorld
-            let width = abs(fromNode.position.x - toNode.position.x) + 2 * bufferWorld
-            let height = abs(fromNode.position.y - toNode.position.y) + 2 * bufferWorld
-            let lineRect = CGRect(x: minX, y: minY, width: width, height: height)
-            return visibleRect.intersects(lineRect)
-        }
-    }
-    
-    private func drawEdges(in context: GraphicsContext, culledEdges: [GraphEdge], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) {
-        var processedEdges = Set<UUID>()  // Avoid duplicate bidirectional draws
-        
-        for edge in culledEdges {
-            if processedEdges.contains(edge.id) { continue }
-            processedEdges.insert(edge.id)
-            
-            guard let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                  let toNode = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { continue }
-            
-            let fromPos = (draggedNode?.id == fromNode.id ? CGPoint(x: fromNode.position.x + dragOffset.x, y: fromNode.position.y + dragOffset.y) : fromNode.position)
-            let toPos = (draggedNode?.id == toNode.id ? CGPoint(x: toNode.position.x + dragOffset.x, y: toNode.position.y + dragOffset.y) : toNode.position)
-            
-            let fromDisplay = displayPosition(for: fromPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-            let toDisplay = displayPosition(for: toPos, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-            
-            let direction = CGPoint(x: toDisplay.x - fromDisplay.x, y: toDisplay.y - fromDisplay.y)
-            let length = hypot(direction.x, direction.y)
-            if length <= 0 { continue }
-            
-            let unitDir = CGPoint(x: direction.x / length, y: direction.y / length)
-            let scaledFromRadius = fromNode.radius * zoomScale + 2  // Slight inset
-            let scaledToRadius = toNode.radius * zoomScale + 2
-            let lineStart = CGPoint(x: fromDisplay.x + unitDir.x * scaledFromRadius, y: fromDisplay.y + unitDir.y * scaledFromRadius)
-            let lineEnd = CGPoint(x: toDisplay.x - unitDir.x * scaledToRadius, y: toDisplay.y - unitDir.y * scaledToRadius)
-            
-            let isSelected = edge.id == selectedEdgeID
-            let lineWidth = isSelected ? 4.0 : 2.0
-            let color = isSelected ? Color.red : Color.blue
-            
-            // Bidirectional check
-            if let reverseEdge = viewModel.model.edges.first(where: { $0.from == edge.to && $0.to == edge.from }) {
-                processedEdges.insert(reverseEdge.id)  // Skip reverse
-                
-                // Draw two curved lines
-                let midPoint = CGPoint(x: (fromDisplay.x + toDisplay.x) / 2, y: (fromDisplay.y + toDisplay.y) / 2)
-                let perpDir = CGPoint(x: -unitDir.y * (8.0 * zoomScale), y: unitDir.x * (8.0 * zoomScale))  // Break up
-                let control1 = CGPoint(x: midPoint.x + perpDir.x, y: midPoint.y + perpDir.y)
-                context.stroke(Path { path in
-                    path.move(to: lineStart)
-                    path.addQuadCurve(to: lineEnd, control: control1)
-                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
-                
-                // Reverse curve (opposite offset)
-                let control2 = CGPoint(x: midPoint.x - perpDir.x, y: midPoint.y - perpDir.y)
-                let revStart = CGPoint(x: toDisplay.x - unitDir.x * scaledToRadius, y: toDisplay.y - unitDir.y * scaledToRadius)
-                let revEnd = CGPoint(x: fromDisplay.x + unitDir.x * scaledFromRadius, y: fromDisplay.y + unitDir.y * scaledFromRadius)
-                let revDir = CGPoint(x: -unitDir.x, y: -unitDir.y)
-                context.stroke(Path { path in
-                    path.move(to: revStart)
-                    path.addQuadCurve(to: revEnd, control: control2)
-                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                drawArrowhead(in: context, at: revEnd, direction: revDir, size: 8.0 * min(zoomScale, 1.0), color: color)
-                if isSelected {
-                    let midpoint = midPoint
-                    let fromLabel = fromNode.label
-                    let toLabel = toNode.label
-                    let edgeLabel = "\(min(fromLabel, toLabel))↔\(max(fromLabel, toLabel))"  // Combined bidirectional label
-                    let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
-                    let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                    context.draw(context.resolve(text), at: midpoint, anchor: .center)
-                }
-            } else {
-                // Single straight line
-                context.stroke(Path { path in
-                    path.move(to: lineStart)
-                    path.addLine(to: lineEnd)
-                }, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineJoin: .round))
-                drawArrowhead(in: context, at: lineEnd, direction: unitDir, size: 8.0 * min(zoomScale, 1.0), color: color)
-            }
-            
-            if isSelected {
-                let midpoint = CGPoint(x: (fromDisplay.x + toDisplay.x) / 2, y: (fromDisplay.y + toDisplay.y) / 2)
-                let edgeLabel = "\(fromNode.label)→\(toNode.label)"
-                let fontSize = max(8.0, 12.0 * zoomScale)  // Min size for readability
-                let text = Text(edgeLabel).foregroundColor(.white).font(.system(size: fontSize))
-                context.draw(context.resolve(text), at: midpoint, anchor: .center)
-            }
-        }
-    }
-    
-    private func drawArrowhead(in context: GraphicsContext, at point: CGPoint, direction: CGPoint, size: CGFloat, color: Color) {
-        let arrowSize = size * min(zoomScale, 1.0)  // Scale with zoom, cap at 1x
-        let perpDir = CGPoint(x: -direction.y, y: direction.x)
-        let arrowTip = point
-        let arrowBase1X = arrowTip.x - direction.x * arrowSize + perpDir.x * (arrowSize / 2)
-        let arrowBase1Y = arrowTip.y - direction.y * arrowSize + perpDir.y * (arrowSize / 2)
-        let arrowBase1 = CGPoint(x: arrowBase1X, y: arrowBase1Y)
-        let arrowBase2X = arrowTip.x - direction.x * arrowSize - perpDir.x * (arrowSize / 2)
-        let arrowBase2Y = arrowTip.y - direction.y * arrowSize - perpDir.y * (arrowSize / 2)
-        let arrowBase2 = CGPoint(x: arrowBase2X, y: arrowBase2Y)
-        
-        let arrowPath = Path { path in
-            path.move(to: arrowTip)
-            path.addLine(to: arrowBase1)
-            path.addLine(to: arrowBase2)
-            path.closeSubpath()
-        }
-        context.fill(arrowPath, with: .color(color), style: FillStyle(antialiased: true))
-    }
-    
-    private func overlaysView(visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, panOffset: CGPoint, viewCenter: CGPoint) -> some View {
-        Group {
-            if !visibleNodes.isEmpty {
-                let modelBBox = viewModel.model.boundingBox()
-                let minDisplay = displayPosition(for: CGPoint(x: modelBBox.minX, y: modelBBox.minY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                let maxDisplay = displayPosition(for: CGPoint(x: modelBBox.maxX, y: modelBBox.maxY), effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                let displayWidth = maxDisplay.x - minDisplay.x
-                let displayHeight = maxDisplay.y - minDisplay.y
-                let displayCenter = CGPoint(x: minDisplay.x + displayWidth / 2, y: minDisplay.y + displayHeight / 2)
-                
-                Rectangle()
-                    .stroke(Color.blue, lineWidth: 1.0)
-                    .frame(width: displayWidth, height: displayHeight)
-                    .position(displayCenter)
-            }
-            
-            if let centroid = visibleNodes.centroid() {
-                let displayPos = displayPosition(for: centroid, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                Circle()
-                    .fill(Color.yellow)
-                    .frame(width: 4, height: 4)
-                    .position(displayPos)
-            }
-            
-            // New: Hierarchy indicators (dashed lines to hidden children)
-            ForEach(viewModel.model.nodes.filter { !$0.isVisible && ($0 as? ToggleNode)?.isExpanded == false }, id: \.id) { hiddenNode in
-                if let parentID = viewModel.model.edges.first(where: { $0.to == hiddenNode.id })?.from,
-                   let parent = viewModel.model.nodes.first(where: { $0.id == parentID }) {
-                    let fromDisplay = displayPosition(for: parent.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                    let toDisplay = displayPosition(for: hiddenNode.position, effectiveCentroid: effectiveCentroid, panOffset: panOffset, viewCenter: viewCenter)
-                    Path { path in
-                        path.move(to: fromDisplay)
-                        path.addLine(to: toDisplay)
-                    }
-                    .stroke(Color.gray.opacity(0.5), style: StrokeStyle(lineWidth: 1.0, dash: [5.0]))
-                }
-            }
-        }
-    }
-    
-    private var interactiveCanvas: some View {
-        canvasBase
+        return Rectangle()
+            .stroke(Color.blue, lineWidth: 2)
+            .frame(width: scaledBounds.width, height: scaledBounds.height)
+            .position(x: scaledBounds.midX, y: scaledBounds.midY)
+            .opacity(0.5)
     }
     
     private var accessibleCanvas: some View {
-        interactiveCanvas
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID, selectedEdgeID: selectedEdgeID))
-            .accessibilityHint("Long press for menu. Tap to select.")
-            .accessibilityChildren {
-                ForEach(viewModel.model.visibleNodes(), id: \.id) { node in
-                    Text("Node \(node.label) at (\(Int(node.position.x)), \(Int(node.position.y)))")
-                        .accessibilityAction(named: "Select") {
-                            selectedNodeID = node.id
-                            WKInterfaceDevice.current().play(.click)
+        ZStack {
+            Canvas { context, size in
+                let visibleNodes = viewModel.model.visibleNodes()
+                let visibleEdges = viewModel.model.visibleEdges()
+                
+                let effectiveCentroid = viewModel.effectiveCentroid
+                
+                // Draw edges first
+                for edge in visibleEdges {
+                    if let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                       let toNode = visibleNodes.first(where: { $0.id == edge.to }) {
+                        let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)
+                        let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)
+                        
+                        let path = Path { path in
+                            path.move(to: fromScreen)
+                            path.addLine(to: toScreen)
                         }
+                        
+                        context.stroke(path, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
+                        
+                        // Arrowhead
+                        let arrowLength: CGFloat = 10
+                        let arrowAngle: CGFloat = .pi / 6
+                        let lineAngle = atan2(toScreen.y - fromScreen.y, toScreen.x - fromScreen.x)
+                        
+                        let arrowPoint1 = CGPoint(
+                            x: toScreen.x - arrowLength * cos(lineAngle - arrowAngle),
+                            y: toScreen.y - arrowLength * sin(lineAngle - arrowAngle)
+                        )
+                        let arrowPoint2 = CGPoint(
+                            x: toScreen.x - arrowLength * cos(lineAngle + arrowAngle),
+                            y: toScreen.y - arrowLength * sin(lineAngle + arrowAngle)
+                        )
+                        
+                        let arrowPath = Path { path in
+                            path.move(to: toScreen)
+                            path.addLine(to: arrowPoint1)
+                            path.move(to: toScreen)
+                            path.addLine(to: arrowPoint2)
+                        }
+                        
+                        context.stroke(arrowPath, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
+                    }
+                }
+                
+                // Draw nodes
+                for node in visibleNodes {
+                    let screenPos = modelToScreen(node.position, effectiveCentroid: effectiveCentroid, size: size)
+                    node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: node.id == selectedNodeID)
+                }
+                
+                // Draw dragged node and potential edge
+                if let dragged = draggedNode {
+                    let draggedScreen = modelToScreen(dragged.position + dragOffset, effectiveCentroid: effectiveCentroid, size: size)
+                    context.fill(Circle().path(in: CGRect(center: draggedScreen, size: CGSize(width: Constants.App.nodeModelRadius * 2, height: Constants.App.nodeModelRadius * 2))), with: .color(.green))
+                    
+                    if let target = potentialEdgeTarget {
+                        let targetScreen = modelToScreen(target.position, effectiveCentroid: effectiveCentroid, size: size)
+                        context.stroke(Line(from: draggedScreen, to: targetScreen).path(in: CGRect(origin: .zero, size: size)), with: .color(.green), lineWidth: 2)
+                    }
                 }
             }
-    }
-    
-    struct AnimatableEdge: Shape {
-        var from: CGPoint
-        var to: CGPoint
-        
-        var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
-            get { AnimatablePair(from.animatableData, to.animatableData) }
-            set {
-                from.animatableData = newValue.first
-                to.animatableData = newValue.second
+            .frame(width: viewSize.width, height: viewSize.height)
+            
+            if showOverlays {
+                boundingBoxOverlay
             }
         }
-        
-        func path(in rect: CGRect) -> Path {
-            var path = Path()
-            path.move(to: from)
-            path.addLine(to: to)
-            return path
-        }
+    }
+    
+    private func modelToScreen(_ modelPos: CGPoint, effectiveCentroid: CGPoint, size: CGSize) -> CGPoint {
+        let viewCenter = CGPoint(x: size.width / 2, y: size.height / 2)
+        let relativePos = modelPos - effectiveCentroid
+        let scaledPos = relativePos * zoomScale
+        return viewCenter + scaledPos + CGPoint(x: offset.width, y: offset.height)
     }
     
     var body: some View {
         Group {
-            accessibleCanvas
-                .modifier(GraphGesturesModifier(
-                    viewModel: viewModel,
-                    zoomScale: $zoomScale,
-                    offset: $offset,
-                    draggedNode: $draggedNode,
-                    dragOffset: $dragOffset,
-                    potentialEdgeTarget: $potentialEdgeTarget,
-                    selectedNodeID: $selectedNodeID,
-                    selectedEdgeID: $selectedEdgeID,
-                    viewSize: viewSize,
-                    panStartOffset: $panStartOffset,
-                    showMenu: $showMenu,
-                    maxZoom: maxZoom,
-                    crownPosition: $crownPosition,
-                    onUpdateZoomRanges: onUpdateZoomRanges
-                ))
+            FocusableView {
+                accessibleCanvas
+            }
+            .modifier(GraphGesturesModifier(
+                viewModel: viewModel,
+                zoomScale: $zoomScale,
+                offset: $offset,
+                draggedNode: $draggedNode,
+                dragOffset: $dragOffset,
+                potentialEdgeTarget: $potentialEdgeTarget,
+                selectedNodeID: $selectedNodeID,
+                selectedEdgeID: $selectedEdgeID,
+                viewSize: viewSize,
+                panStartOffset: $panStartOffset,
+                showMenu: $showMenu,
+                maxZoom: maxZoom,
+                crownPosition: $crownPosition,
+                onUpdateZoomRanges: onUpdateZoomRanges
+            ))
         }
         .onChange(of: selectedNodeID) {
             viewModel.saveViewState()
@@ -3053,6 +2751,26 @@ struct GraphCanvasView: View {
             viewModel.saveViewState()
         }
         .ignoresSafeArea()
+    }
+}
+
+struct Line: Shape, Animatable {
+    var from: CGPoint
+    var to: CGPoint
+    
+    var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
+        get { AnimatablePair(from.animatableData, to.animatableData) }
+        set {
+            from.animatableData = newValue.first
+            to.animatableData = newValue.second
+        }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: to)
+        return path
     }
 }
 
@@ -3078,7 +2796,7 @@ extension CGRect {
 --------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-21 10:41:58
+Last modified: 2025-08-22 08:24:07
 
 Contents:
 //
@@ -3118,11 +2836,8 @@ struct GraphGesturesModifier: ViewModifier {
     
     
     private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
-        guard zoomScale > 0 else {
-            print("Warning: Invalid zoomScale (\(zoomScale)) in screenToModel—returning .zero")
-            return .zero  // Fallback to avoid crashes; adjust as needed
-        }
-        
+        guard zoomScale > 0 else { return .zero }
+
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let effectiveCentroid = focalPointForCentering()
@@ -3253,13 +2968,14 @@ struct GraphGesturesModifier: ViewModifier {
                 let dragDistance = hypot(value.translation.width, value.translation.height)
                 let tapModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
                 
-                if dragDistance < Constants.App.tapThreshold {
-                    print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
-                    
-                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
-                        print("Node hit detected with tightened radius.")
-                        selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
-                        selectedEdgeID = nil
+             
+                    if dragDistance < Constants.App.tapThreshold {
+                        if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
+                            let updatedNode = hitNode.handlingTap()  // Toggle if applicable
+                            viewModel.model.updateNode(updatedNode)
+                            selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
+                            selectedEdgeID = nil
+                            print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
                         WKInterfaceDevice.current().play(.click)
                     } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
