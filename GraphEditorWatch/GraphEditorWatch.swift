@@ -15,10 +15,6 @@ struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .onAppear {
-                    // Force focus on the crown sequencer to resolve setup warnings
-                    WKExtension.shared().visibleInterfaceController?.crownSequencer.focus()
-                }
         }
     }
 }

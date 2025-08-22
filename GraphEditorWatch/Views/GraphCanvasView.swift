@@ -22,9 +22,7 @@ struct FocusableView<Content: View>: View {
                     print("View focused for crown")  // Optional debug
                 }
             }
-        
     }
-    
 }
 
 struct GraphCanvasView: View {

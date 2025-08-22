@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-22 08:25:10
+Current date: 2025-08-22 08:53:21
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -2075,7 +2075,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-20 15:01:58
+Last modified: 2025-08-22 08:36:23
 
 Contents:
 //  GraphViewModel.swift
@@ -2169,8 +2169,10 @@ class GraphViewModel: ObservableObject {
             self.zoomScale = state.zoomScale
             self.selectedNodeID = state.selectedNodeID
             self.selectedEdgeID = state.selectedEdgeID
-            self.objectWillChange.send()  // Refresh views with loaded selection
-        }
+        } else {
+                self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
+            }
+            self.objectWillChange.send()
         
         print("Loaded ID: \(selectedNodeID?.uuidString ?? "nil"), Node exists? \(model.nodes.contains { $0.id == selectedNodeID ?? UUID() })")  // Adjust to unwrap
     }
@@ -2254,7 +2256,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-22 08:05:35
+Last modified: 2025-08-22 08:50:11
 
 Contents:
 //  ContentView.swift
@@ -2267,6 +2269,13 @@ import WatchKit
 import GraphEditorShared
 import Foundation
 import CoreGraphics  // For CGRect in clampOffset
+
+struct ViewSizeKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
 
 struct NodeWrapper: Equatable {
     var node: (any NodeProtocol)?
@@ -2345,10 +2354,16 @@ struct ContentView: View {
     
     private func onUpdateZoomRanges() {
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let contentWidth = graphBounds.width + Constants.App.contentPadding
-        let contentHeight = graphBounds.height + Constants.App.contentPadding
+        let contentWidth = graphBounds.width + 2 * Constants.App.contentPadding  // Add padding for margins
+        let contentHeight = graphBounds.height + 2 * Constants.App.contentPadding
         minZoom = min(viewSize.width / contentWidth, viewSize.height / contentHeight)
         maxZoom = Constants.App.maxZoom
+        
+        // New: Auto-fit if not loaded or zoom is default (integrates with saved state)
+        if !isLoaded || zoomScale == 1.0 {
+            zoomScale = min(minZoom * 1.1, maxZoom)  // Slight buffer to avoid over-tight fit
+            clampOffset(animate: false)  // Center without animation on init
+        }
     }
     
     private func clampOffset(animate: Bool = true) {
@@ -2390,22 +2405,15 @@ struct ContentView: View {
     
     var body: some View {
         GeometryReader { geo in
+            // Remove: let _ = { self.viewSize = geo.size }()
             let g1 = (geo: geo, viewModel: viewModel)
-            
             let g2 = (zoomScale: $zoomScale, offset: $offset)
-            
             let g3 = (draggedNode: $draggedNode, dragOffset: $dragOffset)
-            
             let g4 = (potentialEdgeTarget: $potentialEdgeTarget, panStartOffset: $panStartOffset)
-            
             let g5 = (showMenu: $showMenu, showOverlays: $showOverlays)
-            
             let g6 = (maxZoom: maxZoom, crownPosition: $crownPosition)
-            
             let g7 = (updateZoomRangesHandler: { onUpdateZoomRanges() }, selectedNodeID: $viewModel.selectedNodeID)
-            
-            let g8 = (selectedEdgeID: $viewModel.selectedEdgeID, canvasFocus: $isCanvasFocused)  // Use $ for binding
-            
+            let g8 = (selectedEdgeID: $viewModel.selectedEdgeID, canvasFocus: $isCanvasFocused)
             let g9 = {
                 recenterOn(position: viewModel.effectiveCentroid)
                 clampOffset()
@@ -2432,7 +2440,20 @@ struct ContentView: View {
             )
             
             InnerView(config: config)
+                .preference(key: ViewSizeKey.self, value: geo.size)  // Pass size via preference
         }
+        .ignoresSafeArea(.all, edges: .all)
+        .onPreferenceChange(ViewSizeKey.self) { newSize in
+            viewSize = newSize  // Safe: Runs after view commit
+        }
+        .onAppear {
+            viewModel.loadViewState()
+            onUpdateZoomRanges()
+            isLoaded = true
+            recenterOn(position: viewModel.effectiveCentroid)
+            viewModel.model.startSimulation()  // Ensure simulation runs on load
+        }
+        .focusable(true)
         .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { newValue in
             zoomTimer?.invalidate()
@@ -2443,17 +2464,24 @@ struct ContentView: View {
                 let newZoom = minZoom * pow(maxZoom / minZoom, normalized * zoomSensitivity)
                 let clampedNewZoom = newZoom.clamped(to: minZoom...maxZoom).rounded(to: 3)
                 
+                guard clampedNewZoom > 0.001 else {
+                    zoomScale = minZoom
+                    return
+                }
+                
                 let screenCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                let safeZoom = max(zoomScale, 0.001)
                 let preZoomModelCenter = CGPoint(
-                    x: (screenCenter.x - offset.width) / zoomScale + viewModel.effectiveCentroid.x,
-                    y: (screenCenter.y - offset.height) / zoomScale + viewModel.effectiveCentroid.y
+                    x: (screenCenter.x - offset.width) / safeZoom + viewModel.effectiveCentroid.x,
+                    y: (screenCenter.y - offset.height) / safeZoom + viewModel.effectiveCentroid.y
                 )
                 
                 zoomScale = clampedNewZoom
                 
                 let postZoomOffsetX = screenCenter.x - preZoomModelCenter.x * clampedNewZoom + viewModel.effectiveCentroid.x * clampedNewZoom
                 let postZoomOffsetY = screenCenter.y - preZoomModelCenter.y * clampedNewZoom + viewModel.effectiveCentroid.y * clampedNewZoom
-                offset = CGSize(width: postZoomOffsetX, height: postZoomOffsetY)
+                offset = CGSize(width: postZoomOffsetX.isFinite ? postZoomOffsetX : 0,
+                               height: postZoomOffsetY.isFinite ? postZoomOffsetY : 0)
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     clampOffset(animate: true)
@@ -2471,11 +2499,11 @@ struct ContentView: View {
         .onChange(of: showMenu) { newValue in
             print("Show menu changed to \(newValue)")
             if !newValue {
-                isCanvasFocused = true  // Refocus canvas when menu closes
+                isCanvasFocused = true
             }
         }
         .onChange(of: isCanvasFocused) { newValue in
-            print("Canvas focus changed to \(newValue)")  // Debug focus state
+            print("Canvas focus changed to \(newValue)")
         }
     }
 }
