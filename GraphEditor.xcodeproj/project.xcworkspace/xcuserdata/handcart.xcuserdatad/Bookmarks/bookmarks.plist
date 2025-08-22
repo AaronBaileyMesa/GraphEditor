@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>214</string>
+					<string>213</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
 					<string>0</string>
 					<key>Timestamp</key>
-					<string>777583699.348654</string>
+					<string>777593967.419099</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -136,16 +136,15 @@ class GraphViewModel: ObservableObject {
         do {
             if let state = try model.loadViewState() {
                 self.offset = state.offset
-                self.zoomScale = state.zoomScale
+                self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
                 self.selectedEdgeID = state.selectedEdgeID
-                print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
-                if let loadedID = state.selectedNodeID {
-                    print("Loaded ID: \(loadedID.uuidString), Node exists? \(model.nodes.contains { $0.id == loadedID })")
-                }
+                print("Loaded zoomScale: \(self.zoomScale)")  // Existing debug
             } else {
-                self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
+                self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
             }
+            // Ensure visibility if nodes loaded but hidden
+            model.expandAllRoots()  // Call the new method (replaces assumption)
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
@@ -267,13 +266,13 @@ class GraphViewModel: ObservableObject {
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>261</string>
+					<string>263</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
 					<string>0</string>
 					<key>Timestamp</key>
-					<string>777583699.420815</string>
+					<string>777593830.102349</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -388,7 +387,8 @@ struct ContentView: View {
                 ))
             }
         }
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .id("GraphCanvasView")  // Add this; unique ID for crown tracking
+        .digitalCrownRotation($crownPosition, from: 0, through: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { newValue in
             let delta = (newValue - previousCrownPosition) * 2.0
             let newZoom = zoomScale * (1.0 + delta)
@@ -435,6 +435,7 @@ struct ContentView: View {
             } catch {
                 print("Failed to load view state: \(error)")
             }
+            print("Loaded nodes count: \(viewModel.model.nodes.count)")  // Add this
             onUpdateZoomRanges()
             isLoaded = true
             recenterOn(position: viewModel.effectiveCentroid)
@@ -569,13 +570,13 @@ struct InnerView: View {
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>261</string>
+					<string>263</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
 					<string>0</string>
 					<key>Timestamp</key>
-					<string>777583699.4208339</string>
+					<string>777593830.102365</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -690,7 +691,8 @@ struct ContentView: View {
                 ))
             }
         }
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .id("GraphCanvasView")  // Add this; unique ID for crown tracking
+        .digitalCrownRotation($crownPosition, from: 0, through: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { newValue in
             let delta = (newValue - previousCrownPosition) * 2.0
             let newZoom = zoomScale * (1.0 + delta)
@@ -737,6 +739,7 @@ struct ContentView: View {
             } catch {
                 print("Failed to load view state: \(error)")
             }
+            print("Loaded nodes count: \(viewModel.model.nodes.count)")  // Add this
             onUpdateZoomRanges()
             isLoaded = true
             recenterOn(position: viewModel.effectiveCentroid)

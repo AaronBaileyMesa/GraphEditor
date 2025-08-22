@@ -97,7 +97,8 @@ struct ContentView: View {
                 ))
             }
         }
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
+        .id("GraphCanvasView")  // Add this; unique ID for crown tracking
+        .digitalCrownRotation($crownPosition, from: 0, through: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
         .onChange(of: crownPosition) { newValue in
             let delta = (newValue - previousCrownPosition) * 2.0
             let newZoom = zoomScale * (1.0 + delta)
@@ -144,6 +145,7 @@ struct ContentView: View {
             } catch {
                 print("Failed to load view state: \(error)")
             }
+            print("Loaded nodes count: \(viewModel.model.nodes.count)")  // Add this
             onUpdateZoomRanges()
             isLoaded = true
             recenterOn(position: viewModel.effectiveCentroid)

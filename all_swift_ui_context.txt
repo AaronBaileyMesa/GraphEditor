@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-22 12:07:48
+Current date: 2025-08-22 12:29:11
 
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
@@ -2016,7 +2016,7 @@ public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
 --------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-08-22 09:11:46
+Last modified: 2025-08-22 12:19:13
 
 Contents:
 //
@@ -2028,14 +2028,17 @@ Contents:
 
 import SwiftUI
 import WatchKit
+import GraphEditorShared
 
+// In GraphEditorWatch.swift
 @main
 struct GraphEditorWatch: App {
-    @WKApplicationDelegateAdaptor(AppDelegate.self) private var delegate: AppDelegate
-
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))  // Mock bounds; adjust as needed
+            let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
+            let viewModel = GraphViewModel(model: model)  // Create viewModel here
+            ContentView(viewModel: viewModel)  // <-- Pass viewModel to ContentView init
         }
     }
 }
@@ -2071,7 +2074,7 @@ struct AppConstants {
 --------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-22 11:59:07
+Last modified: 2025-08-22 12:14:00
 
 Contents:
 //  GraphViewModel.swift
@@ -2164,9 +2167,7 @@ class GraphViewModel: ObservableObject {
     // New method to load graph
     private func loadGraph() {
         do {
-            let (loadedNodes, loadedEdges) = try model.loadGraph()
-            model.nodes = loadedNodes
-            model.edges = loadedEdges
+            try model.loadFromStorage()
             model.startSimulation()
         } catch {
             print("Failed to load graph: \(error)")
@@ -2294,7 +2295,7 @@ class GraphViewModel: ObservableObject {
 --------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-22 11:59:07
+Last modified: 2025-08-22 12:27:36
 
 Contents:
 //  ContentView.swift
@@ -2368,6 +2369,8 @@ struct ContentView: View {
     @State private var previousSelection: (NodeID?, UUID?) = (nil, nil)
     @State private var viewSize: CGSize = .zero
     @State private var previousZoomScale: CGFloat = 1.0
+    @State private var selectedNodeID: NodeID?  // <-- Add this if missing
+        @State private var selectedEdgeID: UUID?    // <-- Add this if missing
     @FocusState private var isCanvasFocused: Bool
     
     var body: some View {
@@ -2429,8 +2432,18 @@ struct ContentView: View {
                 isCanvasFocused = true
             }
         }
+        // In ContentView.swift (.onAppear block)
         .onAppear {
-            viewModel.loadViewState()
+            do {
+                if let state = try? viewModel.model.loadViewState() {
+                    offset = CGSize(width: state.offset.x, height: state.offset.y)  // <-- Convert CGPoint to CGSize
+                    zoomScale = state.zoomScale
+                    selectedNodeID = state.selectedNodeID
+                    selectedEdgeID = state.selectedEdgeID
+                }
+            } catch {
+                print("Failed to load view state: \(error)")
+            }
             onUpdateZoomRanges()
             isLoaded = true
             recenterOn(position: viewModel.effectiveCentroid)
@@ -2493,8 +2506,10 @@ extension CGFloat {
     }
 }
 
+// If in #Preview (update the entire preview):
 #Preview {
-    ContentView()
+    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
+    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
 }
 
 struct InnerView: View {
@@ -3071,7 +3086,7 @@ struct GraphGesturesModifier: ViewModifier {
 --------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-08-21 11:42:35
+Last modified: 2025-08-22 12:20:15
 
 Contents:
 //
@@ -3243,7 +3258,8 @@ struct MenuView: View {
 }
 
 #Preview {
-    ContentView()
+    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
+    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
 }
 --------------------------------------------------
 --------------------------------------------------

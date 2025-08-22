@@ -100,16 +100,15 @@ class GraphViewModel: ObservableObject {
         do {
             if let state = try model.loadViewState() {
                 self.offset = state.offset
-                self.zoomScale = state.zoomScale
+                self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
                 self.selectedEdgeID = state.selectedEdgeID
-                print("Loaded view state: selectedNodeID = \(state.selectedNodeID?.uuidString ?? "nil")")
-                if let loadedID = state.selectedNodeID {
-                    print("Loaded ID: \(loadedID.uuidString), Node exists? \(model.nodes.contains { $0.id == loadedID })")
-                }
+                print("Loaded zoomScale: \(self.zoomScale)")  // Existing debug
             } else {
-                self.zoomScale = 1.0  // Default, but onUpdateZoomRanges will override to fit
+                self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
             }
+            // Ensure visibility if nodes loaded but hidden
+            model.expandAllRoots()  // Call the new method (replaces assumption)
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")

@@ -1,0 +1,1033 @@
+## Focused Project Concatenation
+This file includes only UI, interactivity, model, and core logic files.
+Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
+Current date: 2025-08-22 15:01:05
+Table of Contents:
+1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
+2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
+3. GraphEditorShared/Sources/GraphEditorShared/Constants.swift
+4. GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
+5. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+6. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+7. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift--------------------------------------------------
+File: AttractionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
+Last modified: 2025-08-22 08:18:46
+
+Contents:
+//
+//  AttractionCalculator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct AttractionCalculator {
+    let useAsymmetricAttraction: Bool
+    let symmetricFactor: CGFloat
+
+    init(useAsymmetricAttraction: Bool, symmetricFactor: CGFloat) {
+        self.useAsymmetricAttraction = useAsymmetricAttraction
+        self.symmetricFactor = symmetricFactor
+    }
+
+    func applyAttractions(forces: [NodeID: CGPoint], edges: [GraphEdge], nodes: [any NodeProtocol]) -> [NodeID: CGPoint] {
+        var updatedForces = forces
+        for edge in edges {
+            guard let fromNode = nodes.first(where: { $0.id == edge.from }),
+                  let toNode = nodes.first(where: { $0.id == edge.to }) else { continue }
+            let deltaX = toNode.position.x - fromNode.position.x
+            let deltaY = toNode.position.y - fromNode.position.y
+            let dist = max(hypot(deltaX, deltaY), Constants.Physics.distanceEpsilon)
+            let forceMagnitude = Constants.Physics.stiffness * (dist - Constants.Physics.idealLength)
+            let forceDirectionX = deltaX / dist
+            let forceDirectionY = deltaY / dist
+            let forceX = forceDirectionX * forceMagnitude
+            let forceY = forceDirectionY * forceMagnitude
+            
+            let symForceX = forceX * self.symmetricFactor
+            let symForceY = forceY * self.symmetricFactor
+            
+            let currentForceFrom = updatedForces[fromNode.id] ?? .zero
+            updatedForces[fromNode.id] = CGPoint(x: currentForceFrom.x + symForceX, y: currentForceFrom.y + symForceY)
+            
+            let currentForceTo = updatedForces[toNode.id] ?? .zero
+            if useAsymmetricAttraction {
+                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * (1 + self.symmetricFactor), y: currentForceTo.y - forceY * (1 + self.symmetricFactor))
+            } else {
+                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX + symForceX, y: currentForceTo.y - forceY + symForceY)
+            }
+        }
+        return updatedForces
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: CenteringCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
+Last modified: 2025-08-12 09:46:40
+
+Contents:
+//
+//  CenteringCalculator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct CenteringCalculator {
+    let simulationBounds: CGSize
+
+    init(simulationBounds: CGSize) {
+        self.simulationBounds = simulationBounds
+    }
+
+    func applyCentering(forces: [NodeID: CGPoint], nodes: [any NodeProtocol]) -> [NodeID: CGPoint] {
+        var updatedForces = forces
+        let center = CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
+        for node in nodes {
+            let deltaX = center.x - node.position.x
+            let deltaY = center.y - node.position.y
+            let distToCenter = hypot(deltaX, deltaY)
+            let forceX = deltaX * Constants.Physics.centeringForce * (1 + distToCenter / max(simulationBounds.width, simulationBounds.height))
+            let forceY = deltaY * Constants.Physics.centeringForce * (1 + distToCenter / max(simulationBounds.width, simulationBounds.height))
+            let currentForce = updatedForces[node.id] ?? .zero
+            updatedForces[node.id] = CGPoint(x: currentForce.x + forceX, y: currentForce.y + forceY)
+        }
+        return updatedForces
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: Constants.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
+Last modified: 2025-08-21 17:27:11
+
+Contents:
+//
+//  Constants.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/6/25.
+//
+
+
+// Sources/GraphEditorShared/Constants.swift
+
+import CoreGraphics
+
+public enum Constants {
+    public enum Physics {
+        public static let stiffness: CGFloat = 0.4  // Reduced from 0.8 for softer springs
+        public static let repulsion: CGFloat = 1200  // Reduced from 2200 for less aggressive push
+        public static let damping: CGFloat = 0.85  // Reduced from 0.99 for faster settling
+        public static let idealLength: CGFloat = 80  // Slightly increased for more space
+        public static let centeringForce: CGFloat = 0.03  // Reduced from 0.06 to avoid over-pull
+        public static let distanceEpsilon: CGFloat = 1e-3
+        public static let timeStep: CGFloat = 0.02  // Slightly reduced for finer steps
+        public static let velocityThreshold: CGFloat = 0.5  // Increased from 0.2 for earlier stop
+        public static let maxSimulationSteps = 500  // Further reduced from 1000 for quick convergence
+        public static let minQuadSize: CGFloat = 1e-6
+        public static let maxQuadtreeDepth = 20
+        public static let maxNodesForQuadtree = 200
+        public static let minCollisionDist: CGFloat = 35.0  // New: For anti-collision separation
+    }
+    
+    public enum App {
+        public static let nodeModelRadius: CGFloat = 10.0
+        public static let hitScreenRadius: CGFloat = 40.0  // Larger for watchOS tap targets
+        public static let tapThreshold: CGFloat = 10.0  // Pixels for tap vs. drag distinction
+        public static let numZoomLevels: Int = 20  // For crown mapping
+        public static let contentPadding: CGFloat = 50.0  // Padding for graph bounds
+        public static let maxZoom: CGFloat = 2.5  // Maximum zoom level
+    }
+    
+    // Add more enums as needed (e.g., UI, Testing)
+}
+----------------------------------------------------------------------------------------------------
+File: GraphModel.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
+Last modified: 2025-08-22 14:59:49
+
+Contents:
+// Sources/GraphEditorShared/GraphModel.swift
+
+import os.log
+import SwiftUI
+import Combine
+import Foundation
+
+#if os(watchOS)
+import WatchKit
+#endif
+
+private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "storage")
+
+@available(iOS 13.0, watchOS 6.0, *)
+public class GraphModel: ObservableObject {
+    @Published public var nodes: [any NodeProtocol] = []
+    @Published public var edges: [GraphEdge] = []
+    
+    @Published public var isSimulating: Bool = false
+    private var simulationTimer: Timer? = nil
+    
+    private var undoStack: [GraphState] = []
+    private var redoStack: [GraphState] = []
+    private let maxUndo = 10
+    public var nextNodeLabel = 1  // Internal for testability; auto-increments node labels
+    
+    private let storage: GraphStorage
+    public let physicsEngine: PhysicsEngine  // Changed to public
+    
+    private lazy var simulator: GraphSimulator = {
+        GraphSimulator(
+            getNodes: { [weak self] in self?.nodes ?? [] },
+            setNodes: { [weak self] nodes in self?.nodes = nodes },
+            getEdges: { [weak self] in self?.edges ?? [] },
+            
+            getVisibleNodes: { [weak self] in self?.visibleNodes() ?? [] },
+            getVisibleEdges: { [weak self] in self?.visibleEdges() ?? [] },
+            
+            physicsEngine: self.physicsEngine,
+            onStable: { [weak self] in
+                guard let self = self else { return }
+                var centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes)
+                // New: Reset velocities to prevent re-triggering simulation
+                centeredNodes = centeredNodes.map { node in
+                    node.with(position: node.position, velocity: .zero)
+                }
+                self.nodes = centeredNodes
+                self.objectWillChange.send()
+            }
+        )
+    }()
+    
+    // Indicates if undo is possible.
+    public var canUndo: Bool {
+        !undoStack.isEmpty
+    }
+    
+    // Indicates if redo is possible.
+    public var canRedo: Bool {
+        !redoStack.isEmpty
+    }
+    
+    // Single initializer with optional nextNodeLabel for testing.
+    public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int? = nil) {
+        self.storage = storage
+        self.physicsEngine = physicsEngine
+        
+        var tempNodes: [any NodeProtocol] = []
+        var tempEdges: [GraphEdge] = []
+        var tempNextLabel = nextNodeLabel ?? 1
+        
+        do {
+            let loaded = try storage.load()
+            tempNodes = loaded.nodes
+            tempEdges = loaded.edges
+            tempNextLabel = (tempNodes.map { $0.label }.max() ?? 0) + 1
+        } catch {
+            os_log("Load failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+            // Proceed with defaults below
+        }
+        
+        if tempNodes.isEmpty && tempEdges.isEmpty {
+            (tempNodes, tempEdges, tempNextLabel) = Self.createDefaultGraph(startingLabel: tempNextLabel)
+            do {
+                try storage.save(nodes: tempNodes, edges: tempEdges)
+            } catch {
+                os_log("Save defaults failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+            }
+        }
+        
+        self.nodes = tempNodes
+        self.edges = tempEdges
+        self.nextNodeLabel = tempNextLabel  // Always set (computed above)
+    }
+    
+    public func clearGraph() {
+        snapshot()
+        nodes = []
+        edges = []
+        nextNodeLabel = 1  // Explicit reset
+        physicsEngine.resetSimulation()
+        startSimulation()
+        try? storage.clear()
+    }
+    
+    // Static factory for default graph creation.
+    private static func createDefaultGraph(startingLabel: Int) -> ([any NodeProtocol], [GraphEdge], Int) {
+        let defaultNodes: [Node] = [
+            Node(label: startingLabel, position: CGPoint(x: 100, y: 100)),
+            Node(label: startingLabel + 1, position: CGPoint(x: 200, y: 200)),
+            Node(label: startingLabel + 2, position: CGPoint(x: 150, y: 300))
+        ]
+        let defaultEdges: [GraphEdge] = [
+            GraphEdge(from: defaultNodes[0].id, to: defaultNodes[1].id),
+            GraphEdge(from: defaultNodes[1].id, to: defaultNodes[2].id),
+            GraphEdge(from: defaultNodes[2].id, to: defaultNodes[0].id)
+        ]
+        return (defaultNodes, defaultEdges, startingLabel + 3)
+    }
+    
+    // Creates a snapshot of the current state for undo/redo and saves.
+    public func snapshot() {
+        let state = GraphState(nodes: nodes, edges: edges)
+        undoStack.append(state)
+        if undoStack.count > maxUndo {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            os_log("Failed to save snapshot: %{public}s", log: logger, type: .error, error.localizedDescription)
+        }
+    }
+    
+    // Undoes the last action if possible, with haptic feedback.
+    public func undo() {
+        guard !undoStack.isEmpty else {
+#if os(watchOS)
+            WKInterfaceDevice.current().play(.failure)
+#endif
+            return
+        }
+        let current = GraphState(nodes: nodes, edges: edges)
+        redoStack.append(current)
+        let previous = undoStack.removeLast()
+        nodes = previous.nodes
+        edges = previous.edges
+        self.physicsEngine.resetSimulation()  // Ready for new simulation
+#if os(watchOS)
+        WKInterfaceDevice.current().play(.click)
+#endif
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            os_log("Failed to save after undo: %{public}s", log: logger, type: .error, error.localizedDescription)
+        }
+    }
+    
+    public func redo() {
+        guard !redoStack.isEmpty else {
+#if os(watchOS)
+            WKInterfaceDevice.current().play(.failure)
+#endif
+            return
+        }
+        let current = GraphState(nodes: nodes, edges: edges)
+        undoStack.append(current)
+        let next = redoStack.removeLast()
+        nodes = next.nodes
+        edges = next.edges
+        self.physicsEngine.resetSimulation()  // Ready for new simulation
+#if os(watchOS)
+        WKInterfaceDevice.current().play(.click)
+#endif
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            os_log("Failed to save after redo: %{public}s", log: logger, type: .error, error.localizedDescription)
+        }
+    }
+    
+    public func saveGraph() {
+        do {
+            try storage.save(nodes: nodes, edges: edges)
+        } catch {
+            os_log("Failed to save graph: %{public}s", log: logger, type: .error, error.localizedDescription)
+        }
+    }
+    
+    public func deleteNode(withID id: NodeID) {
+        snapshot()
+        nodes.removeAll { $0.id == id }
+        edges.removeAll { $0.from == id || $0.to == id }
+        self.physicsEngine.resetSimulation()
+    }
+    
+    public func deleteSelectedEdge(id: UUID?) {
+        guard let id = id else { return }
+        snapshot()
+        edges.removeAll { $0.id == id }
+        self.physicsEngine.resetSimulation()
+        startSimulation()
+    }
+    
+    public func addNode(at position: CGPoint) {
+        if nodes.count >= 100 {
+            return
+        }
+        let newNode = Node(label: nextNodeLabel, position: position, radius: 10.0)
+        nodes.append(newNode)
+        nextNodeLabel += 1
+        let centeredNodes = physicsEngine.centerNodes(nodes: nodes)
+        nodes = centeredNodes
+        self.physicsEngine.resetSimulation()
+    }
+    
+    public func updateNode(_ updatedNode: any NodeProtocol) {
+        if let index = nodes.firstIndex(where: { $0.id == updatedNode.id }) {
+            nodes[index] = updatedNode
+            objectWillChange.send()  // Ensure views refresh
+            startSimulation()  // Optional: Restart sim if toggle affects layout
+        }
+    }
+    
+    
+    
+    public func startSimulation() {
+#if os(watchOS)
+        guard WKApplication.shared().applicationState == .active else {
+            return  // Don't simulate if backgrounded
+        }
+#endif
+        simulator.startSimulation { [weak self] in
+            self?.objectWillChange.send()
+        }
+    }
+    
+    public func stopSimulation() {
+        simulator.stopSimulation()
+    }
+    
+    public func pauseSimulation() {
+        stopSimulation()
+        physicsEngine.isPaused = true  // Assumes isPaused var in PhysicsEngine
+    }
+    
+    public func resumeSimulation() {
+        physicsEngine.isPaused = false
+        startSimulation()
+    }
+    
+    
+    public func boundingBox() -> CGRect {
+        self.physicsEngine.boundingBox(nodes: nodes)
+    }
+    
+    
+    private func buildRoots() -> [any NodeProtocol] {
+        var incoming = Set<NodeID>()
+        for edge in edges {
+            incoming.insert(edge.to)
+        }
+        return nodes.filter { !incoming.contains($0.id) }
+    }
+    // Visibility methods
+    public func visibleNodes() -> [any NodeProtocol] {
+        var visible: [any NodeProtocol] = []
+        var visited = Set<NodeID>()
+        let adjacency = buildAdjacencyList()
+        let roots = buildRoots()
+        for root in roots {
+            if !visited.contains(root.id) {
+                dfsVisible(node: root, adjacency: adjacency, visited: &visited, visible: &visible)
+            }
+        }
+        return visible
+    }
+    
+    private func dfsVisible(node: any NodeProtocol, adjacency: [NodeID: [NodeID]], visited: inout Set<NodeID>, visible: inout [any NodeProtocol]) {
+        visited.insert(node.id)
+        visible.append(node)  // Always append (even if collapsed)
+        if !node.isExpanded { return }
+        if let children = adjacency[node.id] {
+            for childID in children {
+                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID }) {
+                    dfsVisible(node: child, adjacency: adjacency, visited: &visited, visible: &visible)
+                }
+            }
+        }
+    }
+    
+    public func visibleEdges() -> [GraphEdge] {
+        let visibleIDs = Set(visibleNodes().map { $0.id })
+        return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
+    }
+    
+    public func isBidirectionalBetween(_ id1: NodeID, _ id2: NodeID) -> Bool {
+        edges.contains { $0.from == id1 && $0.to == id2 } &&
+        edges.contains { $0.from == id2 && $0.to == id1 }
+    }
+    
+    public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
+        edges.filter { ($0.from == id1 && $0.to == id2) || ($0.from == id2 && $0.to == id1) }
+    }
+    
+    private func buildAdjacencyList() -> [NodeID: [NodeID]] {
+        var adj = [NodeID: [NodeID]]()
+        for edge in edges {
+            adj[edge.from, default: []].append(edge.to)
+        }
+        return adj
+    }
+    
+    public func addToggleNode(at position: CGPoint) {
+        nodes.append(ToggleNode(label: nextNodeLabel, position: position))
+        nextNodeLabel += 1
+        if nodes.count >= 100 { return }
+        physicsEngine.resetSimulation()
+    }
+    
+    // In GraphModel.swift, replace the existing addChild with this:
+    public func addChild(to parentID: NodeID, at position: CGPoint? = nil, isToggle: Bool = false) {
+        guard let parent = nodes.first(where: { $0.id == parentID }) else { return }
+        let childPosition = position ?? CGPoint(x: parent.position.x + 50, y: parent.position.y + 50)
+        let childLabel = nextNodeLabel
+        nextNodeLabel += 1
+        
+        let child: any NodeProtocol = isToggle ?
+        ToggleNode(label: childLabel, position: childPosition) :
+        Node(label: childLabel, position: childPosition)
+        
+        nodes.append(child)
+        let newEdge = GraphEdge(from: parentID, to: child.id)
+        
+        // Check for cycles before adding edge
+        if hasCycle(adding: newEdge) {
+            // Optionally: Log or alert user
+            print("Cycle detected; edge not added.")
+            return
+        }
+        
+        edges.append(newEdge)
+        physicsEngine.resetSimulation()
+        startSimulation()
+    }
+    
+    // Add this new helper function at the bottom of GraphModel (e.g., after resumeSimulation):
+    public func hasCycle(adding edge: GraphEdge) -> Bool {
+        var adj = buildAdjacencyList()
+        adj[edge.from, default: []].append(edge.to)
+        
+        // DFS cycle detection from new edge's from-node
+        var visited = Set<NodeID>()
+        var recStack = Set<NodeID>()
+        
+        func dfs(_ node: NodeID) -> Bool {
+            visited.insert(node)
+            recStack.insert(node)
+            if let neighbors = adj[node] {
+                for neighbor in neighbors {
+                    if !visited.contains(neighbor) {
+                        if dfs(neighbor) { return true }
+                    } else if recStack.contains(neighbor) {
+                        return true
+                    }
+                }
+            }
+            recStack.remove(node)
+            return false
+        }
+        
+        return dfs(edge.from)
+    }
+    // Added: Public method to load graph from storage (avoids direct private access)
+    public func loadFromStorage() throws {
+        let loaded = try storage.load()
+        nodes = loaded.nodes
+        edges = loaded.edges
+        nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+        objectWillChange.send()
+    }
+    
+    // Added: Public wrappers for view state (delegate to storage)
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
+        try storage.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+    }
+    
+    public func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+        try storage.loadViewState()
+    }
+ 
+    public func expandAllRoots() {
+        nodes = nodes.map { node in
+            if let toggle = node as? ToggleNode, incomingEdges(for: toggle.id).isEmpty {
+                var updated = toggle
+                updated.isExpanded = true
+                return updated
+            }
+            return node
+        }
+        startSimulation()  // Reposition after expand
+    }
+
+    private func incomingEdges(for id: NodeID) -> [GraphEdge] {
+        edges.filter { $0.to == id }
+    }
+}
+
+    @available(iOS 13.0, watchOS 6.0, *)
+    extension GraphModel {
+        
+        public func graphDescription(selectedID: NodeID?, selectedEdgeID: UUID?) -> String {
+        let edgeCount = edges.count
+        let edgeWord = edgeCount == 1 ? "edge" : "edges"  // New: Handle plural
+        var desc = "Graph with \(nodes.count) nodes and \(edgeCount) directed \(edgeWord)."
+        if let selectedEdgeID = selectedEdgeID, let selectedEdge = edges.first(where: { $0.id == selectedEdgeID }),
+           let fromNode = nodes.first(where: { $0.id == selectedEdge.from }),
+           let toNode = nodes.first(where: { $0.id == selectedEdge.to }) {
+            desc += " Directed edge from node \(fromNode.label) to node \(toNode.label) selected."
+        } else if let selectedID = selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID }) {
+            let outgoingLabels = edges
+                .filter { $0.from == selectedID }
+                .compactMap { edge in
+                    let toID = edge.to
+                    return nodes.first { $0.id == toID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            let incomingLabels = edges
+                .filter { $0.to == selectedID }
+                .compactMap { edge in
+                    let fromID = edge.from
+                    return nodes.first { $0.id == fromID }?.label
+                }
+                .sorted()
+                .map { String($0) }
+                .joined(separator: ", ")
+            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
+            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
+            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
+        } else {
+            desc += " No node or edge selected."
+        }
+        return desc
+    }
+    
+}
+----------------------------------------------------------------------------------------------------
+File: GraphSimulator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+Last modified: 2025-08-22 08:19:07
+
+Contents:
+// Sources/GraphEditorShared/GraphSimulator.swift
+
+import Foundation
+import os.log  // For logging if needed
+
+#if os(watchOS)
+import WatchKit  // Only if using haptics; otherwise remove
+#endif
+
+@available(iOS 13.0, watchOS 6.0, *)
+/// Manages physics simulation loops for graph updates.
+class GraphSimulator {
+    private var timer: Timer? = nil  // Ensure this declaration is here
+    private var recentVelocities: [CGFloat] = []
+    private let velocityChangeThreshold: CGFloat = 0.01
+    private let velocityHistoryCount = 5
+    
+    let physicsEngine: PhysicsEngine
+    private let getVisibleNodes: () -> [any NodeProtocol]
+    private let getVisibleEdges: () -> [GraphEdge]
+    
+    private let getNodes: () -> [any NodeProtocol]  // Updated: Polymorphic
+    private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
+    private let getEdges: () -> [GraphEdge]
+    private let onStable: (() -> Void)?  // New: Optional callback
+    
+    init(getNodes: @escaping () -> [any NodeProtocol],
+         setNodes: @escaping ([any NodeProtocol]) -> Void,
+         getEdges: @escaping () -> [GraphEdge],
+         getVisibleNodes: @escaping () -> [any NodeProtocol],
+         getVisibleEdges: @escaping () -> [GraphEdge],
+         physicsEngine: PhysicsEngine,
+         onStable: (() -> Void)? = nil) {  // New parameter
+        self.getNodes = getNodes
+        self.setNodes = setNodes
+        self.getEdges = getEdges
+        self.physicsEngine = physicsEngine
+        self.onStable = onStable
+        
+        self.getVisibleNodes = getVisibleNodes
+        self.getVisibleEdges = getVisibleEdges
+    }
+    
+    func startSimulation(onUpdate: @escaping () -> Void) {
+        #if os(watchOS)
+        guard WKApplication.shared().applicationState == .active else {
+            return  // Don't simulate if backgrounded
+        }
+        #endif
+        timer?.invalidate()
+        physicsEngine.resetSimulation()
+        recentVelocities.removeAll()
+        
+        let nodeCount = getNodes().count
+        if nodeCount < 5 { return }
+        
+        // Dynamic interval: Slower for larger graphs; further slow in low power mode
+        var baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            baseInterval *= 2.0  // Double interval to save battery
+        }
+        
+        timer = Timer.scheduledTimer(withTimeInterval: baseInterval, repeats: true) { [weak self] _ in
+            guard let self = self, self.getNodes().count >= 5 else { self?.stopSimulation(); return }
+            
+            DispatchQueue.global(qos: .userInitiated).async {
+                let nodes = self.getNodes()
+                let visibleNodes = self.getVisibleNodes()
+                let visibleEdges = self.getVisibleEdges()
+                let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)  // Updated: Unpack tuple
+
+                var updatedForces = forces  // Temp var
+                updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
+                updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
+
+                var shouldContinue = false
+                let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
+
+                var updatedNodes = nodes
+                for _ in 0..<subSteps {
+                    let (tempNodes, stepActive) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: updatedNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)  // Updated: Pass quadtree
+                    updatedNodes = tempNodes
+                    shouldContinue = shouldContinue || stepActive  // Accumulate
+                }
+                
+                let totalVelocity = updatedNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+                
+                DispatchQueue.main.async {
+                    self.setNodes(updatedNodes)
+                    onUpdate()
+                    
+                    // Early stop if already stable
+                    if !shouldContinue || totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodes.count) {
+                        self.stopSimulation()
+                        self.onStable?()  // New: Call when stable
+                        return
+                    }
+                    self.recentVelocities.append(totalVelocity)
+                    if self.recentVelocities.count > self.velocityHistoryCount {
+                        self.recentVelocities.removeFirst()
+                    }
+                    
+                    if self.recentVelocities.count == self.velocityHistoryCount {
+                        let maxVel = self.recentVelocities.max() ?? 1.0
+                        let minVel = self.recentVelocities.min() ?? 0.0
+                        let relativeChange = (maxVel - minVel) / maxVel
+                        // In the relativeChange check, also call onStable on stop
+                        if relativeChange < self.velocityChangeThreshold {
+                            self.stopSimulation()
+                            self.onStable?()  // New
+                            return
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    func stopSimulation() {
+        timer?.invalidate()
+        timer = nil
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphTypes.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+Last modified: 2025-08-13 11:11:13
+
+Contents:
+import SwiftUI
+import Foundation
+
+public typealias NodeID = UUID
+
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public struct Node: NodeProtocol {
+    public let id: NodeID
+    public let label: Int
+    public var position: CGPoint
+    public var velocity: CGPoint = .zero
+    public var radius: CGFloat = 10.0
+    public var isExpanded: Bool = true  // Add: Satisfy protocol (always true for basic Node)
+    public var fillColor: Color { .red }  // Explicit red for basic nodes
+
+    // Update init to include radius
+    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0) {
+        self.id = id
+        self.label = label
+        self.position = position
+        self.velocity = velocity
+        self.radius = radius
+    }
+    
+    public func with(position: CGPoint, velocity: CGPoint) -> Self {
+        Node(id: id, label: label, position: position, velocity: velocity, radius: radius)
+    }
+
+    // Update CodingKeys and decoder/encoder for radius
+    enum CodingKeys: String, CodingKey {
+        case id, label, radius  // Add radius
+        case positionX, positionY
+        case velocityX, velocityY
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(NodeID.self, forKey: .id)
+        label = try container.decode(Int.self, forKey: .label)
+        radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0  // Decode or default
+        let posX = try container.decode(CGFloat.self, forKey: .positionX)
+        let posY = try container.decode(CGFloat.self, forKey: .positionY)
+        position = CGPoint(x: posX, y: posY)
+        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
+        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
+        velocity = CGPoint(x: velX, y: velY)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(label, forKey: .label)
+        try container.encode(radius, forKey: .radius)  // Encode radius
+        try container.encode(position.x, forKey: .positionX)
+        try container.encode(position.y, forKey: .positionY)
+        try container.encode(velocity.x, forKey: .velocityX)
+        try container.encode(velocity.y, forKey: .velocityY)
+    }
+}
+
+// Represents an edge connecting two nodes.
+public struct GraphEdge: Identifiable, Equatable, Codable {
+    public let id: NodeID
+    public let from: NodeID
+    public let to: NodeID
+    
+    enum CodingKeys: String, CodingKey {
+        case id, from, to
+    }
+    
+    public init(id: NodeID = NodeID(), from: NodeID, to: NodeID) {
+        self.id = id
+        self.from = from
+        self.to = to
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(NodeID.self, forKey: .id)
+        from = try container.decode(NodeID.self, forKey: .from)
+        to = try container.decode(NodeID.self, forKey: .to)
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(from, forKey: .from)
+        try container.encode(to, forKey: .to)
+    }
+}
+
+// Snapshot of the graph state for undo/redo.
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public struct GraphState {
+    public let nodes: [any NodeProtocol]
+    public let edges: [GraphEdge]
+    
+    public init(nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        self.nodes = nodes
+        self.edges = edges
+    }
+}
+
+public enum NodeWrapper: Codable {
+    case node(Node)
+    case toggleNode(ToggleNode)
+    
+    enum CodingKeys: String, CodingKey {
+        case type, data
+    }
+    
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .type)
+        switch type {
+        case "node":
+            let data = try container.decode(Node.self, forKey: .data)
+            self = .node(data)
+        case "toggleNode":
+            let data = try container.decode(ToggleNode.self, forKey: .data)
+            self = .toggleNode(data)
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown node type")
+        }
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .node(let node):
+            try container.encode("node", forKey: .type)
+            try container.encode(node, forKey: .data)
+        case .toggleNode(let toggleNode):
+            try container.encode("toggleNode", forKey: .type)
+            try container.encode(toggleNode, forKey: .data)
+        }
+    }
+    
+    public var value: any NodeProtocol {
+        switch self {
+        case .node(let node): return node
+        case .toggleNode(let toggleNode): return toggleNode
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: NodeProtocol.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+Last modified: 2025-08-17 21:47:32
+
+Contents:
+// Sources/GraphEditorShared/NodeProtocol.swift
+
+import SwiftUI
+import Foundation
+
+private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
+private let maxCacheSize = 100  // Arbitrary limit; adjust based on testing
+private let nodeCacheQueue = DispatchQueue(label: "nodeTextCache", attributes: .concurrent)
+private var insertionOrder: [String] = []  // New: Track order
+
+
+/// Protocol for graph nodes, enabling polymorphism for types like standard or toggleable nodes.
+/// Conformers must provide core properties; defaults are available for common behaviors.
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
+    /// Unique identifier for the node.
+    var id: NodeID { get }
+    
+    /// Permanent label for the node (e.g., for display and accessibility).
+    var label: Int { get }
+    
+    /// Current position in the graph canvas.
+    var position: CGPoint { get set }
+    
+    /// Velocity vector for physics simulation.
+    var velocity: CGPoint { get set }
+    
+    /// Radius for rendering and hit detection.
+    var radius: CGFloat { get set }
+    
+    /// Expansion state for hierarchical nodes (e.g., true shows children).
+    var isExpanded: Bool { get set }
+    
+    /// Creates a copy with updated position and velocity.
+    func with(position: CGPoint, velocity: CGPoint) -> Self
+    
+    /// Renders the node as a SwiftUI view, customizable by zoom and selection.
+    /// - Parameters:
+    ///   - zoomScale: Current zoom level of the canvas.
+    ///   - isSelected: Whether the node is selected (e.g., for border highlight).
+    /// - Returns: A SwiftUI view representing the node.
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView
+    
+    /// Handles tap gestures, returning a mutated copy (immutable pattern).
+    /// - Returns: Updated node after tap (e.g., toggled state).
+    func handlingTap() -> Self
+    
+    /// Indicates if the node is visible in the graph.
+    var isVisible: Bool { get }
+    
+    /// Configurable fill color for the node's roundel.
+    var fillColor: Color { get }
+    
+    /// Determines if child nodes (via outgoing edges) should be hidden.
+    /// - Returns: True if children should be hidden (e.g., collapsed toggle).
+    func shouldHideChildren() -> Bool
+    
+    /// Draws the node in a GraphicsContext for efficient Canvas rendering.
+    /// - Parameters:
+    ///   - context: The GraphicsContext to draw into.
+    ///   - position: Center position for drawing.
+    ///   - zoomScale: Current zoom level.
+    ///   - isSelected: Whether to draw selection highlights.
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool)
+}
+
+/// Extension providing default implementations for non-rendering behaviors.
+/// These can be overridden in conformers for custom logic.
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public extension NodeProtocol {
+    /// Default: No change on tap.
+    func handlingTap() -> Self { self }
+    
+    /// Default: Node is always visible.
+    var isVisible: Bool { true }
+    
+    var fillColor: Color { .red }  // Default to red for all nodes
+    
+    var isExpanded: Bool {
+        get { true }  // Default: Always expanded (non-toggle nodes ignore)
+        set { }  // No-op setter for non-mutating types
+    }
+    
+    func shouldHideChildren() -> Bool {
+        !isExpanded  // Default: Hide if not expanded
+    }
+}
+
+/// Extension providing default rendering implementations using GraphicsContext.
+/// Override for custom node appearances (e.g., different shapes/colors).
+@available(iOS 15.0, *)
+@available(watchOS 9.0, *)
+public extension NodeProtocol {
+    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        AnyView(Canvas { context, _ in
+            self.draw(in: context, at: .zero, zoomScale: zoomScale, isSelected: isSelected)
+        })
+    }
+    
+    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
+        let scaledRadius = radius * zoomScale
+        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+        let borderRadius = scaledRadius + borderWidth / 2
+        
+        if borderWidth > 0 {
+            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        }
+        
+        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        context.fill(innerPath, with: .color(.red))
+        
+        // Always draw label (removed if isSelected)
+        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+        let labelKey = "\(label)-\(fontSize)"
+        let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
+            if let cached = nodeTextCache[labelKey] { return cached }
+            let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
+            let resolved = context.resolve(text)
+            nodeCacheQueue.async(flags: .barrier) {
+                nodeTextCache[labelKey] = resolved
+                insertionOrder.append(labelKey)  // Add to order
+                if nodeTextCache.count > maxCacheSize {
+                    let oldestKey = insertionOrder.removeFirst()  // True oldest
+                    nodeTextCache.removeValue(forKey: oldestKey)
+                }
+            }
+            return resolved
+        }
+        let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))
+        context.draw(resolved, at: labelPosition, anchor: .center)
+    }
+}
+--------------------------------------------------
