@@ -53,25 +53,26 @@ struct GraphGesturesModifier: ViewModifier {
         let safeZoom = max(zoomScale, 0.01)
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let effectiveCentroid = focalPointForCentering()
+        let effectiveCentroid = focalPointForCentering()  // Your existing method
         
-        let translated = CGPoint(
-            x: (screenPos.x - viewCenter.x - panOffset.x) / safeZoom,
-            y: (screenPos.y - viewCenter.y - panOffset.y) / safeZoom
-        )
-        return translated + effectiveCentroid  // Simplified: Scale after translate, add centroid last
+        let translated = screenPos - viewCenter - panOffset
+        let unscaled = translated / safeZoom
+        let modelPos = unscaled + effectiveCentroid
+        print("screenToModel: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset)")  // Debug: Add for testing
+        return modelPos
     }
     
     private func focalPointForCentering() -> CGPoint {
         let visibleNodes = viewModel.model.visibleNodes()
         guard !visibleNodes.isEmpty else { return .zero }
-        var effectiveCentroid = visibleNodes.centroid() ?? .zero
+        var effectiveCentroid = centroid(of: visibleNodes) ?? .zero  // Use free func to avoid conformance issue
         if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
             effectiveCentroid = selected.position
         } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
                   let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
             effectiveCentroid = (from.position + to.position) / 2
         }
+        print("Focal point calculated: \(effectiveCentroid)")  // Debug: Remove after verifying centering
         return effectiveCentroid
     }
     

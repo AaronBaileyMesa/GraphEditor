@@ -33,7 +33,7 @@ class GraphViewModel: ObservableObject {
     private var resumeTimer: Timer?
     
     var effectiveCentroid: CGPoint {
-        let visibleNodes = model.visibleNodes()
+        let visibleNodes = model.visibleNodes()  // Already [any NodeProtocol]
         if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
             return node.position
         } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
@@ -41,7 +41,7 @@ class GraphViewModel: ObservableObject {
                   let to = visibleNodes.first(where: { $0.id == edge.to }) {
             return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
         }
-        return visibleNodes.centroid() ?? .zero
+        return centroid(of: visibleNodes) ?? .zero  // No map needed; pass directly
     }
     
     // New: Enum for focus state, now Equatable
@@ -76,20 +76,25 @@ class GraphViewModel: ObservableObject {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             guard let self = self else { return }
+            model.centerGraph()  // Center before persist
             do {
-                try self.model.saveViewState(offset: self.offset, zoomScale: self.zoomScale, selectedNodeID: self.selectedNodeID, selectedEdgeID: self.selectedEdgeID)
-                print("Debounced save: selectedNodeID = \(self.selectedNodeID?.uuidString ?? "nil")")
+                try self.model.saveViewState(offset: self.offset,  // Pass directly (CGPoint)
+                                             zoomScale: self.zoomScale,
+                                             selectedNodeID: self.selectedNodeID,
+                                             selectedEdgeID: self.selectedEdgeID)
+                print("Saved view state with centered positions: Centroid \(centroid(of: self.model.nodes) ?? .zero)")  // Debug, using free func
             } catch {
                 print("Failed to save view state: \(error)")
             }
         }
     }
     
-    // New method to load graph
     private func loadGraph() {
         do {
             try model.loadFromStorage()
-            model.startSimulation()
+            print("Loaded raw positions: Centroid \(centroid(of: model.nodes) ?? .zero)")
+            model.centerGraph()  // Center synchronously after load
+            model.startSimulation()  // Now start physics
         } catch {
             print("Failed to load graph: \(error)")
         }
@@ -103,12 +108,14 @@ class GraphViewModel: ObservableObject {
                 self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
                 self.selectedEdgeID = state.selectedEdgeID
-                print("Loaded zoomScale: \(self.zoomScale)")  // Existing debug
+                print("Loaded view state: Offset \(self.offset), Zoom \(self.zoomScale), Centroid before center \(centroid(of: model.nodes) ?? .zero)")
             } else {
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
+                self.offset = .zero  // Explicit reset if no state
             }
-            // Ensure visibility if nodes loaded but hidden
-            model.expandAllRoots()  // Call the new method (replaces assumption)
+            model.centerGraph()  // Center after full state (positions now aligned)
+            self.offset = .zero  // Reset offset post-center to ensure visual centering
+            model.expandAllRoots()  // Existing
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
@@ -122,6 +129,8 @@ class GraphViewModel: ObservableObject {
         } else {
             focusState = .graph
         }
+        model.centerGraph()  // Ensure centered after view state load (idempotent)
+        self.objectWillChange.send()
     }
     
     deinit {
@@ -160,7 +169,7 @@ class GraphViewModel: ObservableObject {
     }
     
     func updateNode(_ updatedNode: any NodeProtocol) {
-        model.updateNode(updatedNode)
+        model.updateNode(AnyNode(updatedNode))  // Wrap to satisfy conformance
     }
     
     func addToggleNode(at position: CGPoint) {

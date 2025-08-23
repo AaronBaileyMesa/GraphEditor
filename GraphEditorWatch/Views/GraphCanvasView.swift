@@ -231,19 +231,6 @@ struct Line: Shape, Animatable {
     }
 }
 
-extension Array where Element == any NodeProtocol {
-    func centroid() -> CGPoint? {
-        guard !isEmpty else { return nil }
-        var totalX: CGFloat = 0.0
-        var totalY: CGFloat = 0.0
-        for node in self {
-            totalX += node.position.x
-            totalY += node.position.y
-        }
-        return CGPoint(x: totalX / CGFloat(count), y: totalY / CGFloat(count))
-    }
-}
-
 extension CGRect {
     init(center: CGPoint, size: CGSize) {
         self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
