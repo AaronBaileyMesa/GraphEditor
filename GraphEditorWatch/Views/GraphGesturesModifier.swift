@@ -53,12 +53,12 @@ struct GraphGesturesModifier: ViewModifier {
         let safeZoom = max(zoomScale, 0.01)
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let effectiveCentroid = focalPointForCentering()  // Your existing method
+        let effectiveCentroid = focalPointForCentering()
         
-        let translated = screenPos - viewCenter - panOffset
-        let unscaled = translated / safeZoom
-        let modelPos = unscaled + effectiveCentroid
-        print("screenToModel: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset)")  // Debug: Add for testing
+        let translated = screenPos - viewCenter - panOffset  // Subtract center + offset first
+        let unscaled = translated / safeZoom  // Then unscale
+        let modelPos = unscaled + effectiveCentroid  // Add centroid last
+        print("screenToModel fixed: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid)")  // Debug
         return modelPos
     }
     

@@ -64,7 +64,7 @@ struct ContentView: View {
     @State private var showMenu: Bool = false
     @State private var showOverlays = false
     @State private var minZoom: CGFloat = 0.1
-    @State private var maxZoom: CGFloat = 2.5
+    @State private var maxZoom: CGFloat = Constants.App.maxZoom  // 2.5
     @State private var crownPosition: Double = 0.5
     @State private var ignoreNextCrownChange: Bool = false
     @State private var isZooming: Bool = false
@@ -83,6 +83,7 @@ struct ContentView: View {
         @State private var selectedEdgeID: UUID?    // <-- Add this if missing
     @FocusState private var isCanvasFocused: Bool
     @State private var lastDelta: Double = 0
+    @State private var numZoomLevels: Double = Double(Constants.App.numZoomLevels)  // 20.0
     
     var body: some View {
         GeometryReader { geo in
@@ -118,69 +119,58 @@ struct ContentView: View {
                 from: 0.0,  // New: Bound min
                 through: 100.0,  // New: Bound max (maps to full zoom range)
                 sensitivity: .high,
-                isContinuous: true,  // Wraps around for continuous feel
+                isContinuous: false,  // Wraps around for continuous feel
                 isHapticFeedbackEnabled: true
             )
             }
             .ignoresSafeArea()
             .onChange(of: crownPosition) { newValue in
-                print("Crown change triggered: newValue=\(newValue), previous=\(previousCrownPosition), current zoom=\(zoomScale), focusState=\(viewModel.focusState)")  // Enhanced debug: Confirm every fire
-                
-                if viewModel.focusState == .menu {
-                    previousCrownPosition = newValue
-                    return
+                let clampedCrown = newValue.clamped(to: 0.0...numZoomLevels)  // Force clamp overshoot
+                if abs(clampedCrown - crownPosition) > 0.01 {
+                    crownPosition = clampedCrown  // Update binding
                 }
                 
-                let delta = (newValue - previousCrownPosition).clamped(to: -5.0...5.0)  // Keep clamp for safety
-                print("Delta: \(delta)")
+                let normalized = clampedCrown / numZoomLevels
+                let targetZoom = minZoom * pow(maxZoom / minZoom, normalized)  // Exponential for natural feel
+                let clampedZoom = targetZoom.clamped(to: minZoom...maxZoom)
                 
-                let effectiveMin: CGFloat = 0.01
-                let effectiveMax = max(maxZoom, effectiveMin)
-         
-                // Map bounded value to zoom (logarithmic for smooth, full 0-100 ~ min to max)
-                let normalized = newValue / 100.0
-                let logMin = log(effectiveMin)
-                let logMax = log(effectiveMax)
-                let proposedZoom = exp(logMin + normalized * (logMax - logMin))
-                
-                
-                   
-                var newZoom = proposedZoom
-                if proposedZoom < effectiveMin && delta < 0 && lastDelta < 0 {
-                    newZoom = effectiveMin
-                } else if proposedZoom > effectiveMax && delta > 0 && lastDelta > 0 {
-                    newZoom = effectiveMax
-                } else {
-                    newZoom = proposedZoom.clamped(to: effectiveMin...effectiveMax)
-                }
-                
-                zoomScale = newZoom
-                lastDelta = delta
-                previousCrownPosition = newValue
-                
-                print("Applied zoom: \(newZoom), clamped? \(newZoom != proposedZoom)")  // Existing debug
-                
-                // Recenter (with debug)
-                // Force recenter with debug
+                if abs(clampedZoom - zoomScale) > 0.01 {  // Debounce tiny changes
+                    withAnimation(.easeInOut(duration: 0.1)) {  // Smooth
+                        let oldZoom = zoomScale
+                        zoomScale = clampedZoom
+                        
+                        // Adjust offset to keep focal point fixed at screen center
+                        let focal = viewModel.effectiveCentroid
+                        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+                        let oldScreen = ((focal * oldZoom) + CGPoint(x: offset.width, y: offset.height)) - viewCenter
+                        let newScreen = ((focal * zoomScale) + CGPoint(x: offset.width, y: offset.height)) - viewCenter
+                        let shift = oldScreen - newScreen
+                        offset = CGSize(width: offset.width + shift.x, height: offset.height + shift.y)
+                    }
+                    print("Crown zoom applied: \(zoomScale) (clamped: \(clampedZoom != targetZoom))")  // Debug
+                    viewModel.saveViewState()  // Persist
+                    // Recenter (with debug)
+                    // Force recenter with debug
                     switch viewModel.focusState {
                     case .graph:
                         print("Recentering graph on \(viewModel.effectiveCentroid)")
                         recenterOn(position: viewModel.effectiveCentroid)
                     case .node(let id):
-                    if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
-                        print("Recentering on node \(id): \(node.position)")
-                        recenterOn(position: node.position)
+                        if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                            print("Recentering on node \(id): \(node.position)")
+                            recenterOn(position: node.position)
+                        }
+                    case .edge(let id):
+                        if let edge = viewModel.model.edges.first(where: { $0.id == id }),
+                           let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                           let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                            let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                            print("Recentering on edge midpoint: \(midpoint)")
+                            recenterOn(position: midpoint)
+                        }
+                    case .menu:
+                        break
                     }
-                case .edge(let id):
-                    if let edge = viewModel.model.edges.first(where: { $0.id == id }),
-                       let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                        let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
-                        print("Recentering on edge midpoint: \(midpoint)")
-                        recenterOn(position: midpoint)
-                    }
-                case .menu:
-                    break
                 }
             }
         
