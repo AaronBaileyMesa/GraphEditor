@@ -12,18 +12,24 @@ struct FocusableView<Content: View>: View {
     }
     
     var body: some View {
-        content
-            .focused($isFocused)
-            .onAppear {
-                isFocused = true
-            }
-            .onChange(of: isFocused) { oldValue, newValue in  // Or just { _, newValue in
-                if newValue {
-                    print("View focused for crown")  // Optional debug
+            content
+                .id("CrownFocusableCanvas")
+                .focused($isFocused)
+                .onAppear {
+                    isFocused = true
+                    // New: Force crown update on appear (simulates WK willActivate)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isFocused = true  // Double-focus for WatchOS reliability
+                    }
                 }
-            }
+                .onChange(of: isFocused) { newValue in
+                    print("Canvas focus: \(newValue)")
+                    if !newValue {
+                        isFocused = true  // Auto-recover focus loss
+                    }
+                }
+        }
     }
-}
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -194,6 +200,7 @@ struct GraphCanvasView: View {
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
         }
+        .focusable(true)  // Explicitly make the whole view focusable for crown
         .onChange(of: selectedNodeID) {
             viewModel.saveViewState()
         }

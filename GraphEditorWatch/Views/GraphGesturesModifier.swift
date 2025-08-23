@@ -50,29 +50,16 @@ struct GraphGesturesModifier: ViewModifier {
     enum HitType { case node, edge }
     
     private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
-        if zoomScale <= 0 {  // Strengthened guard
-            print("Invalid zoomScale: \(zoomScale) - returning .zero")
-            return .zero
-        }
-        
-        guard zoomScale > 0 else { return .zero }
-
+        let safeZoom = max(zoomScale, 0.01)
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let effectiveCentroid = focalPointForCentering()
         
         let translated = CGPoint(
-            x: screenPos.x - viewCenter.x - panOffset.x,
-            y: screenPos.y - viewCenter.y - panOffset.y
+            x: (screenPos.x - viewCenter.x - panOffset.x) / safeZoom,
+            y: (screenPos.y - viewCenter.y - panOffset.y) / safeZoom
         )
-        let unscaled = CGPoint(
-            x: (translated.x / zoomScale).rounded(to: 2),
-            y: (translated.y / zoomScale).rounded(to: 2)
-        )
-        return CGPoint(
-            x: (unscaled.x + effectiveCentroid.x).rounded(to: 2),
-            y: (unscaled.y + effectiveCentroid.y).rounded(to: 2)
-        )
+        return translated + effectiveCentroid  // Simplified: Scale after translate, add centroid last
     }
     
     private func focalPointForCentering() -> CGPoint {

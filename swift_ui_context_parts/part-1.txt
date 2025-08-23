@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-22 15:01:05
+Current date: 2025-08-22 22:48:59
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -151,7 +151,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-22 14:59:49
+Last modified: 2025-08-22 15:14:45
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -547,17 +547,24 @@ public class GraphModel: ObservableObject {
     }
  
     public func expandAllRoots() {
-        nodes = nodes.map { node in
-            if let toggle = node as? ToggleNode, incomingEdges(for: toggle.id).isEmpty {
-                var updated = toggle
-                updated.isExpanded = true
-                return updated
+        // If visible nodes are empty but nodes exist, expand all ToggleNodes to ensure visibility.
+        // This handles cycles/hierarchies where "roots" may not exist.
+        if !nodes.isEmpty && visibleNodes().isEmpty {
+            nodes = nodes.map { node in
+                if let toggle = node as? ToggleNode {
+                    var updatedToggle = toggle
+                    updatedToggle.isExpanded = true
+                    return updatedToggle
+                } else {
+                    return node
+                }
             }
-            return node
+            // Trigger simulation to reposition after expansion
+            startSimulation()
+            print("Expanded all ToggleNodes; visible nodes now: \(visibleNodes().count)")  // Debug log (remove later)
         }
-        startSimulation()  // Reposition after expand
     }
-
+    
     private func incomingEdges(for id: NodeID) -> [GraphEdge] {
         edges.filter { $0.to == id }
     }

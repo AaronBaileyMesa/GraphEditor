@@ -127,6 +127,7 @@ struct MenuView: View {
     @Binding var showOverlays: Bool
     @Binding var showMenu: Bool
     let onCenterGraph: () -> Void
+    @FocusState private var isMenuFocused: Bool  // New
     
     private var isSimulatingBinding: Binding<Bool> {
         Binding(
@@ -161,8 +162,21 @@ struct MenuView: View {
             
             GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
         }
-        .navigationTitle("Graph Menu")  // Optional
-        .ignoresSafeArea(.keyboard)
+        .navigationTitle("Menu")
+                    .focused($isMenuFocused)  // New: Bind focus to list
+                    .onAppear {
+                        isMenuFocused = true  // Force focus on appear
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            isMenuFocused = true  // Double-focus for reliability
+                        }
+                    }
+                    .onChange(of: isMenuFocused) { newValue in
+                        print("Menu focus: \(newValue)")  // Debug
+                        if !newValue {
+                            isMenuFocused = true  // Auto-recover
+                        }
+                    }
+                    .ignoresSafeArea(.keyboard)
     }
 }
 

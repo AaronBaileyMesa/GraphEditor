@@ -1,15 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-22 15:01:06
+Current date: 2025-08-22 22:49:00
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
 2. GraphEditorWatch/Views/ContentView.swift
-3. GraphEditorWatch/Views/GraphCanvasView.swift
-4. GraphEditorWatch/Views/GraphGesturesModifier.swift--------------------------------------------------
+3. GraphEditorWatch/Views/GraphCanvasView.swift--------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-08-22 14:53:39
+Last modified: 2025-08-22 15:15:20
 
 Contents:
 //  GraphViewModel.swift
@@ -114,17 +113,15 @@ class GraphViewModel: ObservableObject {
         do {
             if let state = try model.loadViewState() {
                 self.offset = state.offset
-                self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)  // New: Clamp to prevent 0/inf
+                self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
                 self.selectedEdgeID = state.selectedEdgeID
-                print("Loaded zoomScale: \(self.zoomScale)")  // New: Debug print
-                // New: Ensure visibility if nodes loaded but hidden
-                if !model.nodes.isEmpty && model.visibleNodes().isEmpty {
-                    model.expandAllRoots()  // Assume/add this method to expand roots
-                }
+                print("Loaded zoomScale: \(self.zoomScale)")  // Existing debug
             } else {
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
             }
+            // Ensure visibility if nodes loaded but hidden
+            model.expandAllRoots()  // Call the new method (replaces assumption)
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
@@ -230,7 +227,7 @@ class GraphViewModel: ObservableObject {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-22 14:46:36
+Last modified: 2025-08-22 22:40:11
 
 Contents:
 //  ContentView.swift
@@ -280,7 +277,17 @@ struct InnerViewConfig {
 
 struct ContentView: View {
     @StateObject var viewModel: GraphViewModel
-    @State private var zoomScale: CGFloat = 1.0
+    @State private var zoomScale: CGFloat = 1.0 {
+        didSet(oldValue) {
+            let positive = abs(zoomScale)
+            let effectiveMin: CGFloat = 0.01
+            let effectiveMax = max(maxZoom, effectiveMin)
+            let clamped = positive.clamped(to: effectiveMin...effectiveMax)
+            if clamped != oldValue {
+                zoomScale = clamped
+            }
+        }
+    }
     @State private var offset: CGSize = .zero
     @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
     @State private var dragOffset: CGPoint = .zero
@@ -307,59 +314,119 @@ struct ContentView: View {
     @State private var selectedNodeID: NodeID?  // <-- Add this if missing
         @State private var selectedEdgeID: UUID?    // <-- Add this if missing
     @FocusState private var isCanvasFocused: Bool
+    @State private var lastDelta: Double = 0
     
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                InnerView(config: InnerViewConfig(
-                    geo: geo,
-                    viewModel: viewModel,
-                    zoomScale: $zoomScale,
-                    offset: $offset,
-                    draggedNode: $draggedNode,
-                    dragOffset: $dragOffset,
-                    potentialEdgeTarget: $potentialEdgeTarget,
-                    panStartOffset: $panStartOffset,
-                    showMenu: $showMenu,
-                    showOverlays: $showOverlays,
-                    maxZoom: maxZoom,
-                    crownPosition: $crownPosition,
-                    updateZoomRangesHandler: onUpdateZoomRanges,
-                    selectedNodeID: $viewModel.selectedNodeID,
-                    selectedEdgeID: $viewModel.selectedEdgeID,
-                    canvasFocus: $isCanvasFocused,
-                    onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
-                ))
+                Group {  // New: Stable wrapper
+                    ZStack {
+                        InnerView(config: InnerViewConfig(
+                            geo: geo,
+                            viewModel: viewModel,
+                            zoomScale: $zoomScale,
+                            offset: $offset,
+                            draggedNode: $draggedNode,
+                            dragOffset: $dragOffset,
+                            potentialEdgeTarget: $potentialEdgeTarget,
+                            panStartOffset: $panStartOffset,
+                            showMenu: $showMenu,
+                            showOverlays: $showOverlays,
+                            maxZoom: maxZoom,
+                            crownPosition: $crownPosition,  // Already passed; ensure it's used if needed in InnerView
+                            updateZoomRangesHandler: onUpdateZoomRanges,
+                            selectedNodeID: $viewModel.selectedNodeID,
+                            selectedEdgeID: $viewModel.selectedEdgeID,
+                            canvasFocus: $isCanvasFocused,
+                            onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
+                        ))
+                    }
+                    .ignoresSafeArea()
+                }
+                .id("CrownStableView")  // Fixed ID prevents reloads
+                .focusable(true)  // Ensure focus for crown
+            // Update modifier (replace existing .digitalCrownRotation)
+            .digitalCrownRotation(
+                $crownPosition,
+                from: 0.0,  // New: Bound min
+                through: 100.0,  // New: Bound max (maps to full zoom range)
+                sensitivity: .high,
+                isContinuous: true,  // Wraps around for continuous feel
+                isHapticFeedbackEnabled: true
+            )
             }
-        }
-        .digitalCrownRotation($crownPosition, from: 0.0, through: 1.0, sensitivity: .medium, isContinuous: true, isHapticFeedbackEnabled: true)
-        .onChange(of: crownPosition) { newValue in
-            let delta = (newValue - previousCrownPosition) * 2.0
-            let newZoom = zoomScale * (1.0 + delta)
-            zoomScale = newZoom.clamped(to: minZoom...maxZoom)
-            
-            switch viewModel.focusState {
-            case .graph:
-                break
-            case .node(let id):
-                if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+            .ignoresSafeArea()
+            .onChange(of: crownPosition) { newValue in
+                print("Crown change triggered: newValue=\(newValue), previous=\(previousCrownPosition), current zoom=\(zoomScale), focusState=\(viewModel.focusState)")  // Enhanced debug: Confirm every fire
+                
+                if viewModel.focusState == .menu {
+                    previousCrownPosition = newValue
+                    return
+                }
+                
+                let delta = (newValue - previousCrownPosition).clamped(to: -5.0...5.0)  // Keep clamp for safety
+                print("Delta: \(delta)")
+                
+                let effectiveMin: CGFloat = 0.01
+                let effectiveMax = max(maxZoom, effectiveMin)
+         
+                // Map bounded value to zoom (logarithmic for smooth, full 0-100 ~ min to max)
+                let normalized = newValue / 100.0
+                let logMin = log(effectiveMin)
+                let logMax = log(effectiveMax)
+                let proposedZoom = exp(logMin + normalized * (logMax - logMin))
+                
+                
+                   
+                var newZoom = proposedZoom
+                if proposedZoom < effectiveMin && delta < 0 && lastDelta < 0 {
+                    newZoom = effectiveMin
+                } else if proposedZoom > effectiveMax && delta > 0 && lastDelta > 0 {
+                    newZoom = effectiveMax
+                } else {
+                    newZoom = proposedZoom.clamped(to: effectiveMin...effectiveMax)
+                }
+                
+                zoomScale = newZoom
+                lastDelta = delta
+                previousCrownPosition = newValue
+                
+                print("Applied zoom: \(newZoom), clamped? \(newZoom != proposedZoom)")  // Existing debug
+                
+                // Recenter (with debug)
+                // Force recenter with debug
+                    switch viewModel.focusState {
+                    case .graph:
+                        print("Recentering graph on \(viewModel.effectiveCentroid)")
+                        recenterOn(position: viewModel.effectiveCentroid)
+                    case .node(let id):
+                    if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                        print("Recentering on node \(id): \(node.position)")
+                        recenterOn(position: node.position)
+                    }
+                case .edge(let id):
+                    if let edge = viewModel.model.edges.first(where: { $0.id == id }),
+                       let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                        let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                        print("Recentering on edge midpoint: \(midpoint)")
+                        recenterOn(position: midpoint)
+                    }
+                case .menu:
+                    break
+                }
+            }
+        
+            .onChange(of: viewModel.selectedNodeID) { _ in
+                if let id = viewModel.selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                    print("Selection change: Recentering on node \(id) at \(node.position)")
                     recenterOn(position: node.position)
+                } else {
+                    print("Selection cleared: Recentering on graph centroid \(viewModel.effectiveCentroid)")
+                    recenterOn(position: viewModel.effectiveCentroid)
                 }
-            case .edge(let id):
-                if let edge = viewModel.model.edges.first(where: { $0.id == id }),
-                   let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                   let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                    let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
-                    recenterOn(position: midpoint)
-                }
-            case .menu:
-                break
+                viewModel.saveViewState()  // Existing
             }
-            previousCrownPosition = newValue
-        }
-        .onChange(of: viewModel.focusState) { newState in
-            WKInterfaceDevice.current().play(.click)
-        }
+        
         .onChange(of: showMenu) { newValue in
             print("Show menu changed to \(newValue)")
             viewModel.focusState = newValue ? .menu : .graph
@@ -367,18 +434,21 @@ struct ContentView: View {
                 isCanvasFocused = true
             }
         }
-        // In ContentView.swift (.onAppear block)
+
+
+
         .onAppear {
             do {
                 if let state = try? viewModel.model.loadViewState() {
-                    offset = CGSize(width: state.offset.x, height: state.offset.y)  // <-- Convert CGPoint to CGSize
-                    zoomScale = state.zoomScale
+                    offset = CGSize(width: state.offset.x, height: state.offset.y)
+                    zoomScale = state.zoomScale.clamped(to: 0.01...maxZoom)  // Clamp here before assigning
                     selectedNodeID = state.selectedNodeID
                     selectedEdgeID = state.selectedEdgeID
                 }
             } catch {
                 print("Failed to load view state: \(error)")
             }
+        
             print("Loaded nodes count: \(viewModel.model.nodes.count)")  // Add this
             onUpdateZoomRanges()
             isLoaded = true
@@ -386,6 +456,15 @@ struct ContentView: View {
             viewModel.model.startSimulation()
             isCanvasFocused = true
         }
+        
+        // Existing .onAppear, .onChange(of: showMenu), etc...
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                isCanvasFocused = true  // Re-focus on activation
+                print("App activated: Re-focusing crown view")
+            }
+        }
+        
         .onChange(of: zoomScale) { newValue in
             if abs(newValue - previousZoomScale) > 0.01 {
                 previousZoomScale = newValue
@@ -498,7 +577,7 @@ struct InnerView: View {
 ----------------------------------------------------------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-22 09:19:08
+Last modified: 2025-08-22 17:15:42
 
 Contents:
 import SwiftUI
@@ -515,18 +594,24 @@ struct FocusableView<Content: View>: View {
     }
     
     var body: some View {
-        content
-            .focused($isFocused)
-            .onAppear {
-                isFocused = true
-            }
-            .onChange(of: isFocused) { oldValue, newValue in  // Or just { _, newValue in
-                if newValue {
-                    print("View focused for crown")  // Optional debug
+            content
+                .id("CrownFocusableCanvas")
+                .focused($isFocused)
+                .onAppear {
+                    isFocused = true
+                    // New: Force crown update on appear (simulates WK willActivate)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isFocused = true  // Double-focus for WatchOS reliability
+                    }
                 }
-            }
+                .onChange(of: isFocused) { newValue in
+                    print("Canvas focus: \(newValue)")
+                    if !newValue {
+                        isFocused = true  // Auto-recover focus loss
+                    }
+                }
+        }
     }
-}
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -697,6 +782,7 @@ struct GraphCanvasView: View {
                 onUpdateZoomRanges: onUpdateZoomRanges
             ))
         }
+        .focusable(true)  // Explicitly make the whole view focusable for crown
         .onChange(of: selectedNodeID) {
             viewModel.saveViewState()
         }
@@ -743,285 +829,6 @@ extension Array where Element == any NodeProtocol {
 extension CGRect {
     init(center: CGPoint, size: CGSize) {
         self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphGesturesModifier.swift
-Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-22 14:56:54
-
-Contents:
-//
-//  GraphGesturesModifier.swift
-//  GraphEditorWatch
-//
-//  Created by handcart on 2025-08-16
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-struct GraphGesturesModifier: ViewModifier {
-    let viewModel: GraphViewModel
-    @Binding var zoomScale: CGFloat
-    @Binding var offset: CGSize
-    @Binding var draggedNode: (any NodeProtocol)?
-    @Binding var dragOffset: CGPoint
-    @Binding var potentialEdgeTarget: (any NodeProtocol)?
-    @Binding var selectedNodeID: NodeID?
-    @Binding var selectedEdgeID: UUID?
-    let viewSize: CGSize
-    @Binding var panStartOffset: CGSize?
-    @Binding var showMenu: Bool
-    let maxZoom: CGFloat
-    @Binding var crownPosition: Double
-    let onUpdateZoomRanges: () -> Void
-    
-    @State private var dragStartNode: (any NodeProtocol)? = nil
-    @State private var isMovingSelectedNode: Bool = false
-    @State private var longPressTimer: Timer? = nil
-    @State private var isLongPressTriggered: Bool = false
-    
-    private let dragStartThreshold: CGFloat = 5.0
-    
-    private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
-        let modelHitRadius = Constants.App.hitScreenRadius / zoomScale
-        switch type {
-        case .node:
-            return viewModel.model.visibleNodes().first { distance($0.position, modelPos) < modelHitRadius }
-        case .edge:
-            return viewModel.model.visibleEdges().first { edge in
-                guard let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                      let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) else {
-                    return false
-                }
-                return pointToLineDistance(point: modelPos, from: from.position, to: to.position) < modelHitRadius
-            }
-        }
-    }
-    
-    enum HitType { case node, edge }
-    
-    private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
-        if zoomScale <= 0 {  // Strengthened guard
-            print("Invalid zoomScale: \(zoomScale) - returning .zero")
-            return .zero
-        }
-        
-        guard zoomScale > 0 else { return .zero }
-
-        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let effectiveCentroid = focalPointForCentering()
-        
-        let translated = CGPoint(
-            x: screenPos.x - viewCenter.x - panOffset.x,
-            y: screenPos.y - viewCenter.y - panOffset.y
-        )
-        let unscaled = CGPoint(
-            x: (translated.x / zoomScale).rounded(to: 2),
-            y: (translated.y / zoomScale).rounded(to: 2)
-        )
-        return CGPoint(
-            x: (unscaled.x + effectiveCentroid.x).rounded(to: 2),
-            y: (unscaled.y + effectiveCentroid.y).rounded(to: 2)
-        )
-    }
-    
-    private func focalPointForCentering() -> CGPoint {
-        let visibleNodes = viewModel.model.visibleNodes()
-        guard !visibleNodes.isEmpty else { return .zero }
-        var effectiveCentroid = visibleNodes.centroid() ?? .zero
-        if let selectedID = selectedNodeID, let selected = visibleNodes.first(where: { $0.id == selectedID }) {
-            effectiveCentroid = selected.position
-        } else if let selectedEdgeID = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
-            effectiveCentroid = (from.position + to.position) / 2
-        }
-        return effectiveCentroid
-    }
-    
-    func body(content: Content) -> some View {
-        let dragGesture = DragGesture(minimumDistance: 0)
-            .onChanged { value in
-                print("Gesture .onChanged triggered")  // New: Debug to confirm firing
-                print("Current zoomScale: \(zoomScale)")
-                
-                if isLongPressTriggered { return }
-                
-                let screenHitRadius: CGFloat = Constants.App.hitScreenRadius
-                let modelHitRadius = screenHitRadius / zoomScale
-
-                let translationDistance = hypot(value.translation.width, value.translation.height)
-                let touchPos = screenToModel(value.location, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
-
-                if dragStartNode == nil {
-                    let startModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
-                    if let hitNode = viewModel.model.nodes.first(where: { distance($0.position, startModelPos) < modelHitRadius }) {
-                        dragStartNode = hitNode
-                        isMovingSelectedNode = (hitNode.id == selectedNodeID)
-                    }
-                }
-
-                // Updated: Start long press timer immediately on touch (no movement required)
-                if longPressTimer == nil {
-                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-                        self.showMenu = true
-                        WKInterfaceDevice.current().play(.click)
-                        self.isLongPressTriggered = true
-                        self.longPressTimer = nil
-                    }
-                    print("Long-press timer started")
-                }
-
-                if translationDistance >= dragStartThreshold {
-                    longPressTimer?.invalidate()
-                    longPressTimer = nil
-                    
-                    if isMovingSelectedNode, let node = dragStartNode {
-                        dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
-                        draggedNode = node
-                    } else {
-                        if panStartOffset == nil {
-                            panStartOffset = offset
-                        }
-                        offset = CGSize(width: panStartOffset!.width + value.translation.width,
-                                        height: panStartOffset!.height + value.translation.height)
-                    }
-                    
-                    potentialEdgeTarget = viewModel.model.nodes.first {
-                        dragStartNode?.id != $0.id && distance($0.position, touchPos) < modelHitRadius
-                    }
-                }
-                
-                // Diagnostic logs (moved outside timer)
-                let effectiveCentroid = focalPointForCentering()
-                let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
-                let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                print("--- .onChanged Diagnostic ---")
-                print("Effective Centroid: \(effectiveCentroid)")
-                print("Screen Pos: \(value.location)")
-                print("Translated: \(translated)")
-                print("Unscaled: \(unscaled)")
-                print("Model Pos (touchPos): \(touchPos)")
-                print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                print("-----------------------------")
-            }
-            .onEnded { value in
-                print("Gesture .onEnded triggered")  // New: Debug
-                
-                if isLongPressTriggered {
-                    isLongPressTriggered = false
-                    longPressTimer?.invalidate()
-                    longPressTimer = nil
-                    return
-                }
-                
-                longPressTimer?.invalidate()
-                longPressTimer = nil
-                
-                viewModel.resumeSimulation()
-                
-                let screenHitRadius: CGFloat = Constants.App.hitScreenRadius * 1.5
-                let modelHitRadius = screenHitRadius / zoomScale
-
-                let dragDistance = hypot(value.translation.width, value.translation.height)
-                let tapModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
-                
-                if dragDistance < Constants.App.tapThreshold {
-                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
-                        let updatedNode = hitNode.handlingTap()
-                        viewModel.model.updateNode(updatedNode)
-                        selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
-                        selectedEdgeID = nil
-                        print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
-                        WKInterfaceDevice.current().play(.click)
-                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
-                        if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                           let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < modelHitRadius {
-                            return true
-                        }
-                        return false
-                    }) {
-                        print("Edge hit detected with tightened radius.")
-                        selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
-                        selectedNodeID = nil
-                        WKInterfaceDevice.current().play(.click)
-                    } else {
-                        print("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
-                        selectedNodeID = nil
-                        selectedEdgeID = nil
-                    }
-                    
-                    print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
-                    
-                    // Diagnostic logs
-                    let effectiveCentroid = focalPointForCentering()
-                    let translated = CGPoint(x: value.startLocation.x - viewSize.width / 2 - offset.width, y: value.startLocation.y - viewSize.height / 2 - offset.height)
-                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                    print("--- Tap (.onEnded) Diagnostic ---")
-                    print("Effective Centroid: \(effectiveCentroid)")
-                    print("Screen Pos: \(value.startLocation)")
-                    print("Translated: \(translated)")
-                    print("Unscaled: \(unscaled)")
-                    print("Model Pos (tapModelPos): \(tapModelPos)")
-                    print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                    print("--------------------------------")
-                } else {
-                    viewModel.snapshot()
-                    if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
-                        let newEdge = GraphEdge(from: startNode.id, to: target.id)
-                        if !viewModel.model.hasCycle(adding: newEdge) &&
-                           !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                            viewModel.model.edges.append(newEdge)
-                            viewModel.model.startSimulation()
-                            WKInterfaceDevice.current().play(.success)
-                        }
-                    } else if isMovingSelectedNode, let node = dragStartNode,
-                              let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                        var updatedNode = viewModel.model.nodes[index]
-                        updatedNode.position.x += value.translation.width / zoomScale
-                        updatedNode.position.y += value.translation.height / zoomScale
-                        viewModel.model.nodes[index] = updatedNode
-                        viewModel.model.startSimulation()
-                        WKInterfaceDevice.current().play(.click)
-                    }
-                    viewModel.handleTap()
-                }
-                
-                withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
-                    onUpdateZoomRanges()
-                }
-                
-                dragStartNode = nil
-                isMovingSelectedNode = false
-                draggedNode = nil
-                dragOffset = .zero
-                potentialEdgeTarget = nil
-                panStartOffset = nil
-                onUpdateZoomRanges()
-            }
-        
-        content
-            .highPriorityGesture(dragGesture)  // New: Prioritize over system gestures on WatchOS
-    }
-    
-    private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
-        hypot(p1.x - p2.x, p1.y - p2.y)
-    }
-    
-    private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
-        let lineVec = to - from
-        let pointVec = point - from
-        let lineLen = hypot(lineVec.x, lineVec.y)
-        if lineLen == 0 { return hypot(point.x - from.x, point.y - from.y) }
-        let dot = pointVec.x * lineVec.x + pointVec.y * lineVec.y
-        let denom = lineLen * lineLen
-        let tUnclamped = dot / denom
-        let t = max(0, min(1, tUnclamped))
-        let projection = from + (lineVec * t)
-        return hypot(point.x - projection.x, point.y - projection.y)
     }
 }
 --------------------------------------------------

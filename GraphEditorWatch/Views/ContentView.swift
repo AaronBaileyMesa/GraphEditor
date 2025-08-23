@@ -45,7 +45,17 @@ struct InnerViewConfig {
 
 struct ContentView: View {
     @StateObject var viewModel: GraphViewModel
-    @State private var zoomScale: CGFloat = 1.0
+    @State private var zoomScale: CGFloat = 1.0 {
+        didSet(oldValue) {
+            let positive = abs(zoomScale)
+            let effectiveMin: CGFloat = 0.01
+            let effectiveMax = max(maxZoom, effectiveMin)
+            let clamped = positive.clamped(to: effectiveMin...effectiveMax)
+            if clamped != oldValue {
+                zoomScale = clamped
+            }
+        }
+    }
     @State private var offset: CGSize = .zero
     @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
     @State private var dragOffset: CGPoint = .zero
@@ -72,60 +82,119 @@ struct ContentView: View {
     @State private var selectedNodeID: NodeID?  // <-- Add this if missing
         @State private var selectedEdgeID: UUID?    // <-- Add this if missing
     @FocusState private var isCanvasFocused: Bool
+    @State private var lastDelta: Double = 0
     
     var body: some View {
         GeometryReader { geo in
-            ZStack {
-                InnerView(config: InnerViewConfig(
-                    geo: geo,
-                    viewModel: viewModel,
-                    zoomScale: $zoomScale,
-                    offset: $offset,
-                    draggedNode: $draggedNode,
-                    dragOffset: $dragOffset,
-                    potentialEdgeTarget: $potentialEdgeTarget,
-                    panStartOffset: $panStartOffset,
-                    showMenu: $showMenu,
-                    showOverlays: $showOverlays,
-                    maxZoom: maxZoom,
-                    crownPosition: $crownPosition,
-                    updateZoomRangesHandler: onUpdateZoomRanges,
-                    selectedNodeID: $viewModel.selectedNodeID,
-                    selectedEdgeID: $viewModel.selectedEdgeID,
-                    canvasFocus: $isCanvasFocused,
-                    onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
-                ))
+                Group {  // New: Stable wrapper
+                    ZStack {
+                        InnerView(config: InnerViewConfig(
+                            geo: geo,
+                            viewModel: viewModel,
+                            zoomScale: $zoomScale,
+                            offset: $offset,
+                            draggedNode: $draggedNode,
+                            dragOffset: $dragOffset,
+                            potentialEdgeTarget: $potentialEdgeTarget,
+                            panStartOffset: $panStartOffset,
+                            showMenu: $showMenu,
+                            showOverlays: $showOverlays,
+                            maxZoom: maxZoom,
+                            crownPosition: $crownPosition,  // Already passed; ensure it's used if needed in InnerView
+                            updateZoomRangesHandler: onUpdateZoomRanges,
+                            selectedNodeID: $viewModel.selectedNodeID,
+                            selectedEdgeID: $viewModel.selectedEdgeID,
+                            canvasFocus: $isCanvasFocused,
+                            onCenterGraph: { recenterOn(position: viewModel.effectiveCentroid) }
+                        ))
+                    }
+                    .ignoresSafeArea()
+                }
+                .id("CrownStableView")  // Fixed ID prevents reloads
+                .focusable(true)  // Ensure focus for crown
+            // Update modifier (replace existing .digitalCrownRotation)
+            .digitalCrownRotation(
+                $crownPosition,
+                from: 0.0,  // New: Bound min
+                through: 100.0,  // New: Bound max (maps to full zoom range)
+                sensitivity: .high,
+                isContinuous: true,  // Wraps around for continuous feel
+                isHapticFeedbackEnabled: true
+            )
             }
-        }
-        .id("GraphCanvasView")  // Add this; unique ID for crown tracking
-        .digitalCrownRotation($crownPosition, from: 0, through: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
-        .onChange(of: crownPosition) { newValue in
-            let delta = (newValue - previousCrownPosition) * 2.0
-            let newZoom = zoomScale * (1.0 + delta)
-            zoomScale = newZoom.clamped(to: minZoom...maxZoom)
-            
-            switch viewModel.focusState {
-            case .graph:
-                break
-            case .node(let id):
-                if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+            .ignoresSafeArea()
+            .onChange(of: crownPosition) { newValue in
+                print("Crown change triggered: newValue=\(newValue), previous=\(previousCrownPosition), current zoom=\(zoomScale), focusState=\(viewModel.focusState)")  // Enhanced debug: Confirm every fire
+                
+                if viewModel.focusState == .menu {
+                    previousCrownPosition = newValue
+                    return
+                }
+                
+                let delta = (newValue - previousCrownPosition).clamped(to: -5.0...5.0)  // Keep clamp for safety
+                print("Delta: \(delta)")
+                
+                let effectiveMin: CGFloat = 0.01
+                let effectiveMax = max(maxZoom, effectiveMin)
+         
+                // Map bounded value to zoom (logarithmic for smooth, full 0-100 ~ min to max)
+                let normalized = newValue / 100.0
+                let logMin = log(effectiveMin)
+                let logMax = log(effectiveMax)
+                let proposedZoom = exp(logMin + normalized * (logMax - logMin))
+                
+                
+                   
+                var newZoom = proposedZoom
+                if proposedZoom < effectiveMin && delta < 0 && lastDelta < 0 {
+                    newZoom = effectiveMin
+                } else if proposedZoom > effectiveMax && delta > 0 && lastDelta > 0 {
+                    newZoom = effectiveMax
+                } else {
+                    newZoom = proposedZoom.clamped(to: effectiveMin...effectiveMax)
+                }
+                
+                zoomScale = newZoom
+                lastDelta = delta
+                previousCrownPosition = newValue
+                
+                print("Applied zoom: \(newZoom), clamped? \(newZoom != proposedZoom)")  // Existing debug
+                
+                // Recenter (with debug)
+                // Force recenter with debug
+                    switch viewModel.focusState {
+                    case .graph:
+                        print("Recentering graph on \(viewModel.effectiveCentroid)")
+                        recenterOn(position: viewModel.effectiveCentroid)
+                    case .node(let id):
+                    if let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                        print("Recentering on node \(id): \(node.position)")
+                        recenterOn(position: node.position)
+                    }
+                case .edge(let id):
+                    if let edge = viewModel.model.edges.first(where: { $0.id == id }),
+                       let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                       let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
+                        let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                        print("Recentering on edge midpoint: \(midpoint)")
+                        recenterOn(position: midpoint)
+                    }
+                case .menu:
+                    break
+                }
+            }
+        
+            .onChange(of: viewModel.selectedNodeID) { _ in
+                if let id = viewModel.selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+                    print("Selection change: Recentering on node \(id) at \(node.position)")
                     recenterOn(position: node.position)
+                } else {
+                    print("Selection cleared: Recentering on graph centroid \(viewModel.effectiveCentroid)")
+                    recenterOn(position: viewModel.effectiveCentroid)
                 }
-            case .edge(let id):
-                if let edge = viewModel.model.edges.first(where: { $0.id == id }),
-                   let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                   let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) {
-                    let midpoint = CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
-                    recenterOn(position: midpoint)
-                }
-            case .menu:
-                break
+                viewModel.saveViewState()  // Existing
             }
-            previousCrownPosition = newValue
-        }
-        .onChange(of: viewModel.focusState) { newState in
-            WKInterfaceDevice.current().play(.click)
-        }
+        
         .onChange(of: showMenu) { newValue in
             print("Show menu changed to \(newValue)")
             viewModel.focusState = newValue ? .menu : .graph
@@ -133,18 +202,21 @@ struct ContentView: View {
                 isCanvasFocused = true
             }
         }
-        // In ContentView.swift (.onAppear block)
+
+
+
         .onAppear {
             do {
                 if let state = try? viewModel.model.loadViewState() {
-                    offset = CGSize(width: state.offset.x, height: state.offset.y)  // <-- Convert CGPoint to CGSize
-                    zoomScale = state.zoomScale
+                    offset = CGSize(width: state.offset.x, height: state.offset.y)
+                    zoomScale = state.zoomScale.clamped(to: 0.01...maxZoom)  // Clamp here before assigning
                     selectedNodeID = state.selectedNodeID
                     selectedEdgeID = state.selectedEdgeID
                 }
             } catch {
                 print("Failed to load view state: \(error)")
             }
+        
             print("Loaded nodes count: \(viewModel.model.nodes.count)")  // Add this
             onUpdateZoomRanges()
             isLoaded = true
@@ -152,6 +224,15 @@ struct ContentView: View {
             viewModel.model.startSimulation()
             isCanvasFocused = true
         }
+        
+        // Existing .onAppear, .onChange(of: showMenu), etc...
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                isCanvasFocused = true  // Re-focus on activation
+                print("App activated: Re-focusing crown view")
+            }
+        }
+        
         .onChange(of: zoomScale) { newValue in
             if abs(newValue - previousZoomScale) > 0.01 {
                 previousZoomScale = newValue
