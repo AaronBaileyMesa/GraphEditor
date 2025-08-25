@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-25 11:05:03
+Current date: 2025-08-25 11:36:10
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -150,7 +150,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-24 09:45:21
+Last modified: 2025-08-25 11:14:45
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -170,10 +170,9 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
 public class GraphModel: ObservableObject {
     @Published public var nodes: [AnyNode] = []  // Changed to [AnyNode] for Equatable conformance
     @Published public var edges: [GraphEdge] = []
-    
     @Published public var isSimulating: Bool = false
+           
     private var simulationTimer: Timer? = nil
-    
     private var undoStack: [GraphState] = []
     private var redoStack: [GraphState] = []
     private let maxUndo = 10
@@ -181,8 +180,31 @@ public class GraphModel: ObservableObject {
     
     private let storage: GraphStorage
     public let physicsEngine: PhysicsEngine  // Changed to public
+    private var hiddenNodeIDs: Set<NodeID> {
+        var hidden = Set<NodeID>()
+        var toHide: [NodeID] = []
+
+        // Seed with direct children of collapsed toggle nodes
+        for node in nodes {
+            if node.unwrapped.shouldHideChildren() {
+                let children = edges.filter { $0.from == node.id }.map { $0.to }
+                toHide.append(contentsOf: children)
+            }
+        }
+
+        // Iteratively hide all descendants (DFS)
+        while !toHide.isEmpty {
+            let current = toHide.removeLast()
+            if hidden.insert(current).inserted {
+                let children = edges.filter { $0.from == current }.map { $0.to }
+                toHide.append(contentsOf: children)
+            }
+        }
+
+        return hidden
+    }
     
-    private lazy var simulator: GraphSimulator = {
+        private lazy var simulator: GraphSimulator = {
         GraphSimulator(
             getNodes: { [weak self] in self?.nodes.map { $0.unwrapped } ?? [] },  // Map to [any NodeProtocol]
             setNodes: { [weak self] newNodes in
@@ -247,7 +269,7 @@ public class GraphModel: ObservableObject {
         self.edges = tempEdges
         self.nextNodeLabel = tempNextLabel  // Always set (computed above without duplication)
     }
-    
+
     public func clearGraph() {
         snapshot()
         nodes = []
@@ -336,18 +358,14 @@ public class GraphModel: ObservableObject {
     }
     
     public func visibleNodes() -> [any NodeProtocol] {
-        let hiddenIDs = hiddenNodeIDs()  // Assuming this returns Set<NodeID> of hidden nodes
-        return nodes
-            .filter { !hiddenIDs.contains($0.id) }
-            .map { $0.unwrapped }  // Return as [any NodeProtocol]
+        let hidden = hiddenNodeIDs
+        return nodes.map { $0.unwrapped }.filter { $0.isVisible && !hidden.contains($0.id) }
     }
-    
+
     public func visibleEdges() -> [GraphEdge] {
-        let visibleIDs = Set(visibleNodes().map { $0.id })
-        return edges.filter { visibleIDs.contains($0.from) && visibleIDs.contains($0.to) }
+        let hidden = hiddenNodeIDs
+        return edges.filter { !hidden.contains($0.from) && !hidden.contains($0.to) }
     }
-    
-    // ... (other methods like hiddenNodeIDs, buildAdjacencyList unchanged)
     
     public func addNode(at position: CGPoint) {
         snapshot()

@@ -7,6 +7,7 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import os.log  // Added for optimized logging
 
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
@@ -30,6 +31,9 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var isLongPressTriggered: Bool = false
     
     private let dragStartThreshold: CGFloat = 5.0
+    
+    // Optimized logger
+    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
     private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
         let modelHitRadius = Constants.App.hitScreenRadius / zoomScale * 2.0
@@ -58,7 +62,11 @@ struct GraphGesturesModifier: ViewModifier {
         let translated = screenPos - viewCenter - panOffset // Subtract negative offset = add positive, boosting to match nodes
         let unscaled = translated / safeZoom
         let modelPos = unscaled + effectiveCentroid
-        print("screenToModel calibrated: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid)")
+        
+        #if DEBUG
+        logger.debug("screenToModel calibrated: Screen \(String(describing: screenPos)) -> Model \(String(describing: modelPos)), Zoom \(safeZoom), Offset \(String(describing: panOffset)), Centroid \(String(describing: effectiveCentroid))")
+        #endif
+        
         return modelPos
     }
     
@@ -72,15 +80,21 @@ struct GraphGesturesModifier: ViewModifier {
                   let from = visibleNodes.first(where: { $0.id == edge.from }), let to = visibleNodes.first(where: { $0.id == edge.to }) {
             effectiveCentroid = (from.position + to.position) / 2
         }
-        print("Focal point calculated: \(effectiveCentroid)")  // Debug: Remove after verifying centering
+        
+        #if DEBUG
+        logger.debug("Focal point calculated: \(String(describing: effectiveCentroid))")
+        #endif
+        
         return effectiveCentroid
     }
     
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0)
             .onChanged { value in
-                print("Gesture .onChanged triggered")  // New: Debug to confirm firing
-                print("Current zoomScale: \(zoomScale)")
+                #if DEBUG
+                logger.debug("Gesture .onChanged triggered")
+                logger.debug("Current zoomScale: \(zoomScale)")
+                #endif
                 
                 if isLongPressTriggered { return }
                 
@@ -98,15 +112,17 @@ struct GraphGesturesModifier: ViewModifier {
                     }
                 }
 
-                // Updated: Start long press timer immediately on touch (no movement required)
                 if longPressTimer == nil {
+                    //Do not reduce withTimeInterval
                     longPressTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
                         self.showMenu = true
                         WKInterfaceDevice.current().play(.click)
                         self.isLongPressTriggered = true
                         self.longPressTimer = nil
                     }
-                    print("Long-press timer started")
+                    #if DEBUG
+                    logger.debug("Long-press timer started")
+                    #endif
                 }
 
                 if translationDistance >= dragStartThreshold {
@@ -129,21 +145,25 @@ struct GraphGesturesModifier: ViewModifier {
                     }
                 }
                 
-                // Diagnostic logs (moved outside timer)
+                // Diagnostic logs (moved outside timer, gated and summarized)
+                #if DEBUG
                 let effectiveCentroid = focalPointForCentering()
                 let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
                 let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                print("--- .onChanged Diagnostic ---")
-                print("Effective Centroid: \(effectiveCentroid)")
-                print("Screen Pos: \(value.location)")
-                print("Translated: \(translated)")
-                print("Unscaled: \(unscaled)")
-                print("Model Pos (touchPos): \(touchPos)")
-                print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                print("-----------------------------")
+                logger.debug("--- .onChanged Diagnostic ---")
+                logger.debug("Effective Centroid: \(String(describing: effectiveCentroid))")
+                logger.debug("Screen Pos: \(String(describing: value.location))")
+                logger.debug("Translated: \(String(describing: translated))")
+                logger.debug("Unscaled: \(String(describing: unscaled))")
+                logger.debug("Model Pos (touchPos): \(String(describing: touchPos))")
+                logger.debug("Visible Nodes Count: \(viewModel.model.visibleNodes().count)")  // Summarized instead of full list
+                logger.debug("-----------------------------")
+                #endif
             }
             .onEnded { value in
-                print("Gesture .onEnded triggered")  // New: Debug
+                #if DEBUG
+                logger.debug("Gesture .onEnded triggered")
+                #endif
                 
                 if isLongPressTriggered {
                     isLongPressTriggered = false
@@ -169,7 +189,9 @@ struct GraphGesturesModifier: ViewModifier {
                         viewModel.model.updateNode(updatedNode)
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
-                        print("Tap detected at model position: \(tapModelPos). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
+                        #if DEBUG
+                        logger.debug("Tap detected at model position: \(String(describing: tapModelPos)). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
+                        #endif
                         WKInterfaceDevice.current().play(.click)
                     } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
                         if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
@@ -179,30 +201,38 @@ struct GraphGesturesModifier: ViewModifier {
                         }
                         return false
                     }) {
-                        print("Edge hit detected with tightened radius.")
+                        #if DEBUG
+                        logger.debug("Edge hit detected with tightened radius.")
+                        #endif
                         selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
                         selectedNodeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else {
-                        print("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
+                        #if DEBUG
+                        logger.debug("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
+                        #endif
                         selectedNodeID = nil
                         selectedEdgeID = nil
                     }
                     
-                    print("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
+                    #if DEBUG
+                    logger.debug("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
+                    #endif
                     
-                    // Diagnostic logs
+                    // Diagnostic logs (gated and summarized)
+                    #if DEBUG
                     let effectiveCentroid = focalPointForCentering()
                     let translated = CGPoint(x: value.startLocation.x - viewSize.width / 2 - offset.width, y: value.startLocation.y - viewSize.height / 2 - offset.height)
                     let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                    print("--- Tap (.onEnded) Diagnostic ---")
-                    print("Effective Centroid: \(effectiveCentroid)")
-                    print("Screen Pos: \(value.startLocation)")
-                    print("Translated: \(translated)")
-                    print("Unscaled: \(unscaled)")
-                    print("Model Pos (tapModelPos): \(tapModelPos)")
-                    print("Visible Nodes Positions: \(viewModel.model.visibleNodes().map { $0.position })")
-                    print("--------------------------------")
+                    logger.debug("--- Tap (.onEnded) Diagnostic ---")
+                    logger.debug("Effective Centroid: \(String(describing: effectiveCentroid))")
+                    logger.debug("Screen Pos: \(String(describing: value.startLocation))")
+                    logger.debug("Translated: \(String(describing: translated))")
+                    logger.debug("Unscaled: \(String(describing: unscaled))")
+                    logger.debug("Model Pos (tapModelPos): \(String(describing: tapModelPos))")
+                    logger.debug("Visible Nodes Count: \(viewModel.model.visibleNodes().count)")  // Summarized instead of full list
+                    logger.debug("--------------------------------")
+                    #endif
                 } else {
                     viewModel.snapshot()
                     if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {

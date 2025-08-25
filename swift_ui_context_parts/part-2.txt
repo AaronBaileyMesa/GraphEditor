@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-25 11:05:04
+Current date: 2025-08-25 11:36:10
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
@@ -840,7 +840,7 @@ public class Quadtree {  // Made public for consistency/test access
 ----------------------------------------------------------------------------------------------------
 File: RepulsionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-Last modified: 2025-08-18 11:12:14
+Last modified: 2025-08-25 11:30:35
 
 Contents:
 //
@@ -889,7 +889,6 @@ struct RepulsionCalculator {
             quadtree.insert(node)
         }
         return quadtree
-        // Removed duplicated block
     }
 
     private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
