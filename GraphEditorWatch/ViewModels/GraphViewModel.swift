@@ -1,7 +1,4 @@
-//  GraphViewModel.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/1/25.
+// GraphViewModel.swift (Add access to model's physicsEngine and confirm centerGraph)
 
 import SwiftUI
 import Combine
@@ -10,8 +7,8 @@ import WatchKit  // For WKApplication
 
 class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
-    @Published var selectedEdgeID: UUID? = nil  // New: For edge selection
-    @Published var selectedNodeID: UUID? = nil  // Add this; matches bindings in views
+    @Published var selectedEdgeID: UUID? = nil
+    @Published var selectedNodeID: UUID? = nil
     @Published var offset: CGPoint = .zero
     @Published var zoomScale: CGFloat = 1.0
     
@@ -29,11 +26,10 @@ class GraphViewModel: ObservableObject {
     private var pauseObserver: NSObjectProtocol?
     private var resumeObserver: NSObjectProtocol?
     
-    // New: Timer for debounced resumes
     private var resumeTimer: Timer?
     
     var effectiveCentroid: CGPoint {
-        let visibleNodes = model.visibleNodes()  // Already [any NodeProtocol]
+        let visibleNodes = model.visibleNodes()
         if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
             return node.position
         } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
@@ -41,10 +37,9 @@ class GraphViewModel: ObservableObject {
                   let to = visibleNodes.first(where: { $0.id == edge.to }) {
             return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
         }
-        return centroid(of: visibleNodes) ?? .zero  // No map needed; pass directly
+        return centroid(of: visibleNodes) ?? .zero
     }
     
-    // New: Enum for focus state, now Equatable
     enum AppFocusState: Equatable {
         case graph
         case node(UUID)
@@ -52,7 +47,7 @@ class GraphViewModel: ObservableObject {
         case menu
     }
 
-    @Published var focusState: AppFocusState = .graph  // New
+    @Published var focusState: AppFocusState = .graph
     
     init(model: GraphModel) {
         self.model = model
@@ -66,23 +61,36 @@ class GraphViewModel: ObservableObject {
             self?.resumeSimulationAfterDelay()
         }
         
-        // Call new methods to load on init (preserves original behavior without duplication)
         loadGraph()
         loadViewState()
     }
     
-    // New method to save (call from views)
+    func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
+        let graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes)  // Fixed: Access via model.physicsEngine
+        guard graphBounds.width > 0 && graphBounds.height > 0 else {
+            return (AppConstants.defaultMinZoom, AppConstants.defaultMaxZoom)
+        }
+        
+        let fitScaleWidth = viewSize.width / graphBounds.width * AppConstants.zoomPaddingFactor
+        let fitScaleHeight = viewSize.height / graphBounds.height * AppConstants.zoomPaddingFactor
+        let minZoom = min(fitScaleWidth, fitScaleHeight)
+        let maxZoom = max(minZoom * 5, AppConstants.defaultMaxZoom)
+        
+        print("Updated zoom ranges: min=\(minZoom), max=\(maxZoom)")
+        return (minZoom, maxZoom)
+    }
+    
     func saveViewState() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
             guard let self = self else { return }
-            model.centerGraph()  // Center before persist
+            self.centerGraph()  // Center before save
             do {
-                try self.model.saveViewState(offset: self.offset,  // Pass directly (CGPoint)
+                try self.model.saveViewState(offset: self.offset,
                                              zoomScale: self.zoomScale,
                                              selectedNodeID: self.selectedNodeID,
                                              selectedEdgeID: self.selectedEdgeID)
-                print("Saved view state with centered positions: Centroid \(centroid(of: self.model.nodes) ?? .zero)")  // Debug, using free func
+                print("Saved view state")
             } catch {
                 print("Failed to save view state: \(error)")
             }
@@ -92,15 +100,13 @@ class GraphViewModel: ObservableObject {
     private func loadGraph() {
         do {
             try model.loadFromStorage()
-            print("Loaded raw positions: Centroid \(centroid(of: model.nodes) ?? .zero)")
-            model.centerGraph()  // Center synchronously after load
-            model.startSimulation()  // Now start physics
+            model.centerGraph()
+            model.startSimulation()
         } catch {
             print("Failed to load graph: \(error)")
         }
     }
     
-    // New method to load view state
     private func loadViewState() {
         do {
             if let state = try model.loadViewState() {
@@ -108,20 +114,18 @@ class GraphViewModel: ObservableObject {
                 self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
                 self.selectedEdgeID = state.selectedEdgeID
-                print("Loaded view state: Offset \(self.offset), Zoom \(self.zoomScale), Centroid before center \(centroid(of: model.nodes) ?? .zero)")
             } else {
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
-                self.offset = .zero  // Explicit reset if no state
+                self.offset = .zero
             }
-            model.centerGraph()  // Center after full state (positions now aligned)
-            self.offset = .zero  // Reset offset post-center to ensure visual centering
-            model.expandAllRoots()  // Existing
+            model.centerGraph()
+            self.offset = .zero
+            model.expandAllRoots()
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
         }
         
-        // After loading IDs, set focusState
         if let id = selectedNodeID {
             focusState = .node(id)
         } else if let id = selectedEdgeID {
@@ -129,12 +133,11 @@ class GraphViewModel: ObservableObject {
         } else {
             focusState = .graph
         }
-        model.centerGraph()  // Ensure centered after view state load (idempotent)
+        model.centerGraph()
         self.objectWillChange.send()
     }
     
     deinit {
-        // Clean up to avoid leaks
         if let pauseObserver = pauseObserver {
             NotificationCenter.default.removeObserver(pauseObserver)
         }
@@ -169,7 +172,7 @@ class GraphViewModel: ObservableObject {
     }
     
     func updateNode(_ updatedNode: any NodeProtocol) {
-        model.updateNode(AnyNode(updatedNode))  // Wrap to satisfy conformance
+        model.updateNode(AnyNode(updatedNode))
     }
     
     func addToggleNode(at position: CGPoint) {
@@ -192,7 +195,6 @@ class GraphViewModel: ObservableObject {
         model.resumeSimulation()
     }
     
-    // New: Debounced resume with app state check
     func resumeSimulationAfterDelay() {
         resumeTimer?.invalidate()
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
@@ -203,9 +205,9 @@ class GraphViewModel: ObservableObject {
         }
     }
     
-    func handleTap() {  // Call this before/after selection in gesture
+    func handleTap() {
         model.pauseSimulation()
-        resumeSimulationAfterDelay()  // Use debounced method
+        resumeSimulationAfterDelay()
     }
     
     func setSelectedNode(_ id: UUID?) {
@@ -217,6 +219,11 @@ class GraphViewModel: ObservableObject {
     func setSelectedEdge(_ id: UUID?) {
         selectedEdgeID = id
         focusState = id.map { .edge($0) } ?? .graph
+        objectWillChange.send()
+    }
+    
+    func centerGraph() {
+        offset = .zero  // Basic reset; enhance as needed
         objectWillChange.send()
     }
 }

@@ -1,21 +1,246 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-22 22:49:00
+Current date: 2025-08-25 11:05:04
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-2. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-3. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-4. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-5. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-6. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-7. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-8. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-9. GraphEditorWatch/GraphEditorWatch.swift
-10. GraphEditorWatch/Models/AppConstants.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+3. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
+4. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+5. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+7. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
+File: NodeProtocol.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+Last modified: 2025-08-23 00:04:35
+
+Contents:
+// Sources/GraphEditorShared/NodeProtocol.swift
+
+import SwiftUI
+import Foundation
+
+private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
+private let maxCacheSize = 100  // Arbitrary limit; adjust based on testing
+private let nodeCacheQueue = DispatchQueue(label: "nodeTextCache", attributes: .concurrent)
+private var insertionOrder: [String] = []  // New: Track order
+
+
+/// Protocol for graph nodes, enabling polymorphism for types like standard or toggleable nodes.
+/// Conformers must provide core properties; defaults are available for common behaviors.
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
+    /// Unique identifier for the node.
+    var id: NodeID { get }
+    
+    /// Permanent label for the node (e.g., for display and accessibility).
+    var label: Int { get }
+    
+    /// Current position in the graph canvas.
+    var position: CGPoint { get set }
+    
+    /// Velocity vector for physics simulation.
+    var velocity: CGPoint { get set }
+    
+    /// Radius for rendering and hit detection.
+    var radius: CGFloat { get set }
+    
+    /// Expansion state for hierarchical nodes (e.g., true shows children).
+    var isExpanded: Bool { get set }
+    
+    /// Creates a copy with updated position and velocity.
+    func with(position: CGPoint, velocity: CGPoint) -> Self
+    
+    /// Renders the node as a SwiftUI view, customizable by zoom and selection.
+    /// - Parameters:
+    ///   - zoomScale: Current zoom level of the canvas.
+    ///   - isSelected: Whether the node is selected (e.g., for border highlight).
+    /// - Returns: A SwiftUI view representing the node.
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView
+    
+    /// Handles tap gestures, returning a mutated copy (immutable pattern).
+    /// - Returns: Updated node after tap (e.g., toggled state).
+    func handlingTap() -> Self
+    
+    /// Indicates if the node is visible in the graph.
+    var isVisible: Bool { get }
+    
+    /// Configurable fill color for the node's roundel.
+    var fillColor: Color { get }
+    
+    /// Determines if child nodes (via outgoing edges) should be hidden.
+    /// - Returns: True if children should be hidden (e.g., collapsed toggle).
+    func shouldHideChildren() -> Bool
+    
+    /// Draws the node in a GraphicsContext for efficient Canvas rendering.
+    /// - Parameters:
+    ///   - context: The GraphicsContext to draw into.
+    ///   - position: Center position for drawing.
+    ///   - zoomScale: Current zoom level.
+    ///   - isSelected: Whether to draw selection highlights.
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool)
+}
+
+/// Extension providing default implementations for non-rendering behaviors.
+/// These can be overridden in conformers for custom logic.
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public extension NodeProtocol {
+    /// Default: No change on tap.
+    func handlingTap() -> Self { self }
+    
+    /// Default: Node is always visible.
+    var isVisible: Bool { true }
+    
+    var fillColor: Color { .red }  // Default to red for all nodes
+    
+    var isExpanded: Bool {
+        get { true }  // Default: Always expanded (non-toggle nodes ignore)
+        set { }  // No-op setter for non-mutating types
+    }
+    
+    func shouldHideChildren() -> Bool {
+        !isExpanded  // Default: Hide if not expanded
+    }
+}
+
+/// Extension providing default rendering implementations using GraphicsContext.
+/// Override for custom node appearances (e.g., different shapes/colors).
+@available(iOS 15.0, *)
+@available(watchOS 9.0, *)
+public extension NodeProtocol {
+    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        AnyView(Canvas { context, _ in
+            self.draw(in: context, at: .zero, zoomScale: zoomScale, isSelected: isSelected)
+        })
+    }
+    
+    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
+        let scaledRadius = radius * zoomScale
+        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+        let borderRadius = scaledRadius + borderWidth / 2
+        
+        if borderWidth > 0 {
+            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        }
+        
+        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        context.fill(innerPath, with: .color(.red))
+        
+        // Always draw label (removed if isSelected)
+        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
+        let labelKey = "\(label)-\(fontSize)"
+        let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
+            if let cached = nodeTextCache[labelKey] { return cached }
+            let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
+            let resolved = context.resolve(text)
+            nodeCacheQueue.async(flags: .barrier) {
+                nodeTextCache[labelKey] = resolved
+                insertionOrder.append(labelKey)  // Add to order
+                if nodeTextCache.count > maxCacheSize {
+                    let oldestKey = insertionOrder.removeFirst()  // True oldest
+                    nodeTextCache.removeValue(forKey: oldestKey)
+                }
+            }
+            return resolved
+        }
+        let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))
+        context.draw(resolved, at: labelPosition, anchor: .center)
+    }
+}
+
+public struct AnyNode: NodeProtocol, Equatable {
+    private var base: any NodeProtocol  // Changed to var for mutability
+    
+    public var unwrapped: any NodeProtocol { base }  // Public accessor to avoid private exposure
+    
+    public var id: NodeID { base.id }
+    public var label: Int { base.label }
+    public var position: CGPoint {
+        get { base.position }
+        set { base.position = newValue }  // Now mutates var base
+    }
+    public var velocity: CGPoint {
+        get { base.velocity }
+        set { base.velocity = newValue }
+    }
+    public var radius: CGFloat {
+        get { base.radius }
+        set { base.radius = newValue }
+    }
+    public var isExpanded: Bool {
+        get { base.isExpanded }
+        set { base.isExpanded = newValue }
+    }
+    public var isVisible: Bool { base.isVisible }
+    public var fillColor: Color { base.fillColor }
+    
+    public init(_ base: any NodeProtocol) {
+        self.base = base
+    }
+    
+    public func with(position: CGPoint, velocity: CGPoint) -> Self {
+        var newBase = base
+        newBase.position = position
+        newBase.velocity = velocity
+        return AnyNode(newBase)
+    }
+    
+    public func handlingTap() -> Self {
+        AnyNode(base.handlingTap())
+    }
+    
+    public func shouldHideChildren() -> Bool {
+        base.shouldHideChildren()
+    }
+    
+    // Rendering methods: Forward to base
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        base.renderView(zoomScale: zoomScale, isSelected: isSelected)
+    }
+    
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
+        base.draw(in: context, at: position, zoomScale: zoomScale, isSelected: isSelected)
+    }
+    
+    // Equatable: Compare via id (adjust if your protocol uses different equality)
+    public static func == (lhs: AnyNode, rhs: AnyNode) -> Bool {
+        lhs.id == rhs.id
+    }
+    
+    // Codable: Forward to NodeWrapper for polymorphic handling
+    public init(from decoder: Decoder) throws {
+        let wrapper = try NodeWrapper(from: decoder)
+        self.base = wrapper.value
+    }
+    
+    public func encode(to encoder: Encoder) throws {
+        // Wrap base in NodeWrapper and encode that
+        let wrapper: NodeWrapper
+        if let node = base as? Node {
+            wrapper = .node(node)
+        } else if let toggleNode = base as? ToggleNode {
+            wrapper = .toggleNode(toggleNode)
+        } else {
+            throw EncodingError.invalidValue(base, EncodingError.Context(codingPath: [], debugDescription: "Unsupported node type"))
+        }
+        try wrapper.encode(to: encoder)
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-22 14:38:51
+Last modified: 2025-08-23 10:12:16
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -47,7 +272,7 @@ public class PersistenceManager: GraphStorage {
     }
     
     struct SavedState: Codable {
-        let version: Int = 1
+        var version: Int = 1  // Change let to var
         let nodes: [NodeWrapper]
         let edges: [GraphEdge]
         let viewState: ViewState?  // Embed view state (optional)
@@ -721,261 +946,5 @@ struct RepulsionCalculator {
         }
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
-}
-----------------------------------------------------------------------------------------------------
-File: ToggleNode.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-08-13 13:47:33
-
-Contents:
-// Sources/GraphEditorShared/ToggleNode.swift
-
-import SwiftUI
-import Foundation
-
-@available(iOS 13.0, *)
-@available(watchOS 9.0, *)
-public struct ToggleNode: NodeProtocol {
-    public let id: NodeID
-    public let label: Int
-    public var position: CGPoint
-    public var velocity: CGPoint = .zero
-    public var radius: CGFloat = 10.0
-    public var isExpanded: Bool = true  // Default to expanded
-    public var fillColor: Color { isExpanded ? .green : .red }
-
-    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true) {
-        self.id = id
-        self.label = label
-        self.position = position
-        self.velocity = velocity
-        self.radius = radius
-        self.isExpanded = isExpanded
-    }
-
-    public func with(position: CGPoint, velocity: CGPoint) -> Self {
-        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded)
-    }
-
-    // In ToggleNode.swift, replace handlingTap with:
-    public func handlingTap() -> Self {
-        print("ToggleNode \(label) tapped. Expansion state before: \(isExpanded), after: \(!isExpanded)")
-        var updated = self
-        updated.isExpanded.toggle()
-        return updated
-    }
-
-    // Override: Custom draw with +/- icon
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-
-        if borderWidth > 0 {
-            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
-        }
-
-        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(fillColor))  // Use self.fillColor (e.g., .green if expanded, .red if collapsed)
-        
-        // Draw +/- icon
-        let iconText = isExpanded ? "-" : "+"
-        let fontSize = max(8.0, 12.0 * zoomScale)  // Readable min size
-        let text = Text(iconText).foregroundColor(.white).font(.system(size: fontSize, weight: .bold))
-        let resolved = context.resolve(text)
-        context.draw(resolved, at: position, anchor: .center)  // Center in node
-
-        // Draw label above (as in protocol default)
-        let labelFontSize = max(8.0, 12.0 * zoomScale)
-        let labelText = Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize))
-        let labelResolved = context.resolve(labelText)
-        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
-        context.draw(labelResolved, at: labelPosition, anchor: .center)
-    }
-
-    // Codable conformance (for persistence)
-    enum CodingKeys: String, CodingKey {
-        case id, label, radius, isExpanded
-        case positionX, positionY
-        case velocityX, velocityY
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(NodeID.self, forKey: .id)
-        label = try container.decode(Int.self, forKey: .label)
-        radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0
-        isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
-        let posX = try container.decode(CGFloat.self, forKey: .positionX)
-        let posY = try container.decode(CGFloat.self, forKey: .positionY)
-        position = CGPoint(x: posX, y: posY)
-        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
-        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
-        velocity = CGPoint(x: velX, y: velY)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(label, forKey: .label)
-        try container.encode(radius, forKey: .radius)
-        try container.encode(isExpanded, forKey: .isExpanded)
-        try container.encode(position.x, forKey: .positionX)
-        try container.encode(position.y, forKey: .positionY)
-        try container.encode(velocity.x, forKey: .velocityX)
-        try container.encode(velocity.y, forKey: .velocityY)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: Utilities.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-08-21 08:05:59
-
-Contents:
-import Foundation
-import CoreGraphics
-
-public extension Double {
-    func clamped(to range: ClosedRange<Double>) -> Double {
-        max(range.lowerBound, min(self, range.upperBound))
-    }
-}
-
-public extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
-    }
-}
-
-public extension CGFloat {
-    func rounded(to decimalPlaces: Int) -> CGFloat {
-        let divisor = pow(10.0, CGFloat(decimalPlaces))
-        return (self * divisor).rounded() / divisor
-    }
-}
-
-public extension CGPoint {
-    func normalized() -> CGPoint {
-            let len = hypot(x, y)
-            return len > 0 ? self / len : .zero
-        }
-    
-    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
-    }
-    
-    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
-    }
-    
-    static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        CGPoint(x: lhs.x * rhs, y: lhs.y * rhs)
-    }
-    
-    static func / (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
-    }
-    
-    static func += (lhs: inout CGPoint, rhs: CGPoint) {
-        lhs = lhs + rhs
-    }
-    
-    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
-        lhs = lhs - rhs
-    }
-    
-    static func *= (lhs: inout CGPoint, rhs: CGFloat) {
-        lhs = lhs * rhs
-    }
-    
-    static func + (lhs: CGPoint, rhs: CGSize) -> CGPoint {
-        CGPoint(x: lhs.x + rhs.width, y: lhs.y + rhs.height)
-    }
-    
-    static func += (lhs: inout CGPoint, rhs: CGSize) {
-        lhs = lhs + rhs
-    }
-    
-    var magnitude: CGFloat {
-        hypot(x, y)
-    }
-}
-
-public extension CGSize {
-    static func / (lhs: CGSize, rhs: CGFloat) -> CGSize {
-        CGSize(width: lhs.width / rhs, height: lhs.height / rhs)
-    }
-    
-    static func + (lhs: CGSize, rhs: CGSize) -> CGSize {
-        CGSize(width: lhs.width + rhs.width, height: lhs.height + rhs.height)
-    }
-    
-    static func += (lhs: inout CGSize, rhs: CGSize) {
-        lhs = lhs + rhs
-    }
-}
-
-// Shared utility functions
-public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-    hypot(a.x - b.x, a.y - b.y)
-}
-----------------------------------------------------------------------------------------------------
-File: GraphEditorWatch.swift
-Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-08-22 12:19:13
-
-Contents:
-//
-//  GraphEditorWatch.swift
-//  GraphEditorWatch Watch App
-//
-//  Created by handcart on 8/1/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-// In GraphEditorWatch.swift
-@main
-struct GraphEditorWatch: App {
-    var body: some Scene {
-        WindowGroup {
-            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))  // Mock bounds; adjust as needed
-            let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
-            let viewModel = GraphViewModel(model: model)  // Create viewModel here
-            ContentView(viewModel: viewModel)  // <-- Pass viewModel to ContentView init
-        }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: AppConstants.swift
-Path: GraphEditorWatch/Models/AppConstants.swift
-Last modified: 2025-08-07 18:42:52
-
-Contents:
-//
-//  AppConstants.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/3/25.
-//
-
-
-import CoreGraphics
-
-struct AppConstants {
-    // Graph visuals
-    static let nodeModelRadius: CGFloat = 10.0
-    static let hitScreenRadius: CGFloat = 30.0
-    static let tapThreshold: CGFloat = 10.0
-    
-    // Zooming
-    static let numZoomLevels = 10
-    static let defaultMinZoom: CGFloat = 0.2
-    static let defaultMaxZoom: CGFloat = 5.0
 }
 --------------------------------------------------

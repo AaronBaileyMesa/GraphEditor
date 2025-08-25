@@ -32,7 +32,7 @@ struct GraphGesturesModifier: ViewModifier {
     private let dragStartThreshold: CGFloat = 5.0
     
     private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
-        let modelHitRadius = Constants.App.hitScreenRadius / zoomScale
+        let modelHitRadius = Constants.App.hitScreenRadius / zoomScale * 2.0
         switch type {
         case .node:
             return viewModel.model.visibleNodes().first { distance($0.position, modelPos) < modelHitRadius }
@@ -50,15 +50,15 @@ struct GraphGesturesModifier: ViewModifier {
     enum HitType { case node, edge }
     
     private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize) -> CGPoint {
-        let safeZoom = max(zoomScale, 0.01)
+        let safeZoom = max(zoomScale, 0.1)  // Raise to 0.1 to avoid inf/large numbers
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         let effectiveCentroid = focalPointForCentering()
         
-        let translated = screenPos - viewCenter - panOffset  // Subtract center + offset first
-        let unscaled = translated / safeZoom  // Then unscale
-        let modelPos = unscaled + effectiveCentroid  // Add centroid last
-        print("screenToModel fixed: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid)")  // Debug
+        let translated = screenPos - viewCenter - panOffset // Subtract negative offset = add positive, boosting to match nodes
+        let unscaled = translated / safeZoom
+        let modelPos = unscaled + effectiveCentroid
+        print("screenToModel calibrated: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid)")
         return modelPos
     }
     

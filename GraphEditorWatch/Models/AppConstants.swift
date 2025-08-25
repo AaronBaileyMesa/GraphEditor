@@ -18,4 +18,6 @@ struct AppConstants {
     static let numZoomLevels = 10
     static let defaultMinZoom: CGFloat = 0.2
     static let defaultMaxZoom: CGFloat = 5.0
+    public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
+    public static let crownZoomSteps: Int = 20  // Smooth steps for crown
 }
