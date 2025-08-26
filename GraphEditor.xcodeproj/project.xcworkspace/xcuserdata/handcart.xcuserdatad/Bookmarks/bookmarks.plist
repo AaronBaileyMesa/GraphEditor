@@ -55,13 +55,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>237</string>
+					<string>314</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>237</string>
+					<string>313</string>
 					<key>Timestamp</key>
-					<string>777839172.325839</string>
+					<string>777931865.371013</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -77,13 +77,17 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>struct EditContentSheet: View {
+</string>
 				<key>leading</key>
 				<string>}
 
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>    let selectedID: NodeID
+    let viewModel: GraphViewModel
+    let onSave: (NodeContent?) -&gt; Void
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -98,13 +102,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>237</string>
+					<string>314</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>237</string>
+					<string>313</string>
 					<key>Timestamp</key>
-					<string>777839172.325861</string>
+					<string>777931865.371032</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -120,13 +124,17 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>struct EditContentSheet: View {
+</string>
 				<key>leading</key>
 				<string>}
 
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>    let selectedID: NodeID
+    let viewModel: GraphViewModel
+    let onSave: (NodeContent?) -&gt; Void
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>

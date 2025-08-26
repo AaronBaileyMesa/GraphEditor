@@ -101,6 +101,9 @@ struct ContentView: View {
     @State private var minZoom: CGFloat = AppConstants.defaultMinZoom
     @State private var maxZoom: CGFloat = AppConstants.defaultMaxZoom
     @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2
+    @State private var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
+    @State private var showEditSheet: Bool = false
+    @State private var isAddingEdge: Bool = false
 
     var body: some View {
         GeometryReader { geo in
@@ -108,6 +111,7 @@ struct ContentView: View {
                 .onAppear {
                     viewModel.resumeSimulation()
                     updateZoomRanges(for: geo.size)
+                     wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
                 }
                 .onChange(of: viewModel.model.nodes) { _ in
                     updateZoomRanges(for: geo.size)
@@ -131,6 +135,78 @@ struct ContentView: View {
         ZStack {
             innerViewConfig(in: geo)
             graphDescriptionOverlay
+                        // Persistent + button
+                        let isLeftWrist = wristSide == .left
+                        Button(action: {
+                            let centroid = viewModel.effectiveCentroid
+                            viewModel.model.addNode(at: centroid)
+                            WKInterfaceDevice.current().play(.success)
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 30))
+                                .foregroundColor(.green)
+                        }
+                        .buttonStyle(.plain)
+                        .position(x: isLeftWrist ? geo.size.width - 20 : 20, y: geo.size.height - 20)  // Bottom-right for left, bottom-left for right
+            
+                        // Contextual buttons for node
+                        if let selectedID = viewModel.selectedNodeID {
+                            HStack(spacing: 10) {
+                                Button(action: { showEditSheet = true }) {
+                                    Image(systemName: "pencil.circle.fill").font(.system(size: 24))
+                                }.buttonStyle(.plain)
+                                Button(action: {
+                                    viewModel.model.deleteNode(withID: selectedID)  // Assume method added
+                                    viewModel.selectedNodeID = nil
+                                    WKInterfaceDevice.current().play(.success)
+                                }) {
+                                    Image(systemName: "trash.circle.fill").font(.system(size: 24))
+                                }.buttonStyle(.plain)
+                                Button(action: { isAddingEdge = true }) {
+                                    Image(systemName: "plus.circle.fill").font(.system(size: 24))
+                                }.buttonStyle(.plain)
+                            }
+                            .padding()
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .position(x: isLeftWrist ? geo.size.width / 2 + 50 : geo.size.width / 2 - 50, y: geo.size.height - 30)
+                        } else if let selectedEdgeID = viewModel.selectedEdgeID {
+                            HStack(spacing: 10) {
+                                Button(action: {
+                                    viewModel.model.deleteSelectedEdge(id: selectedEdgeID)  // Assume method added
+                                    viewModel.selectedEdgeID = nil
+                                    WKInterfaceDevice.current().play(.success)
+                                }) {
+                                    Image(systemName: "trash.circle.fill").font(.system(size: 24))
+                                }.buttonStyle(.plain)
+                                Button(action: {
+                                    if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdgeID }) {
+                                        let edge = viewModel.model.edges[edgeIndex]
+                                        viewModel.model.edges[edgeIndex] = GraphEdge(id: edge.id, from: edge.to, to: edge.from)
+                                        viewModel.model.startSimulation()
+                                    }
+                                    WKInterfaceDevice.current().play(.success)
+                                }) {
+                                    Image(systemName: "arrow.left.arrow.right.circle.fill").font(.system(size: 24))
+                                }.buttonStyle(.plain)
+                            }
+                            .padding()
+                            .background(Color.black.opacity(0.5))
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                            .position(x: isLeftWrist ? geo.size.width / 2 + 50 : geo.size.width / 2 - 50, y: geo.size.height - 30)
+                        }
+                    }
+                    .onAppear {
+                        wristSide = WKInterfaceDevice.current().wristLocation
+                    }
+                    .sheet(isPresented: $showEditSheet) {
+                        if let selectedID = viewModel.selectedNodeID {
+                            EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
+                                viewModel.model.updateNodeContent(id: selectedID, newContent: newContent)
+                                showEditSheet = false
+                            })
+                        }
+                    
         }
     }
 
@@ -235,3 +311,51 @@ extension CGFloat {
     ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
 }
 
+struct EditContentSheet: View {
+    let selectedID: NodeID
+    let viewModel: GraphViewModel
+    let onSave: (NodeContent?) -> Void
+    @State private var selectedType: String = "String"
+    @State private var stringValue: String = ""
+    @State private var dateValue: Date = Date()
+    @State private var numberValue: Double = 0.0
+    
+    var body: some View {
+        VStack {
+            Picker("Type", selection: $selectedType) {
+                Text("String").tag("String")
+                Text("Date").tag("Date")
+                Text("Number").tag("Number")
+                Text("None").tag("None")
+            }
+            if selectedType == "String" {
+                TextField("Enter text", text: $stringValue).frame(maxWidth: .infinity)
+            } else if selectedType == "Date" {
+                DatePicker("Select date", selection: $dateValue, displayedComponents: .date)
+            } else if selectedType == "Number" {
+                TextField("Enter number", value: $numberValue, format: .number)
+            }
+            Button("Save") {
+                let newContent: NodeContent? = {
+                    switch selectedType {
+                    case "String": return stringValue.isEmpty ? nil : .string(stringValue)
+                    case "Date": return .date(dateValue)
+                    case "Number": return .number(numberValue)
+                    default: return nil
+                    }
+                }()
+                onSave(newContent)
+            }
+        }
+        .onAppear {
+            if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }),
+               let content = node.content {
+                switch content {
+                case .string(let str): selectedType = "String"; stringValue = str
+                case .date(let date): selectedType = "Date"; dateValue = date
+                case .number(let num): selectedType = "Number"; numberValue = num
+                }
+            }
+        }
+    }
+}
