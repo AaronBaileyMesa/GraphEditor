@@ -45,6 +45,7 @@ struct InnerViewConfig {
     let selectedEdgeID: Binding<UUID?>
     let canvasFocus: FocusState<Bool>
     let onCenterGraph: () -> Void
+    let isAddingEdge: Binding<Bool>  // Add
     
     init(
         geo: GeometryProxy,
@@ -63,7 +64,9 @@ struct InnerViewConfig {
         selectedNodeID: Binding<NodeID?>,
         selectedEdgeID: Binding<UUID?>,
         canvasFocus: FocusState<Bool>,
-        onCenterGraph: @escaping () -> Void
+        onCenterGraph: @escaping () -> Void,
+        isAddingEdge: Binding<Bool>
+    
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -82,6 +85,7 @@ struct InnerViewConfig {
         self.selectedEdgeID = selectedEdgeID
         self.canvasFocus = canvasFocus
         self.onCenterGraph = onCenterGraph
+        self.isAddingEdge = isAddingEdge
     }
 }
 
@@ -173,7 +177,7 @@ struct ContentView: View {
                         } else if let selectedEdgeID = viewModel.selectedEdgeID {
                             HStack(spacing: 10) {
                                 Button(action: {
-                                    viewModel.model.deleteSelectedEdge(id: selectedEdgeID)  // Assume method added
+                                    viewModel.model.deleteEdge(withID: selectedEdgeID)  // Assume method added
                                     viewModel.selectedEdgeID = nil
                                     WKInterfaceDevice.current().play(.success)
                                 }) {
@@ -202,7 +206,7 @@ struct ContentView: View {
                     .sheet(isPresented: $showEditSheet) {
                         if let selectedID = viewModel.selectedNodeID {
                             EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                                viewModel.model.updateNodeContent(id: selectedID, newContent: newContent)
+                                viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent)
                                 showEditSheet = false
                             })
                         }
@@ -228,7 +232,9 @@ struct ContentView: View {
             selectedNodeID: $selectedNodeID,
             selectedEdgeID: $selectedEdgeID,
             canvasFocus: _canvasFocus,
-            onCenterGraph: { viewModel.centerGraph() }  // Wrapped in closure to match () -> Void
+            onCenterGraph: { viewModel.centerGraph() },
+            isAddingEdge: $isAddingEdge
+            // Wrapped in closure to match () -> Void
         )
         return InnerView(config: config)
     }
@@ -281,7 +287,8 @@ struct InnerView: View {
             crownPosition: config.crownPosition,
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
-            showOverlays: config.showOverlays
+            showOverlays: config.showOverlays,
+            isAddingEdge: config.isAddingEdge  // Add this param (update init below too)
         )
         .accessibilityIdentifier("GraphCanvas")
         .focused(config.canvasFocus.projectedValue)

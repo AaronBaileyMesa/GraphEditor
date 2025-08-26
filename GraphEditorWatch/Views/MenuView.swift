@@ -13,6 +13,7 @@ struct AddSection: View {
     let viewModel: GraphViewModel
     let selectedNodeID: NodeID?
     let onDismiss: () -> Void
+    let onAddEdge: () -> Void  // New: Callback for starting add edge mode
 
     var body: some View {
         Section(header: Text("Add")) {
@@ -29,6 +30,10 @@ struct AddSection: View {
                     viewModel.addChild(to: selectedID)
                     onDismiss()
                 }
+                Button("Add Edge") {  // New
+                    onAddEdge()
+                    onDismiss()
+                }
             }
         }
     }
@@ -39,10 +44,15 @@ struct EditSection: View {
     let selectedNodeID: NodeID?
     let selectedEdgeID: UUID?
     let onDismiss: () -> Void
+    let onEditNode: () -> Void  // New: Callback for showing edit sheet
 
     var body: some View {
         Section(header: Text("Edit")) {
             if let selectedID = selectedNodeID {
+                Button("Edit Node") {  // New
+                    onEditNode()
+                    onDismiss()
+                }
                 Button("Delete Node", role: .destructive) {
                     viewModel.deleteNode(withID: selectedID)
                     onDismiss()
@@ -61,6 +71,13 @@ struct EditSection: View {
                     } else {
                         viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                     }
+                    viewModel.model.startSimulation()
+                    onDismiss()
+                }
+                Button("Reverse Edge") {  // New
+                    viewModel.snapshot()
+                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    viewModel.model.edges.append(GraphEdge(from: toID, to: fromID))
                     viewModel.model.startSimulation()
                     onDismiss()
                 }
@@ -83,22 +100,17 @@ struct EditSection: View {
 
 struct ViewSection: View {
     @Binding var showOverlays: Bool
-    @Binding var isSimulating: Bool  // Now a Binding for direct Toggle control
+    let isSimulating: Binding<Bool>
     let onCenterGraph: () -> Void
     let onDismiss: () -> Void
-    let onSimulationChange: (Bool) -> Void  // New: Handles pause/resume logic
+    let onSimulationChange: (Bool) -> Void
 
     var body: some View {
-        Section(header: Text("View & Simulation")) {
+        Section(header: Text("View")) {
             Toggle("Show Overlays", isOn: $showOverlays)
-                .onChange(of: showOverlays) {
-                    onDismiss()
-                }
-
-            Toggle("Run Simulation", isOn: $isSimulating)
-                .onChange(of: isSimulating) { newValue in
+            Toggle("Run Simulation", isOn: isSimulating)
+                .onChange(of: isSimulating.wrappedValue) { newValue in
                     onSimulationChange(newValue)
-                    onDismiss()
                 }
             Button("Center Graph") {
                 onCenterGraph()
@@ -114,8 +126,16 @@ struct GraphSection: View {
 
     var body: some View {
         Section(header: Text("Graph")) {
-            Button("Clear Graph", role: .destructive) {
-                viewModel.clearGraph()
+            Button("Reset Graph", role: .destructive) {
+                viewModel.resetGraph()
+                onDismiss()
+            }
+            Button("Save Graph") {
+                viewModel.model.save()  // Direct call to model's save
+                onDismiss()
+            }
+            Button("Load Graph") {
+                viewModel.loadGraph()
                 onDismiss()
             }
         }
@@ -123,10 +143,12 @@ struct GraphSection: View {
 }
 
 struct MenuView: View {
-    @ObservedObject var viewModel: GraphViewModel
+    let viewModel: GraphViewModel
     @Binding var showOverlays: Bool
     @Binding var showMenu: Bool
     let onCenterGraph: () -> Void
+    @State private var showEditSheet: Bool = false  // New: Local state for edit sheet
+    @State private var isAddingEdge: Bool = false  // New: Local state for add edge mode
     @FocusState private var isMenuFocused: Bool  // New
     
     private var isSimulatingBinding: Binding<Bool> {
@@ -139,11 +161,22 @@ struct MenuView: View {
     var body: some View {
         List {
             if viewModel.selectedEdgeID == nil {
-                AddSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, onDismiss: { showMenu = false })
+                AddSection(
+                    viewModel: viewModel,
+                    selectedNodeID: viewModel.selectedNodeID,
+                    onDismiss: { showMenu = false },
+                    onAddEdge: { isAddingEdge = true }  // New: Set local state
+                )
             }
             
             if viewModel.selectedNodeID != nil || viewModel.selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
-                EditSection(viewModel: viewModel, selectedNodeID: viewModel.selectedNodeID, selectedEdgeID: viewModel.selectedEdgeID, onDismiss: { showMenu = false })
+                EditSection(
+                    viewModel: viewModel,
+                    selectedNodeID: viewModel.selectedNodeID,
+                    selectedEdgeID: viewModel.selectedEdgeID,
+                    onDismiss: { showMenu = false },
+                    onEditNode: { showEditSheet = true }  // New: Set local state
+                )
             }
             
             ViewSection(
@@ -163,20 +196,33 @@ struct MenuView: View {
             GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
         }
         .navigationTitle("Menu")
-                    .focused($isMenuFocused)  // New: Bind focus to list
-                    .onAppear {
-                        isMenuFocused = true  // Force focus on appear
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            isMenuFocused = true  // Double-focus for reliability
-                        }
-                    }
-                    .onChange(of: isMenuFocused) { newValue in
-                        print("Menu focus: \(newValue)")  // Debug
-                        if !newValue {
-                            isMenuFocused = true  // Auto-recover
-                        }
-                    }
-                    .ignoresSafeArea(.keyboard)
+        .focused($isMenuFocused)  // New: Bind focus to list
+        .onAppear {
+            isMenuFocused = true  // Force focus on appear
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isMenuFocused = true  // Double-focus for reliability
+            }
+        }
+        .onChange(of: isMenuFocused) { newValue in
+            print("Menu focus: \(newValue)")  // Debug
+            if !newValue {
+                isMenuFocused = true  // Auto-recover
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
+            if let selectedID = viewModel.selectedNodeID {
+                EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
+                    viewModel.updateNodeContent(withID: selectedID, newContent: newContent)
+                    showEditSheet = false
+                })
+            }
+        }
+        .onChange(of: isAddingEdge) { newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+            if newValue {
+                // Optionally notify viewModel or handle here
+            }
+        }
     }
 }
 

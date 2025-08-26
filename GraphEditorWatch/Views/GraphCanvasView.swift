@@ -49,6 +49,7 @@ struct GraphCanvasView: View {
     @State private var zoomTimer: Timer? = nil
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
+    @Binding var isAddingEdge: Bool
     
     init(
         viewModel: GraphViewModel,
@@ -66,6 +67,7 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping() -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
+        isAddingEdge: Binding<Bool>,
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -82,6 +84,7 @@ struct GraphCanvasView: View {
         self.onUpdateZoomRanges = onUpdateZoomRanges
         self._selectedEdgeID = selectedEdgeID
         self._showOverlays = showOverlays
+        self._isAddingEdge = isAddingEdge
     }
     
     private var boundingBoxOverlay: some View {
@@ -197,7 +200,8 @@ struct GraphCanvasView: View {
                 showMenu: $showMenu,
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges
+                onUpdateZoomRanges: onUpdateZoomRanges,
+                isAddingEdge: $isAddingEdge  // Pass to modifier
             ))
         }
         .focusable(true)  // Explicitly make the whole view focusable for crown

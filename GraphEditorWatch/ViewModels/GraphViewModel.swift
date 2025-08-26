@@ -97,7 +97,7 @@ class GraphViewModel: ObservableObject {
         }
     }
     
-    private func loadGraph() {
+    func loadGraph() {
         do {
             try model.loadFromStorage()
             model.centerGraph()
@@ -159,20 +159,26 @@ class GraphViewModel: ObservableObject {
         model.redo()
     }
     
-    func deleteNode(withID id: NodeID) {
-        model.deleteNode(withID: id)
-    }
-    
-    func deleteSelectedEdge(id: UUID?) {
-        model.deleteSelectedEdge(id: id)
-    }
-    
     func addNode(at position: CGPoint) {
         model.addNode(at: position)
     }
+
+    func resetGraph() {  // Or rename clearGraph to resetGraph if preferred
+        model.clearGraph()
+    }
     
-    func updateNode(_ updatedNode: any NodeProtocol) {
-        model.updateNode(AnyNode(updatedNode))
+    public func deleteNode(withID id: NodeID) {
+        model.deleteNode(withID: id)
+        selectedNodeID = nil
+    }
+
+    public func deleteEdge(withID id: UUID) {
+        model.deleteEdge(withID: id)
+        selectedEdgeID = nil
+    }
+
+    public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) {
+        model.updateNodeContent(withID: id, newContent: newContent)
     }
     
     func addToggleNode(at position: CGPoint) {

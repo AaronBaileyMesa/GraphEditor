@@ -24,6 +24,7 @@ struct GraphGesturesModifier: ViewModifier {
     let maxZoom: CGFloat
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
+    @Binding var isAddingEdge: Bool
     
     @State private var dragStartNode: (any NodeProtocol)? = nil
     @State private var isMovingSelectedNode: Bool = false
