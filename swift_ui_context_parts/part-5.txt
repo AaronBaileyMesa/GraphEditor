@@ -1,14 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-01 20:15:57
+Current date: 2025-09-02 13:15:46
 Table of Contents:
 1. GraphEditorWatchTests/GraphEditorWatchTests.swift
 2. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
 3. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
 File: GraphEditorWatchTests.swift
 Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-08-28 17:14:35
+Last modified: 2025-09-02 13:15:09
 
 Contents:
 import Testing
@@ -54,24 +54,21 @@ struct GraphModelTests {
         let initialNodeCount = await MainActor.run { model.nodes.count }
         let initialEdgeCount = await MainActor.run { model.edges.count }
         
-        await model.snapshot() // Snapshot 1: initial
-        
         // Specify node to delete (e.g., first in cycle removes 2 edges)
         let nodeToDelete = await MainActor.run { model.nodes[0].id }
         let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count }
         await model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
-        await model.snapshot() // Snapshot 2: after delete
         
-        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no snapshot
+        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no *manual* snapshot (internal one handles)
         
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "After add: count back to initial")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
         
-        await model.undo() // To Snapshot 2: after delete
+        await model.undo() // To post-delete
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
         
-        await model.undo() // To Snapshot 1: initial
+        await model.undo() // To initial
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
         
@@ -239,15 +236,11 @@ struct GestureTests {
         #expect(await model.edges.isEmpty, "No edges initially")
         
         let viewModel = await GraphViewModel(model: model)
-        guard let node1 = await model.nodes[0] as? Node else { fatalError("Expected Node") }
-        guard let node2 = await model.nodes[1] as? Node else { fatalError("Expected Node") }
+        let draggedNode: (any NodeProtocol)? = await model.nodes[0]
+        let potentialEdgeTarget: (any NodeProtocol)? = await model.nodes[1]
         
         // Mock gesture properties instead of creating Value
         let mockTranslation = CGSize(width: 50, height: 50)
-        
-        // Simulate onEnded logic
-        let draggedNode: (any NodeProtocol)? = node1
-        let potentialEdgeTarget: (any NodeProtocol)? = node2
         let dragOffset: CGPoint = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)  // Assume zoomScale=1
         
         let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
@@ -262,29 +255,30 @@ struct GestureTests {
                     // Break up complex predicate
                     let fromID = node.id
                     let toID = target.id
-                    let edgeExists = await viewModel.model.edges.contains { edge in
-                        (edge.from == fromID && edge.to == toID) ||
-                        (edge.from == toID && edge.to == fromID)
+                    let edgeExists = await MainActor.run {
+                        viewModel.model.edges.contains { edge in
+                            (edge.from == fromID && edge.to == toID) ||
+                            (edge.from == toID && edge.to == fromID)
+                        }
                     }
                     if !edgeExists {
                         await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, to: toID)) }
                         await viewModel.model.startSimulation()
                     } else {
                         // Move logic (skipped, but update to use vars)
-                        await MainActor.run { viewModel.model.nodes[index].position = await CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y) }
+                        await MainActor.run { viewModel.model.nodes[index].position = CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y) }
                         await viewModel.model.startSimulation()
                     }
                 }
             }
         }
         
-        // Assert: Break up the expectation
         await #expect(viewModel.model.edges.count == 1, "Edge created after simulated drag")
         let newEdge = await viewModel.model.edges.first
         #expect(newEdge != nil, "New edge exists")
         if let newEdge = newEdge {
-            #expect(newEdge.from == node1.id, "Edge from correct node")
-            #expect(newEdge.to == node2.id, "Edge to correct node")
+            #expect(newEdge.from == draggedNode?.id, "Edge from correct node")
+            #expect(newEdge.to == potentialEdgeTarget?.id, "Edge to correct node")
         }
     }
 }

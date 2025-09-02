@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-01 20:15:56
+Current date: 2025-09-02 13:15:46
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
@@ -133,7 +133,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-08-27 11:18:55
+Last modified: 2025-09-02 08:08:55
 
 Contents:
 import Foundation
@@ -259,7 +259,7 @@ public struct CoordinateTransformer {
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let panOffset = CGPoint(x: offset.width, y: offset.height)
         
-        var translated = screenPos - viewCenter - panOffset
+        let translated = screenPos - viewCenter - panOffset
         
         // Optional: Adjust for safe areas (e.g., rounded corners on watchOS). Uncomment if touches miss near edges.
         // if let geo = geometry {
@@ -288,7 +288,7 @@ public struct CoordinateTransformer {
         let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         let relativePos = modelPos - effectiveCentroid
         let scaledPos = relativePos * zoomScale
-        var screenPos = viewCenter + scaledPos + CGPoint(x: offset.width, y: offset.height)
+        let screenPos = viewCenter + scaledPos + CGPoint(x: offset.width, y: offset.height)
         
         // Optional: Adjust for safe areas (symmetric to screenToModel)
         // if let geo = geometry {
@@ -302,7 +302,7 @@ public struct CoordinateTransformer {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-08-28 17:18:43
+Last modified: 2025-09-02 09:10:57
 
 Contents:
 //
@@ -326,7 +326,7 @@ struct GraphEditorWatch: App {
             let viewModel = GraphViewModel(model: model)  // Sync init
             ContentView(viewModel: viewModel)
             .task {
-            try? await viewModel.loadGraph()  // Async load inside
+            await viewModel.loadGraph()  // Async load inside
             }
         }
     }
@@ -363,7 +363,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-01 19:56:32
+Last modified: 2025-09-02 08:10:21
 
 Contents:
 // GraphViewModel.swift (Add access to model's physicsEngine and confirm centerGraph)
@@ -423,29 +423,16 @@ import WatchKit  // For WKApplication
         }
         
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main publish
+            Task { @MainActor in  // Ensure main for publishes
                 await self?.model.pauseSimulation()
             }
         }
         
         resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            Task { await self?.resumeSimulationAfterDelay() }  // Wrap (line ~60)
-        }
-
-        self.model = model
-             cancellable = model.objectWillChange.sink { [weak self] _ in
-                 self?.objectWillChange.send()
-             }
-             
-             pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-                 Task { await self?.model.pauseSimulation() }
-             }
-             
-        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in
+            Task { @MainActor in  // Ensure main for publishes
                 await self?.resumeSimulationAfterDelay()
             }
-             }
+        }
     }
     
     func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -463,19 +450,23 @@ import WatchKit  // For WKApplication
         return (minZoom, maxZoom)
     }
     
-    func saveViewState() {
+    func saveViewState() {  // Made non-@MainActor since callsites treat as sync; internal hops handle isolation
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.centerGraph()  // Center before save
-            do {
-                try self.model.saveViewState(offset: self.offset,
-                                             zoomScale: self.zoomScale,
-                                             selectedNodeID: self.selectedNodeID,
-                                             selectedEdgeID: self.selectedEdgeID)
-                print("Saved view state")
-            } catch {
-                print("Failed to save view state: \(error)")
+            Task { @MainActor in  // Hop to main for safe publishes/model access
+                guard let self = self else { return }
+                self.centerGraph()  // Safe on main
+                do {
+                    try self.model.saveViewState(  // No 'await' – assuming sync based on impl; add if async
+                        offset: self.offset,
+                        zoomScale: self.zoomScale,
+                        selectedNodeID: self.selectedNodeID,
+                        selectedEdgeID: self.selectedEdgeID
+                    )
+                    print("Saved view state")
+                } catch {
+                    print("Failed to save view state: \(error)")
+                }
             }
         }
     }
@@ -483,8 +474,8 @@ import WatchKit  // For WKApplication
     func loadGraph() async {
         do {
             try await model.loadFromStorage()
-            await model.centerGraph()
-            await model.startSimulation()
+            model.centerGraph()  // Remove 'await' if sync
+            await model.startSimulation()  // Keep if async
         } catch {
             print("Failed to load graph: \(error)")
         }
@@ -492,7 +483,7 @@ import WatchKit  // For WKApplication
     
     private func loadViewState() async {
         do {
-            if let state = try await model.loadViewState() {
+            if let state = try model.loadViewState() {
                 self.offset = state.offset
                 self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
@@ -501,9 +492,9 @@ import WatchKit  // For WKApplication
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
                 self.offset = .zero
             }
-            await model.centerGraph()
+            model.centerGraph()  // Remove 'await' if sync
             self.offset = .zero
-            await model.expandAllRoots()
+            await model.expandAllRoots()  // Keep if async
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
@@ -516,7 +507,7 @@ import WatchKit  // For WKApplication
         } else {
             focusState = .graph
         }
-        await model.centerGraph()
+        model.centerGraph()  // Remove 'await' if sync
         self.objectWillChange.send()
     }
     
@@ -587,10 +578,10 @@ import WatchKit  // For WKApplication
     func resumeSimulationAfterDelay() async {
         resumeTimer?.invalidate()
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            Task {
+            Task { @MainActor in  // Hop to main for safe access
                 guard let self = self else { return }
                 if WKApplication.shared().applicationState == .active {
-                    await self.model.resumeSimulation()  // Line ~206
+                    await self.model.resumeSimulation()  // Add 'await' for async call (fixes line 229)
                 }
             }
         }
@@ -621,7 +612,7 @@ import WatchKit  // For WKApplication
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-08-28 15:12:05
+Last modified: 2025-09-02 09:43:44
 
 Contents:
 // ContentView.swift (Updated with Equatable fix via enhanced NodeWrapper and closure for onCenterGraph)
@@ -744,16 +735,16 @@ struct ContentView: View {
                      wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
                     print(geo.size) 
                 }
-                .onChange(of: viewModel.model.nodes) { _ in
+                .onChange(of: viewModel.model.nodes) {oldValue, newValue in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: viewModel.model.edges) { _ in
+                .onChange(of: viewModel.model.edges) { oldValue, newValue in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: crownPosition) { newValue in
+                .onChange(of: crownPosition) { oldValue, newValue in
                     handleCrownRotation(newValue: newValue)
                 }
-                .onChange(of: canvasFocus) { newValue in
+                .onChange(of: canvasFocus) { oldValue, newValue in
                     if !newValue { canvasFocus = true }
                 }
         }

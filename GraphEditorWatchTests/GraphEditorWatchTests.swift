@@ -41,24 +41,21 @@ struct GraphModelTests {
         let initialNodeCount = await MainActor.run { model.nodes.count }
         let initialEdgeCount = await MainActor.run { model.edges.count }
         
-        await model.snapshot() // Snapshot 1: initial
-        
         // Specify node to delete (e.g., first in cycle removes 2 edges)
         let nodeToDelete = await MainActor.run { model.nodes[0].id }
         let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count }
         await model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
-        await model.snapshot() // Snapshot 2: after delete
         
-        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no snapshot
+        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no *manual* snapshot (internal one handles)
         
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "After add: count back to initial")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
         
-        await model.undo() // To Snapshot 2: after delete
+        await model.undo() // To post-delete
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
         
-        await model.undo() // To Snapshot 1: initial
+        await model.undo() // To initial
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
         

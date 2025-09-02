@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-01 20:15:56
+Current date: 2025-09-02 13:15:45
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -150,7 +150,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-08-28 14:14:47
+Last modified: 2025-09-02 08:12:39
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -272,7 +272,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         }
 
     public func clearGraph() async {
-        await await await await await await snapshot()
+        await snapshot()
         nodes = []
         edges = []
         nextNodeLabel = 1  // Explicit reset
@@ -384,7 +384,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     
     public func addEdge(from fromID: NodeID, to toID: NodeID) async {
         await snapshot()
-        if edges.contains { $0.from == fromID && $0.to == toID } { return }  // Duplicate check
+        if edges.contains(where: { $0.from == fromID && $0.to == toID }) { return }  
         let newEdge = GraphEdge(from: fromID, to: toID)
         edges.append(newEdge)
         physicsEngine.resetSimulation()
@@ -598,8 +598,8 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     
 
     public func isBidirectionalBetween(_ id1: NodeID, _ id2: NodeID) -> Bool {
-        edges.contains { $0.from == id1 && $0.to == id2 } &&
-        edges.contains { $0.from == id2 && $0.to == id1 }
+        edges.contains(where: { $0.from == id1 && $0.to == id2 }) &&  // Parenthesized
+        edges.contains(where: { $0.from == id2 && $0.to == id1 })     // Parenthesized
     }
     
     public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
@@ -614,16 +614,6 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         return adj
     }
     
-    // Add this new helper function at the bottom of GraphModel (e.g., after resumeSimulation):
-
-    // Added: Public method to load graph from storage (avoids direct private access)
-
-    // Added: Public wrappers for view state (delegate to storage)
-    
-    
-
-    
-
 }
 
 @available(iOS 13.0, watchOS 6.0, *)
@@ -669,7 +659,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-08-28 13:44:53
+Last modified: 2025-09-01 20:34:25
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -715,6 +705,7 @@ class GraphSimulator {
         self.getVisibleEdges = getVisibleEdges
     }
     
+    @MainActor
     func startSimulation() async {
         #if os(watchOS)
         guard WKApplication.shared().applicationState == .active else { return }
@@ -730,39 +721,42 @@ class GraphSimulator {
             baseInterval *= 2.0
         }
         
-        simulationTask = Task {
+        simulationTask = Task {  // This Task inherits @MainActor, but we'll detach inner work
             while !Task.isCancelled {
-                // Check app state periodically
                 #if os(watchOS)
                 if WKApplication.shared().applicationState != .active { break }
                 #endif
                 
-                let nodes = self.getNodes()
-                let visibleNodes = self.getVisibleNodes()
-                let visibleEdges = self.getVisibleEdges()
-                let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
-                var updatedForces = forces
-                updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
-                updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
+                // Detach heavy computation to background (nonisolated)
+                let (updatedNodes, shouldContinue, totalVelocity): ([any NodeProtocol], Bool, Double) = await Task.detached {
+                    let nodes = self.getNodes()
+                    let visibleNodes = self.getVisibleNodes()
+                    let visibleEdges = self.getVisibleEdges()
+                    let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
+                    var updatedForces = forces
+                    updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
+                    updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
+                    
+                    var tempNodes = nodes
+                    var stepActive = false
+                    let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
+                    for _ in 0..<subSteps {
+                        let (updated, active) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: tempNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
+                        tempNodes = updated
+                        stepActive = stepActive || active
+                    }
+                    
+                    let totalVel = tempNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+                    return (tempNodes, stepActive, totalVel)
+                }.value  // Await the detached task's result
                 
-                var updatedNodes = nodes
-                var shouldContinue = false
-                let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
-                for _ in 0..<subSteps {
-                    let (tempNodes, stepActive) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: updatedNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
-                    updatedNodes = tempNodes
-                    shouldContinue = shouldContinue || stepActive
-                }
+                // Now back on main: Update model safely
+                self.setNodes(updatedNodes)
                 
-                let totalVelocity = updatedNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-                
-                await MainActor.run {
-                    self.setNodes(updatedNodes)
-                }
-                
-                if !shouldContinue || totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodes.count) {
+                if !shouldContinue || totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
                     break
                 }
+                
                 recentVelocities.append(totalVelocity)
                 if recentVelocities.count > velocityHistoryCount {
                     recentVelocities.removeFirst()
@@ -781,7 +775,7 @@ class GraphSimulator {
             }
             self.onStable?()
         }
-        await simulationTask?.value  // Await for completion (blocks caller until stable); remove if fire-and-forget
+        await simulationTask?.value
     }
     
     func stopSimulation() async {

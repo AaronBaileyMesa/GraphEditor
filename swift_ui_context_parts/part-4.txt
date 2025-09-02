@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-01 20:15:57
+Current date: 2025-09-02 13:15:46
 Table of Contents:
 1. GraphEditorWatch/Views/GraphCanvasView.swift
 2. GraphEditorWatch/Views/GraphGesturesModifier.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/Views/NodeView.swift--------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-08-26 15:10:37
+Last modified: 2025-09-02 12:25:27
 
 Contents:
 import SwiftUI
@@ -36,7 +36,7 @@ struct FocusableView<Content: View>: View {
                         isFocused = true  // Double-focus for WatchOS reliability
                     }
                 }
-                .onChange(of: isFocused) { newValue in
+                .onChange(of: isFocused) { oldValue, newValue in
                     print("Canvas focus: \(newValue)")
                     if !newValue {
                         isFocused = true  // Auto-recover focus loss
@@ -556,7 +556,7 @@ struct GraphGesturesModifier: ViewModifier {
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-08-28 15:09:26
+Last modified: 2025-09-02 09:42:47
 
 Contents:
 //
@@ -575,7 +575,7 @@ struct AddSection: View {
     let selectedNodeID: NodeID?
     let onDismiss: () -> Void
     let onAddEdge: () -> Void  // New: Callback for starting add edge mode
-
+    
     var body: some View {
         Section(header: Text("Add")) {
             Button("Add Node") {
@@ -606,7 +606,7 @@ struct EditSection: View {
     let selectedEdgeID: UUID?
     let onDismiss: () -> Void
     let onEditNode: () -> Void  // New: Callback for showing edit sheet
-
+    
     var body: some View {
         Section(header: Text("Edit")) {
             if let selectedID = selectedNodeID {
@@ -615,7 +615,7 @@ struct EditSection: View {
                     onDismiss()
                 }
                 Button("Delete Node", role: .destructive) {  // Line ~67?
-                Task { await viewModel.deleteNode(withID: selectedID) }
+                    Task { await viewModel.deleteNode(withID: selectedID) }
                     onDismiss()
                 }
             }
@@ -665,14 +665,15 @@ struct ViewSection: View {
     let onCenterGraph: () -> Void
     let onDismiss: () -> Void
     let onSimulationChange: (Bool) -> Void
-
+    
     var body: some View {
         Section(header: Text("View")) {
             Toggle("Show Overlays", isOn: $showOverlays)
             Toggle("Run Simulation", isOn: isSimulating)
-                .onChange(of: isSimulating.wrappedValue) { newValue in
+                .onChange(of: isSimulating.wrappedValue) { oldValue, newValue in
                     onSimulationChange(newValue)
                 }
+            
             Button("Center Graph") {
                 onCenterGraph()
                 onDismiss()
@@ -684,7 +685,7 @@ struct ViewSection: View {
 struct GraphSection: View {
     let viewModel: GraphViewModel
     let onDismiss: () -> Void
-
+    
     var body: some View {
         Section(header: Text("Graph")) {
             Button("Reset Graph", role: .destructive) {
@@ -723,16 +724,16 @@ struct MenuView: View {
         List {
             if let selected = viewModel.selectedNodeID {
                 Button("Edit Node") { showEditSheet = true }  // If sheet in MenuView, add @State showEditSheet: Bool = false and .sheet similar to ContentView
-                            Button("Delete Node") {
-                                Task { await viewModel.deleteNode(withID: selected) }
-                                showMenu = false
-                            }
-                            Button("Add Edge from Node") { isAddingEdge = true; showMenu = false }
+                Button("Delete Node") {
+                    Task { await viewModel.deleteNode(withID: selected) }
+                    showMenu = false
+                }
+                Button("Add Edge from Node") { isAddingEdge = true; showMenu = false }
             }
             if let selectedEdge = viewModel.selectedEdgeID {
                 Button("Delete Edge") {
-                Task { await viewModel.deleteEdge(withID: selectedEdge) }
-                showMenu = false
+                    Task { await viewModel.deleteEdge(withID: selectedEdge) }
+                    showMenu = false
                 }
                 Button("Reverse Edge") {
                     if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdge }) {
@@ -769,22 +770,22 @@ struct MenuView: View {
                 isMenuFocused = true  // Double-focus for reliability
             }
         }
-        .onChange(of: isMenuFocused) { newValue in
-            print("Menu focus: \(newValue)")  // Debug
+        .onChange(of: isMenuFocused) { oldValue, newValue in
+            print("Menu focus: (newValue)") // Debug
             if !newValue {
-                isMenuFocused = true  // Auto-recover
+                isMenuFocused = true // Auto-recover
             }
         }
         .ignoresSafeArea(.keyboard)
         .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
             if let selectedID = viewModel.selectedNodeID {
                 EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                                   Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
+                    Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
                     showEditSheet = false
                 })
             }
         }
-        .onChange(of: isAddingEdge) { newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+        .onChange(of: isAddingEdge) { oldValue, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
             if newValue {
                 // Optionally notify viewModel or handle here
             }
