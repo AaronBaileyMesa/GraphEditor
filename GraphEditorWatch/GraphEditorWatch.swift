@@ -14,10 +14,13 @@ import GraphEditorShared
 struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
-            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))  // Mock bounds; adjust as needed
+            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
             let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
-            let viewModel = GraphViewModel(model: model)  // Create viewModel here
-            ContentView(viewModel: viewModel)  // <-- Pass viewModel to ContentView init
+            let viewModel = GraphViewModel(model: model)  // Sync init
+            ContentView(viewModel: viewModel)
+            .task {
+            await viewModel.loadGraph()  // Async load inside
+            }
         }
     }
 }

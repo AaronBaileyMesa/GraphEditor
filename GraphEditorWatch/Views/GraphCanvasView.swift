@@ -22,7 +22,7 @@ struct FocusableView<Content: View>: View {
                         isFocused = true  // Double-focus for WatchOS reliability
                     }
                 }
-                .onChange(of: isFocused) { newValue in
+                .onChange(of: isFocused) { oldValue, newValue in
                     print("Canvas focus: \(newValue)")
                     if !newValue {
                         isFocused = true  // Auto-recover focus loss

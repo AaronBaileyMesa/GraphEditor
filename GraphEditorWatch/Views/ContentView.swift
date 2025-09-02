@@ -113,20 +113,21 @@ struct ContentView: View {
         GeometryReader { geo in
             mainContent(in: geo)
                 .onAppear {
-                    viewModel.resumeSimulation()
+                    Task { await viewModel.resumeSimulation() }
                     updateZoomRanges(for: geo.size)
                      wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
+                    print(geo.size) 
                 }
-                .onChange(of: viewModel.model.nodes) { _ in
+                .onChange(of: viewModel.model.nodes) {oldValue, newValue in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: viewModel.model.edges) { _ in
+                .onChange(of: viewModel.model.edges) { oldValue, newValue in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: crownPosition) { newValue in
+                .onChange(of: crownPosition) { oldValue, newValue in
                     handleCrownRotation(newValue: newValue)
                 }
-                .onChange(of: canvasFocus) { newValue in
+                .onChange(of: canvasFocus) { oldValue, newValue in
                     if !newValue { canvasFocus = true }
                 }
         }
@@ -143,7 +144,7 @@ struct ContentView: View {
                         let isLeftWrist = wristSide == .left
                         Button(action: {
                             let centroid = viewModel.effectiveCentroid
-                            viewModel.model.addNode(at: centroid)
+                            Task { await viewModel.model.addNode(at: centroid) }
                             WKInterfaceDevice.current().play(.success)
                         }) {
                             Image(systemName: "plus.circle.fill")
@@ -160,7 +161,7 @@ struct ContentView: View {
                                     Image(systemName: "pencil.circle.fill").font(.system(size: 24))
                                 }.buttonStyle(.plain)
                                 Button(action: {
-                                    viewModel.model.deleteNode(withID: selectedID)  // Assume method added
+                                    Task { await viewModel.model.deleteNode(withID: selectedID) }
                                     viewModel.selectedNodeID = nil
                                     WKInterfaceDevice.current().play(.success)
                                 }) {
@@ -177,7 +178,7 @@ struct ContentView: View {
                         } else if let selectedEdgeID = viewModel.selectedEdgeID {
                             HStack(spacing: 10) {
                                 Button(action: {
-                                    viewModel.model.deleteEdge(withID: selectedEdgeID)  // Assume method added
+                                    Task { await viewModel.model.deleteEdge(withID: selectedEdgeID) }
                                     viewModel.selectedEdgeID = nil
                                     WKInterfaceDevice.current().play(.success)
                                 }) {
@@ -187,7 +188,7 @@ struct ContentView: View {
                                     if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdgeID }) {
                                         let edge = viewModel.model.edges[edgeIndex]
                                         viewModel.model.edges[edgeIndex] = GraphEdge(id: edge.id, from: edge.to, to: edge.from)
-                                        viewModel.model.startSimulation()
+                                        Task { await viewModel.model.startSimulation() }
                                     }
                                     WKInterfaceDevice.current().play(.success)
                                 }) {
@@ -206,7 +207,7 @@ struct ContentView: View {
                     .sheet(isPresented: $showEditSheet) {
                         if let selectedID = viewModel.selectedNodeID {
                             EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                                viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent)
+                                Task { await viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent) }
                                 showEditSheet = false
                             })
                         }

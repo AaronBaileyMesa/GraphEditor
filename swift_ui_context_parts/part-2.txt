@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-08-26 08:59:50
+Current date: 2025-09-01 20:15:56
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
@@ -12,7 +12,7 @@ Table of Contents:
 7. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-23 00:04:35
+Last modified: 2025-08-26 10:10:51
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -30,6 +30,21 @@ private var insertionOrder: [String] = []  // New: Track order
 /// Conformers must provide core properties; defaults are available for common behaviors.
 @available(iOS 13.0, *)
 @available(watchOS 9.0, *)
+
+public enum NodeContent: Codable, Equatable {
+    case string(String)
+    case date(Date)
+    case number(Double)
+
+    public var displayText: String {
+        switch self {
+        case .string(let str): return str.prefix(10) + (str.count > 10 ? "…" : "")
+        case .date(let date): return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
+        case .number(let num): return String(format: "%.1f", num)
+        }
+    }
+}
+
 public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
     /// Unique identifier for the node.
     var id: NodeID { get }
@@ -48,6 +63,9 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     
     /// Expansion state for hierarchical nodes (e.g., true shows children).
     var isExpanded: Bool { get set }
+    
+    //Data payload for the node
+    var content: NodeContent? { get set }
     
     /// Creates a copy with updated position and velocity.
     func with(position: CGPoint, velocity: CGPoint) -> Self
@@ -107,6 +125,11 @@ public extension NodeProtocol {
     func shouldHideChildren() -> Bool {
         !isExpanded  // Default: Hide if not expanded
     }
+    
+    var content: NodeContent? {
+        get { nil }
+        set { }  // No-op default
+    }
 }
 
 /// Extension providing default rendering implementations using GraphicsContext.
@@ -150,13 +173,40 @@ public extension NodeProtocol {
             }
             return resolved
         }
-        let labelPosition = CGPoint(x: position.x, y: position.y - (radius * zoomScale + 10 * zoomScale))
+        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))  // Fix: Use scaledRadius
+        
         context.draw(resolved, at: labelPosition, anchor: .center)
+        
+         // Moved content drawing here (uses scaledRadius in scope)
+        if let content = content, zoomScale > 0.5 {
+            let contentFontSize = max(6.0, 8.0 * zoomScale)
+            let contentKey = "\(content.displayText)-\(contentFontSize)"
+            let contentResolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
+                if let cached = nodeTextCache[contentKey] { return cached }
+                let text = Text(content.displayText).foregroundColor(.gray).font(.system(size: contentFontSize))
+                let resolved = context.resolve(text)
+                nodeCacheQueue.async(flags: .barrier) {
+                    nodeTextCache[contentKey] = resolved
+                    insertionOrder.append(contentKey)
+                    if nodeTextCache.count > maxCacheSize {
+                        let oldestKey = insertionOrder.removeFirst()
+                        nodeTextCache.removeValue(forKey: oldestKey)
+                    }
+                }
+                return resolved
+            }
+            let contentPosition = CGPoint(x: position.x, y: position.y + (scaledRadius + 5 * zoomScale))
+            context.draw(contentResolved, at: contentPosition, anchor: .center)
+        }
     }
 }
 
 public struct AnyNode: NodeProtocol, Equatable {
-    private var base: any NodeProtocol  // Changed to var for mutability
+    private var base: any NodeProtocol
+    public var content: NodeContent? {
+        get { base.content }
+        set { base.content = newValue }
+    }
     
     public var unwrapped: any NodeProtocol { base }  // Public accessor to avoid private exposure
     
@@ -189,6 +239,7 @@ public struct AnyNode: NodeProtocol, Equatable {
         var newBase = base
         newBase.position = position
         newBase.velocity = velocity
+        newBase.content = base.content
         return AnyNode(newBase)
     }
     
@@ -240,7 +291,7 @@ public struct AnyNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-23 10:12:16
+Last modified: 2025-08-28 13:48:49
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -278,7 +329,7 @@ public class PersistenceManager: GraphStorage {
         let viewState: ViewState?  // Embed view state (optional)
     }
     
-    public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws {
+    public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
         let wrapped = nodes.map { node in
             if let n = node as? Node {
                 return NodeWrapper.node(n)
@@ -290,42 +341,54 @@ public class PersistenceManager: GraphStorage {
             }
         }
         let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Populate viewState if needed from params
-        do {
-            let data = try JSONEncoder().encode(state)
-            try data.write(to: fileURL)
-        } catch let error as EncodingError {
-            os_log("Encoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-            throw GraphStorageError.encodingFailed(error)
-        } catch {
-            os_log("Writing failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-            throw GraphStorageError.writingFailed(error)
-        }
+            try await withCheckedThrowingContinuation { continuation in
+                do {
+                    let data = try JSONEncoder().encode(state)
+                    try data.write(to: fileURL)
+                    continuation.resume()
+                } catch let error as EncodingError {
+                    os_log("Encoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+                    continuation.resume(throwing: GraphStorageError.encodingFailed(error))
+                } catch {
+                    os_log("Writing failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+                    continuation.resume(throwing: GraphStorageError.writingFailed(error))
+                }
+            }
     }
     
-    public func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+    public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
         let fm = FileManager.default
         guard fm.fileExists(atPath: fileURL.path) else { return ([], []) }
-        do {
-            let data = try Data(contentsOf: fileURL)
-            let state = try JSONDecoder().decode(SavedState.self, from: data)
-            if state.version != 1 {
-                throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
+        return try await withCheckedThrowingContinuation { continuation in
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let state = try JSONDecoder().decode(SavedState.self, from: data)
+                if state.version != 1 {
+                    throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
+                }
+                let loadedNodes = state.nodes.map { $0.value }
+                continuation.resume(returning: (loadedNodes, state.edges))
+            } catch let error as DecodingError {
+                os_log("Decoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+                continuation.resume(throwing: GraphStorageError.decodingFailed(error))
+            } catch {
+                os_log("Loading failed: %{public}s", log: logger, type: .error, error.localizedDescription)
+                continuation.resume(throwing: GraphStorageError.loadingFailed(error))
             }
-            let loadedNodes = state.nodes.map { $0.value }
-            return (loadedNodes, state.edges)
-        } catch let error as DecodingError {
-            os_log("Decoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-            throw GraphStorageError.decodingFailed(error)
-        } catch {
-            os_log("Loading failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-            throw GraphStorageError.loadingFailed(error)
         }
     }
     
-    public func clear() throws {
+    public func clear() async throws {
         let fm = FileManager.default
         if fm.fileExists(atPath: fileURL.path) {
-            try fm.removeItem(at: fileURL)
+            try await withCheckedThrowingContinuation { cont in
+                do {
+                    try fm.removeItem(at: fileURL)
+                    cont.resume()
+                } catch {
+                    cont.resume(throwing: error)
+                }
+            }
         }
     }
 
@@ -565,7 +628,7 @@ struct PositionUpdater {
 ----------------------------------------------------------------------------------------------------
 File: Protocols.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-Last modified: 2025-08-15 13:19:34
+Last modified: 2025-08-28 13:46:35
 
 Contents:
 //
@@ -581,12 +644,12 @@ import SwiftUI
 @available(iOS 13.0, watchOS 6.0, *)
 public protocol GraphStorage {
     /// Saves the graph nodes and edges, throwing on failure (e.g., encoding or writing errors).
-    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws
     /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
-    func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
-    func clear() throws  // Unchanged
-    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws
-    func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)?
+    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func clear() async throws  // Unchanged
+    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws
+    func loadViewState() async throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)?
 }
 
 // In GraphEditorShared/Sources/GraphEditorShared/Protocols.swift (add inside protocol GraphStorage)

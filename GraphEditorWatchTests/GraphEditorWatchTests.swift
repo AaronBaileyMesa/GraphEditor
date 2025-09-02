@@ -35,85 +35,88 @@ struct GraphModelTests {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
     }
     
-    @Test func testUndoRedoMixedOperations() {
+    @Test func testUndoRedoMixedOperations() async throws {
         let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodeCount = model.nodes.count // 3
-        let initialEdgeCount = model.edges.count // 3
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let initialNodeCount = await MainActor.run { model.nodes.count }
+        let initialEdgeCount = await MainActor.run { model.edges.count }
         
-        model.snapshot() // Snapshot 1: initial
+        await model.snapshot() // Snapshot 1: initial
         
         // Specify node to delete (e.g., first in cycle removes 2 edges)
-        let nodeToDelete = model.nodes[0].id // Explicit
-        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count // 2 in triangle
-        model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
-        model.snapshot() // Snapshot 2: after delete
+        let nodeToDelete = await MainActor.run { model.nodes[0].id }
+        let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count }
+        await model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
+        await model.snapshot() // Snapshot 2: after delete
         
-        model.addNode(at: CGPoint.zero) // Now 3n, 1e — no snapshot
+        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no snapshot
         
-        #expect(model.nodes.count == initialNodeCount, "After add: count back to initial")
-        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
+        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "After add: count back to initial")
+        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
         
-        model.undo() // To Snapshot 2: after delete
-        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
+        await model.undo() // To Snapshot 2: after delete
+        #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
+        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
         
-        model.undo() // To Snapshot 1: initial
-        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
-        #expect(model.edges.count == initialEdgeCount, "Edges restored")
+        await model.undo() // To Snapshot 1: initial
+        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
+        #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
         
-        model.redo() // To post-delete
-        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
+        await model.redo() // To post-delete
+        #expect(await model.nodes.count == initialNodeCount - 1, "Redo applies delete")
         
-        model.redo() // To post-add
-        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
-    }
-    @Test func testInitializationWithDefaults() {
-        let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(model.nodes.count >= 3, "Should load default or saved nodes")
-        #expect(model.edges.count >= 3, "Should load default edges")
+        await model.redo() // To post-add
+        #expect(await model.nodes.count == initialNodeCount, "Redo applies add")
     }
     
-    @Test func testSnapshotAndUndo() {
+    @Test func testInitializationWithDefaults() async throws {
         let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = model.nodes
-        model.snapshot()
-        model.addNode(at: CGPoint.zero)
-        #expect(model.nodes.count == initialNodes.count + 1, "Node added")
-        model.undo()
-        let restoredNodes = model.nodes
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        #expect(await model.nodes.count >= 3, "Should load default or saved nodes")
+        #expect(await model.edges.count >= 3, "Should load default edges")
+    }
+    
+    @Test func testSnapshotAndUndo() async throws {
+        let storage = MockGraphStorage()
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let initialNodes = await model.nodes
+        await model.snapshot()
+        await model.addNode(at: CGPoint.zero)
+        #expect(await model.nodes.count == initialNodes.count + 1, "Node added")
+        await model.undo()
+        let restoredNodes = await model.nodes
         let idsMatch = Set(restoredNodes.map { $0.id }) == Set(initialNodes.map { $0.id })
         let labelsMatch = Set(restoredNodes.map { $0.label }) == Set(initialNodes.map { $0.label })
         let positionsMatch = zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) }
         #expect(idsMatch && labelsMatch && positionsMatch, "Undo restores state")
     }
     
-    @Test func testDeleteNodeAndEdges() {
+    @Test func testDeleteNodeAndEdges() async throws {
         let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(!model.nodes.isEmpty, "Assumes default nodes exist")
-        let nodeID = model.nodes[0].id
-        let initialEdgeCount = model.edges.count
-        model.deleteNode(withID: nodeID)
-        #expect(model.nodes.first { $0.id == nodeID } == nil, "Node deleted")
-        #expect(model.edges.count < initialEdgeCount, "Edges reduced")
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        #expect(await !model.nodes.isEmpty, "Assumes default nodes exist")
+        let nodeID = await model.nodes[0].id
+        let initialEdgeCount = await model.edges.count
+        await model.deleteNode(withID: nodeID)
+        #expect(await model.nodes.first { $0.id == nodeID } == nil, "Node deleted")
+        #expect(await model.edges.count < initialEdgeCount, "Edges reduced")
     }
     
-    @Test func testSaveLoadRoundTrip() {
+    @Test func testSaveLoadRoundTrip() async throws {
         let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let originalNodeCount = model.nodes.count
-        let originalEdges = model.edges
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        let originalNodeCount = await model.nodes.count
+        let originalEdges = await model.edges
         // Modify and snapshot to trigger save
-        model.addNode(at: CGPoint.zero)
-        model.snapshot()
+        await model.addNode(at: CGPoint.zero)
+        await model.snapshot()
         // New instance to trigger load
-        let newModel = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include added one")
-        #expect(newModel.edges == originalEdges, "Edges unchanged")
+        let newModel = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        #expect(await newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include added one")
+        #expect(await newModel.edges == originalEdges, "Edges unchanged")
     }
+      
+    
     
     /*
     // New: Basic convergence test with tightened threshold
@@ -178,37 +181,62 @@ struct GraphModelTests {
     }
      */
 }
+
+struct CoordinateTransformerTests {
+    @Test func testCoordinateRoundTrip() {
+        let viewSize = CGSize(width: 205, height: 251)  // Apple Watch Ultra 2 points
+        let centroid = CGPoint(x: 150, y: 150)
+        let modelPos = CGPoint(x: 167.78, y: 165.66)  // From your log
+        let zoom: CGFloat = 1.0
+        let offset = CGSize.zero
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
+    }
+    
+    @Test func testCoordinateRoundTripWithZoomAndOffset() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 56.73, y: 161.10)  // From your log
+        let modelPos = CGPoint(x: -40.27, y: 52.60)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize(width: 81, height: 111.5)
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
+    }
+}
+
     
 struct GestureTests {
-    @Test func testDragCreatesEdge() {
+    @Test func testDragCreatesEdge() async throws {
         let storage = MockGraphStorage()
         let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
         
         // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
         // Note: GraphModel init adds defaults if empty, so to match test intent, we'll clear them here for the test.
-        model.nodes = []
-        model.edges = []
-        model.addNode(at: CGPoint(x: 0, y: 0))
-        model.addNode(at: CGPoint(x: 50, y: 50))
-        #expect(model.edges.isEmpty, "No edges initially")
+        await MainActor.run { model.nodes = [] }
+        await MainActor.run { model.edges = [] }
+        await model.addNode(at: CGPoint(x: 0, y: 0))
+        await model.addNode(at: CGPoint(x: 50, y: 50))
+        #expect(await model.edges.isEmpty, "No edges initially")
         
-        let viewModel = GraphViewModel(model: model)
-        guard let node1 = model.nodes[0] as? Node else { fatalError("Expected Node") }
-        guard let node2 = model.nodes[1] as? Node else { fatalError("Expected Node") }
+        let viewModel = await GraphViewModel(model: model)
+        let draggedNode: (any NodeProtocol)? = await model.nodes[0]
+        let potentialEdgeTarget: (any NodeProtocol)? = await model.nodes[1]
         
         // Mock gesture properties instead of creating Value
         let mockTranslation = CGSize(width: 50, height: 50)
-        
-        // Simulate onEnded logic
-        let draggedNode: (any NodeProtocol)? = node1
-        let potentialEdgeTarget: (any NodeProtocol)? = node2
         let dragOffset: CGPoint = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)  // Assume zoomScale=1
         
         let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
         if let node = draggedNode,
-           let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-            viewModel.snapshot()
+           let index = await viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+            await viewModel.snapshot()
             if dragDistance < AppConstants.tapThreshold {
                 // Tap logic (skipped)
             } else {
@@ -217,29 +245,30 @@ struct GestureTests {
                     // Break up complex predicate
                     let fromID = node.id
                     let toID = target.id
-                    let edgeExists = viewModel.model.edges.contains { edge in
-                        (edge.from == fromID && edge.to == toID) ||
-                        (edge.from == toID && edge.to == fromID)
+                    let edgeExists = await MainActor.run {
+                        viewModel.model.edges.contains { edge in
+                            (edge.from == fromID && edge.to == toID) ||
+                            (edge.from == toID && edge.to == fromID)
+                        }
                     }
                     if !edgeExists {
-                        viewModel.model.edges.append(GraphEdge(from: fromID, to: toID))
-                        viewModel.model.startSimulation()
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, to: toID)) }
+                        await viewModel.model.startSimulation()
                     } else {
                         // Move logic (skipped, but update to use vars)
-                        viewModel.model.nodes[index].position = CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y)
-                        viewModel.model.startSimulation()
+                        await MainActor.run { viewModel.model.nodes[index].position = CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y) }
+                        await viewModel.model.startSimulation()
                     }
                 }
             }
         }
         
-        // Assert: Break up the expectation
-        #expect(viewModel.model.edges.count == 1, "Edge created after simulated drag")
-        let newEdge = viewModel.model.edges.first
+        await #expect(viewModel.model.edges.count == 1, "Edge created after simulated drag")
+        let newEdge = await viewModel.model.edges.first
         #expect(newEdge != nil, "New edge exists")
         if let newEdge = newEdge {
-            #expect(newEdge.from == node1.id, "Edge from correct node")
-            #expect(newEdge.to == node2.id, "Edge to correct node")
+            #expect(newEdge.from == draggedNode?.id, "Edge from correct node")
+            #expect(newEdge.to == potentialEdgeTarget?.id, "Edge to correct node")
         }
     }
 }
@@ -249,24 +278,25 @@ struct AccessibilityTests {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
     
-    @Test func testGraphDescription() {
+    @Test func testGraphDescription() async throws {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
         storage.nodes = [Node(label: 0, position: .zero)]
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
-        model.nodes = []  // Clear for test setup
-        model.edges = []
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
+                await MainActor.run { model.nodes = [] }
+                await MainActor.run { model.edges = [] }
         
-        model.nextNodeLabel = 1  // Reset for consistent labeling in test
+                await MainActor.run { model.nextNodeLabel = 1 }
         
-        model.addNode(at: .zero)  // Label 1
-        model.addNode(at: CGPoint(x: 10, y: 10))  // Label 2
-        model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id))
+                await model.addNode(at: .zero)
+                await model.addNode(at: CGPoint(x: 10, y: 10))
         
-        let descNoSelect = model.graphDescription(selectedID: nil, selectedEdgeID: nil)  // Add param
-        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")  // Updated expectation
+                await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id)) }  // Or await model.addEdge(...) if added
         
-        let descWithSelect = model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil)  // Add param
-        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")  // Updated expectation
+                let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
+        
+                let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
     }
 }

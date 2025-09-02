@@ -1,11 +1,10 @@
 // GraphViewModel.swift (Add access to model's physicsEngine and confirm centerGraph)
 
-import SwiftUI
 import Combine
 import GraphEditorShared
 import WatchKit  // For WKApplication
 
-class GraphViewModel: ObservableObject {
+@MainActor class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
     @Published var selectedEdgeID: UUID? = nil
     @Published var selectedNodeID: UUID? = nil
@@ -54,15 +53,18 @@ class GraphViewModel: ObservableObject {
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
+        
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-            self?.model.pauseSimulation()
-        }
-        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            self?.resumeSimulationAfterDelay()
+            Task { @MainActor in  // Ensure main for publishes
+                await self?.model.pauseSimulation()
+            }
         }
         
-        loadGraph()
-        loadViewState()
+        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in  // Ensure main for publishes
+                await self?.resumeSimulationAfterDelay()
+            }
+        }
     }
     
     func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -80,34 +82,38 @@ class GraphViewModel: ObservableObject {
         return (minZoom, maxZoom)
     }
     
-    func saveViewState() {
+    func saveViewState() {  // Made non-@MainActor since callsites treat as sync; internal hops handle isolation
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            self.centerGraph()  // Center before save
-            do {
-                try self.model.saveViewState(offset: self.offset,
-                                             zoomScale: self.zoomScale,
-                                             selectedNodeID: self.selectedNodeID,
-                                             selectedEdgeID: self.selectedEdgeID)
-                print("Saved view state")
-            } catch {
-                print("Failed to save view state: \(error)")
+            Task { @MainActor in  // Hop to main for safe publishes/model access
+                guard let self = self else { return }
+                self.centerGraph()  // Safe on main
+                do {
+                    try self.model.saveViewState(  // No 'await' – assuming sync based on impl; add if async
+                        offset: self.offset,
+                        zoomScale: self.zoomScale,
+                        selectedNodeID: self.selectedNodeID,
+                        selectedEdgeID: self.selectedEdgeID
+                    )
+                    print("Saved view state")
+                } catch {
+                    print("Failed to save view state: \(error)")
+                }
             }
         }
     }
     
-    func loadGraph() {
+    func loadGraph() async {
         do {
-            try model.loadFromStorage()
-            model.centerGraph()
-            model.startSimulation()
+            try await model.loadFromStorage()
+            model.centerGraph()  // Remove 'await' if sync
+            await model.startSimulation()  // Keep if async
         } catch {
             print("Failed to load graph: \(error)")
         }
     }
     
-    private func loadViewState() {
+    private func loadViewState() async {
         do {
             if let state = try model.loadViewState() {
                 self.offset = state.offset
@@ -118,9 +124,9 @@ class GraphViewModel: ObservableObject {
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
                 self.offset = .zero
             }
-            model.centerGraph()
+            model.centerGraph()  // Remove 'await' if sync
             self.offset = .zero
-            model.expandAllRoots()
+            await model.expandAllRoots()  // Keep if async
             self.objectWillChange.send()
         } catch {
             print("Failed to load view state: \(error)")
@@ -133,7 +139,7 @@ class GraphViewModel: ObservableObject {
         } else {
             focusState = .graph
         }
-        model.centerGraph()
+        model.centerGraph()  // Remove 'await' if sync
         self.objectWillChange.send()
     }
     
@@ -147,73 +153,75 @@ class GraphViewModel: ObservableObject {
         resumeTimer?.invalidate()
     }
     
-    func snapshot() {
-        model.snapshot()
+    func snapshot() async {
+        await model.snapshot()
     }
     
-    func undo() {
-        model.undo()
+    func undo() async {
+        await model.undo()
     }
     
-    func redo() {
-        model.redo()
+    func redo() async {
+        await model.redo()
     }
     
-    func addNode(at position: CGPoint) {
-        model.addNode(at: position)
+    func addNode(at position: CGPoint) async {
+        await model.addNode(at: position)
     }
 
-    func resetGraph() {  // Or rename clearGraph to resetGraph if preferred
-        model.clearGraph()
+    func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
+        await model.clearGraph()
     }
     
-    public func deleteNode(withID id: NodeID) {
-        model.deleteNode(withID: id)
+    public func deleteNode(withID id: NodeID) async {
+        await model.deleteNode(withID: id)
         selectedNodeID = nil
     }
 
-    public func deleteEdge(withID id: UUID) {
-        model.deleteEdge(withID: id)
+    public func deleteEdge(withID id: UUID) async {
+        await model.deleteEdge(withID: id)
         selectedEdgeID = nil
     }
 
-    public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) {
-        model.updateNodeContent(withID: id, newContent: newContent)
+    public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
+        await model.updateNodeContent(withID: id, newContent: newContent)
     }
     
-    func addToggleNode(at position: CGPoint) {
-        model.addToggleNode(at: position)
+    func addToggleNode(at position: CGPoint) async {
+        await model.addToggleNode(at: position)
     }
     
-    func addChild(to parentID: NodeID) {
-        model.addChild(to: parentID)
+    func addChild(to parentID: NodeID) async {
+        await model.addChild(to: parentID)
     }
     
-    func clearGraph() {
-        model.clearGraph()
+    func clearGraph() async {
+        await model.clearGraph()
     }
     
-    func pauseSimulation() {
-        model.pauseSimulation()
+    func pauseSimulation() async {
+        await model.pauseSimulation()
     }
     
-    func resumeSimulation() {
-        model.resumeSimulation()
+    func resumeSimulation() async {
+        await model.resumeSimulation()
     }
     
-    func resumeSimulationAfterDelay() {
+    func resumeSimulationAfterDelay() async {
         resumeTimer?.invalidate()
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            if WKApplication.shared().applicationState == .active {
-                self.model.resumeSimulation()
+            Task { @MainActor in  // Hop to main for safe access
+                guard let self = self else { return }
+                if WKApplication.shared().applicationState == .active {
+                    await self.model.resumeSimulation()  // Add 'await' for async call (fixes line 229)
+                }
             }
         }
     }
     
-    func handleTap() {
-        model.pauseSimulation()
-        resumeSimulationAfterDelay()
+    func handleTap() async {
+        await model.pauseSimulation()
+        await resumeSimulationAfterDelay()
     }
     
     func setSelectedNode(_ id: UUID?) {

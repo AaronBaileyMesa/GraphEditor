@@ -14,20 +14,20 @@ struct AddSection: View {
     let selectedNodeID: NodeID?
     let onDismiss: () -> Void
     let onAddEdge: () -> Void  // New: Callback for starting add edge mode
-
+    
     var body: some View {
         Section(header: Text("Add")) {
             Button("Add Node") {
-                viewModel.addNode(at: .zero)
+                Task { await viewModel.addNode(at: .zero) }
                 onDismiss()
             }
             Button("Add Toggle Node") {
-                viewModel.addToggleNode(at: .zero)
+                Task { await viewModel.addToggleNode(at: .zero) }
                 onDismiss()
             }
             if let selectedID = selectedNodeID {
                 Button("Add Child") {
-                    viewModel.addChild(to: selectedID)
+                    Task { await viewModel.addChild(to: selectedID) }
                     onDismiss()
                 }
                 Button("Add Edge") {  // New
@@ -45,7 +45,7 @@ struct EditSection: View {
     let selectedEdgeID: UUID?
     let onDismiss: () -> Void
     let onEditNode: () -> Void  // New: Callback for showing edit sheet
-
+    
     var body: some View {
         Section(header: Text("Edit")) {
             if let selectedID = selectedNodeID {
@@ -53,8 +53,8 @@ struct EditSection: View {
                     onEditNode()
                     onDismiss()
                 }
-                Button("Delete Node", role: .destructive) {
-                    viewModel.deleteNode(withID: selectedID)
+                Button("Delete Node", role: .destructive) {  // Line ~67?
+                    Task { await viewModel.deleteNode(withID: selectedID) }
                     onDismiss()
                 }
             }
@@ -64,33 +64,33 @@ struct EditSection: View {
                 let toID = selectedEdge.to
                 let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
                 Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
-                    viewModel.snapshot()
+                    Task { await viewModel.snapshot() }
                     if isBi {
                         let pair = viewModel.model.edgesBetween(fromID, toID)
                         viewModel.model.edges.removeAll { pair.contains($0) }
                     } else {
                         viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                     }
-                    viewModel.model.startSimulation()
+                    Task { await viewModel.model.startSimulation() }
                     onDismiss()
                 }
                 Button("Reverse Edge") {  // New
-                    viewModel.snapshot()
+                    Task { await viewModel.snapshot() }
                     viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                     viewModel.model.edges.append(GraphEdge(from: toID, to: fromID))
-                    viewModel.model.startSimulation()
+                    Task { await viewModel.model.startSimulation() }
                     onDismiss()
                 }
             }
             if viewModel.canUndo {
                 Button("Undo") {
-                    viewModel.undo()
+                    Task { await viewModel.undo() }
                     onDismiss()
                 }
             }
             if viewModel.canRedo {
                 Button("Redo") {
-                    viewModel.redo()
+                    Task { await viewModel.redo() }
                     onDismiss()
                 }
             }
@@ -104,14 +104,15 @@ struct ViewSection: View {
     let onCenterGraph: () -> Void
     let onDismiss: () -> Void
     let onSimulationChange: (Bool) -> Void
-
+    
     var body: some View {
         Section(header: Text("View")) {
             Toggle("Show Overlays", isOn: $showOverlays)
             Toggle("Run Simulation", isOn: isSimulating)
-                .onChange(of: isSimulating.wrappedValue) { newValue in
+                .onChange(of: isSimulating.wrappedValue) { oldValue, newValue in
                     onSimulationChange(newValue)
                 }
+            
             Button("Center Graph") {
                 onCenterGraph()
                 onDismiss()
@@ -123,19 +124,19 @@ struct ViewSection: View {
 struct GraphSection: View {
     let viewModel: GraphViewModel
     let onDismiss: () -> Void
-
+    
     var body: some View {
         Section(header: Text("Graph")) {
             Button("Reset Graph", role: .destructive) {
-                viewModel.resetGraph()
+                Task { await viewModel.resetGraph() }
                 onDismiss()
             }
             Button("Save Graph") {
-                viewModel.model.save()  // Direct call to model's save
+                Task { await viewModel.model.save() }
                 onDismiss()
             }
             Button("Load Graph") {
-                viewModel.loadGraph()
+                Task { await viewModel.loadGraph() }
                 onDismiss()
             }
         }
@@ -160,23 +161,28 @@ struct MenuView: View {
     
     var body: some View {
         List {
-            if viewModel.selectedEdgeID == nil {
-                AddSection(
-                    viewModel: viewModel,
-                    selectedNodeID: viewModel.selectedNodeID,
-                    onDismiss: { showMenu = false },
-                    onAddEdge: { isAddingEdge = true }  // New: Set local state
-                )
+            if let selected = viewModel.selectedNodeID {
+                Button("Edit Node") { showEditSheet = true }  // If sheet in MenuView, add @State showEditSheet: Bool = false and .sheet similar to ContentView
+                Button("Delete Node") {
+                    Task { await viewModel.deleteNode(withID: selected) }
+                    showMenu = false
+                }
+                Button("Add Edge from Node") { isAddingEdge = true; showMenu = false }
             }
-            
-            if viewModel.selectedNodeID != nil || viewModel.selectedEdgeID != nil || viewModel.canUndo || viewModel.canRedo {
-                EditSection(
-                    viewModel: viewModel,
-                    selectedNodeID: viewModel.selectedNodeID,
-                    selectedEdgeID: viewModel.selectedEdgeID,
-                    onDismiss: { showMenu = false },
-                    onEditNode: { showEditSheet = true }  // New: Set local state
-                )
+            if let selectedEdge = viewModel.selectedEdgeID {
+                Button("Delete Edge") {
+                    Task { await viewModel.deleteEdge(withID: selectedEdge) }
+                    showMenu = false
+                }
+                Button("Reverse Edge") {
+                    if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdge }) {
+                        let edge = viewModel.model.edges[edgeIndex]
+                        viewModel.model.edges[edgeIndex] = GraphEdge(id: edge.id, from: edge.to, to: edge.from)
+                        Task { await viewModel.model.startSimulation() }
+                    }
+                    WKInterfaceDevice.current().play(.success)
+                    showMenu = false
+                }
             }
             
             ViewSection(
@@ -186,9 +192,9 @@ struct MenuView: View {
                 onSimulationChange: { newValue in
                     viewModel.model.isSimulating = newValue
                     if newValue {
-                        viewModel.model.startSimulation()
+                        Task { await viewModel.model.startSimulation() }
                     } else {
-                        viewModel.model.stopSimulation()
+                        Task { await viewModel.model.stopSimulation() }
                     }
                 }
             )
@@ -203,22 +209,22 @@ struct MenuView: View {
                 isMenuFocused = true  // Double-focus for reliability
             }
         }
-        .onChange(of: isMenuFocused) { newValue in
-            print("Menu focus: \(newValue)")  // Debug
+        .onChange(of: isMenuFocused) { oldValue, newValue in
+            print("Menu focus: (newValue)") // Debug
             if !newValue {
-                isMenuFocused = true  // Auto-recover
+                isMenuFocused = true // Auto-recover
             }
         }
         .ignoresSafeArea(.keyboard)
         .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
             if let selectedID = viewModel.selectedNodeID {
                 EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                    viewModel.updateNodeContent(withID: selectedID, newContent: newContent)
+                    Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
                     showEditSheet = false
                 })
             }
         }
-        .onChange(of: isAddingEdge) { newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+        .onChange(of: isAddingEdge) { oldValue, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
             if newValue {
                 // Optionally notify viewModel or handle here
             }

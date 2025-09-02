@@ -12,56 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>235</string>
+					<string>322</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>235</string>
-					<key>Timestamp</key>
-					<string>777940669.271184</string>
-				</dict>
-				<key>rebasable-url</key>
-				<dict>
-					<key>base</key>
-					<string>workspace</string>
-					<key>payload</key>
-					<dict>
-						<key>relative-path</key>
-						<string>GraphEditorWatch/ViewModels/GraphViewModel.swift</string>
-					</dict>
-				</dict>
-			</dict>
-			<key>text-context</key>
-			<dict>
-				<key>focused</key>
-				<string></string>
-				<key>leading</key>
-				<string>    }
-}
-</string>
-				<key>trailing</key>
-				<string></string>
-			</dict>
-			<key>title</key>
-			<string>Error: Value of type 'GraphModel' has no member 'loadGraph'</string>
-			<key>type</key>
-			<string>bookmark</string>
-		</dict>
-		<dict>
-			<key>destination</key>
-			<dict>
-				<key>location-parameters</key>
-				<dict>
-					<key>EndingColumnNumber</key>
-					<string>0</string>
-					<key>EndingLineNumber</key>
 					<string>321</string>
-					<key>StartingColumnNumber</key>
-					<string>0</string>
-					<key>StartingLineNumber</key>
-					<string>320</string>
 					<key>Timestamp</key>
-					<string>777941150.163115</string>
+					<string>778011431.557453</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -102,13 +59,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>321</string>
+					<string>322</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>320</string>
+					<string>321</string>
 					<key>Timestamp</key>
-					<string>777941150.163094</string>
+					<string>778011431.557471</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -149,13 +106,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>23</string>
+					<string>26</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>23</string>
+					<string>26</string>
 					<key>Timestamp</key>
-					<string>777583147.29098</string>
+					<string>778119430.596204</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>

@@ -176,7 +176,7 @@ struct GraphGesturesModifier: ViewModifier {
                 longPressTimer?.invalidate()
                 longPressTimer = nil
                 
-                viewModel.resumeSimulation()
+                Task { await viewModel.resumeSimulation() }
                 
                 let screenHitRadius: CGFloat = Constants.App.hitScreenRadius * 1.5
                 let modelHitRadius = screenHitRadius / zoomScale
@@ -235,14 +235,15 @@ struct GraphGesturesModifier: ViewModifier {
                     logger.debug("--------------------------------")
                     #endif
                 } else {
-                    viewModel.snapshot()
+                    Task { await viewModel.snapshot() }
                     if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
                         let newEdge = GraphEdge(from: startNode.id, to: target.id)
                         if !viewModel.model.hasCycle(adding: newEdge) &&
                            !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
-                            viewModel.model.edges.append(newEdge)
-                            viewModel.model.startSimulation()
-                            WKInterfaceDevice.current().play(.success)
+                            Task {
+                                await viewModel.model.addEdge(from: startNode.id, to: target.id)  // Use async addEdge (see below if not implemented)
+                                await MainActor.run { WKInterfaceDevice.current().play(.success) }  // Haptic on main
+                            }
                         }
                     } else if isMovingSelectedNode, let node = dragStartNode,
                               let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
@@ -250,10 +251,10 @@ struct GraphGesturesModifier: ViewModifier {
                         updatedNode.position.x += value.translation.width / zoomScale
                         updatedNode.position.y += value.translation.height / zoomScale
                         viewModel.model.nodes[index] = updatedNode
-                        viewModel.model.startSimulation()
+                        Task { await viewModel.model.startSimulation() }
                         WKInterfaceDevice.current().play(.click)
                     }
-                    viewModel.handleTap()
+                    Task { await viewModel.handleTap() }
                 }
                 
                 withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
