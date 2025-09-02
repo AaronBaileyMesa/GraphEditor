@@ -115,25 +115,37 @@ struct ContentView: View {
                 .onAppear {
                     Task { await viewModel.resumeSimulation() }
                     updateZoomRanges(for: geo.size)
-                     wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
-                    print(geo.size) 
+                    wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
+                    print(geo.size)
+                    canvasFocus = true  // Force focus on appear
                 }
-                .onChange(of: viewModel.model.nodes) {oldValue, newValue in
+                .onChange(of: viewModel.model.nodes) { _, _ in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: viewModel.model.edges) { oldValue, newValue in
+                .onChange(of: viewModel.model.edges) { _, _ in
                     updateZoomRanges(for: geo.size)
                 }
                 .onChange(of: crownPosition) { oldValue, newValue in
+                    print("Crown position changed in ContentView: from \(oldValue) to \(newValue)")  // New: Log here too
                     handleCrownRotation(newValue: newValue)
                 }
                 .onChange(of: canvasFocus) { oldValue, newValue in
+                    print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
                     if !newValue { canvasFocus = true }
                 }
         }
         .ignoresSafeArea()
-        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
-        .focusable(true)
+        .focusable(true)  // Make the whole view focusable for crown
+        .focused($canvasFocus)  // Bind focus state
+        .digitalCrownRotation(  // Restored: Put back here for root-level handling
+            $crownPosition,
+            from: 0,
+            through: Double(AppConstants.crownZoomSteps),
+            by: 1,
+            sensitivity: .high,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
     }
 
     private func mainContent(in geo: GeometryProxy) -> some View {
@@ -247,9 +259,11 @@ struct ContentView: View {
     }
 
     private func handleCrownRotation(newValue: Double) {
+        print("handleCrownRotation triggered with newValue: \(newValue)")  // New: Log to confirm
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
         zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
         viewModel.centerGraph()  // Direct call
+        print("Updated zoomScale to: \(zoomScale)")  // New: Confirm zoom change
     }
 
     private func updateZoomRanges(for viewSize: CGSize) {

@@ -2,7 +2,7 @@ import SwiftUI
 import WatchKit
 import GraphEditorShared
 
-// New: Custom wrapper for reliable crown focus
+// Reverted: Custom wrapper for reliable crown focus (without crown—handled in ContentView now)
 struct FocusableView<Content: View>: View {
     let content: Content
     @FocusState private var isFocused: Bool
@@ -12,24 +12,23 @@ struct FocusableView<Content: View>: View {
     }
     
     var body: some View {
-            content
-                .id("CrownFocusableCanvas")
-                .focused($isFocused)
-                .onAppear {
-                    isFocused = true
-                    // New: Force crown update on appear (simulates WK willActivate)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        isFocused = true  // Double-focus for WatchOS reliability
-                    }
+        content
+            .id("CrownFocusableCanvas")
+            .focused($isFocused)
+            .onAppear {
+                isFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isFocused = true  // Double-focus for WatchOS reliability
                 }
-                .onChange(of: isFocused) { oldValue, newValue in
-                    print("Canvas focus: \(newValue)")
-                    if !newValue {
-                        isFocused = true  // Auto-recover focus loss
-                    }
+            }
+            .onChange(of: isFocused) { oldValue, newValue in
+                print("Canvas focus changed: from \(oldValue) to \(newValue)")
+                if !newValue {
+                    isFocused = true  // Auto-recover focus loss
                 }
-        }
+            }
     }
+}
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -67,7 +66,7 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping() -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
-        isAddingEdge: Binding<Bool>,
+        isAddingEdge: Binding<Bool>
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -183,7 +182,7 @@ struct GraphCanvasView: View {
     
     var body: some View {
         Group {
-            FocusableView {
+            FocusableView {  // Reverted: No crown params
                 accessibleCanvas
             }
             .modifier(GraphGesturesModifier(
@@ -204,7 +203,6 @@ struct GraphCanvasView: View {
                 isAddingEdge: $isAddingEdge  // Pass to modifier
             ))
         }
-        .focusable(true)  // Explicitly make the whole view focusable for crown
         .onChange(of: selectedNodeID) {
             viewModel.saveViewState()
         }
