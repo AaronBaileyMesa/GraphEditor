@@ -118,6 +118,13 @@ struct ContentView: View {
                     wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
                     print(geo.size)
                     canvasFocus = true  // Force focus on appear
+                    
+                    // New: Sync initial zoomScale to match starting crownPosition
+                    let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
+                    zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
+                    #if DEBUG
+                    print("Initial sync: crownPosition \(crownPosition) -> zoomScale \(zoomScale)")
+                    #endif
                 }
                 .onChange(of: viewModel.model.nodes) { _, _ in
                     updateZoomRanges(for: geo.size)
@@ -126,12 +133,20 @@ struct ContentView: View {
                     updateZoomRanges(for: geo.size)
                 }
                 .onChange(of: crownPosition) { oldValue, newValue in
-                    print("Crown position changed in ContentView: from \(oldValue) to \(newValue)")  // New: Log here too
+                    print("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
                     handleCrownRotation(newValue: newValue)
                 }
                 .onChange(of: canvasFocus) { oldValue, newValue in
                     print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
                     if !newValue { canvasFocus = true }
+                }
+                // New: Bi-directional sync—update crownPosition if zoomScale changes (e.g., via gestures)
+                .onChange(of: zoomScale) { oldValue, newValue in
+                    let normalized = (newValue - minZoom) / (maxZoom - minZoom)
+                    crownPosition = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
+                    #if DEBUG
+                    print("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(crownPosition)")
+                    #endif
                 }
         }
         .ignoresSafeArea()
@@ -259,11 +274,20 @@ struct ContentView: View {
     }
 
     private func handleCrownRotation(newValue: Double) {
-        print("handleCrownRotation triggered with newValue: \(newValue)")  // New: Log to confirm
+        #if DEBUG
+        print("handleCrownRotation triggered with newValue: \(newValue)")
+        #endif
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
-        zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+        let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+        
+        // New: Animate the zoom change for smoothness
+        withAnimation(.easeInOut(duration: 0.1)) {
+            zoomScale = targetZoom
+        }
         viewModel.centerGraph()  // Direct call
-        print("Updated zoomScale to: \(zoomScale)")  // New: Confirm zoom change
+        #if DEBUG
+        print("Updated zoomScale to: \(zoomScale)")
+        #endif
     }
 
     private func updateZoomRanges(for viewSize: CGSize) {
