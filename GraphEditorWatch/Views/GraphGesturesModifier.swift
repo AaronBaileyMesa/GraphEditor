@@ -30,13 +30,70 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var isMovingSelectedNode: Bool = false
     @State private var longPressTimer: Timer? = nil
     @State private var isLongPressTriggered: Bool = false
+    @State private var gestureStartCentroid: CGPoint = .zero  // New: Lock centroid at gesture start
     
     private let dragStartThreshold: CGFloat = 5.0
     
     // Optimized logger
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
+    // New helper: Model to screen conversion (inverse of screenToModel; use your existing if available)
+    private func modelToScreen(_ modelPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> CGPoint {
+        let safeZoom = max(zoomScale, 0.1)
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        let relative = modelPos - effectiveCentroid
+        let scaled = relative * safeZoom
+        let screenPos = scaled + viewCenter + panOffset
+        return screenPos
+    }
+    
+    // New: Screen-space hit test for nodes (consistent usability)
+    private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> (any NodeProtocol)? {
+        var closestNode: (any NodeProtocol)? = nil
+        var minScreenDist: CGFloat = .infinity
+        let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
+
+        #if DEBUG
+        var nodeDistances: [(label: Int, screenPos: CGPoint, dist: CGFloat)] = []  // For logging
+        logger.debug("Using centroid: \(String(describing: effectiveCentroid)) for this gesture")
+        #endif
+
+        for node in visibleNodes {
+            let nodeScreenPos = modelToScreen(node.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+            let dist = hypot(screenPos.x - nodeScreenPos.x, screenPos.y - nodeScreenPos.y)
+            
+            #if DEBUG
+            nodeDistances.append((node.label, nodeScreenPos, dist))
+            #endif
+            
+            if dist < minScreenDist && dist <= hitScreenRadius {
+                minScreenDist = dist
+                closestNode = node
+            }
+        }
+
+        #if DEBUG
+        // Log sorted by distance for verification
+        nodeDistances.sort { $0.dist < $1.dist }
+        logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: screenPos))")
+        for (label, pos, dist) in nodeDistances.prefix(5) {  // Limit to top 5 closest
+            logger.debug("Node \(label): screen pos \(String(describing: pos)), dist \(dist)")
+        }
+        if let closest = closestNode {
+            logger.debug("Hit: Node \(closest.label) (dist \(minScreenDist) <= \(hitScreenRadius))")
+        } else {
+            logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
+        }
+        #endif
+
+        return closestNode
+    }
+    
     private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
+        let minDist = viewModel.model.visibleNodes().map { distance($0.position, modelPos) }.min() ?? 0
+        print("Tap at \(modelPos); closest node dist: \(minDist)")
+        
         let modelHitRadius = Constants.App.hitScreenRadius / zoomScale * 2.0
         switch type {
         case .node:
@@ -96,6 +153,8 @@ struct GraphGesturesModifier: ViewModifier {
                 logger.debug("Gesture .onChanged triggered")
                 logger.debug("Current zoomScale: \(zoomScale)")
                 #endif
+                
+                gestureStartCentroid = focalPointForCentering()  // Lock centroid here
                 
                 if isLongPressTriggered { return }
                 
@@ -185,35 +244,38 @@ struct GraphGesturesModifier: ViewModifier {
                 let tapModelPos = screenToModel(value.startLocation, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
                 
                 if dragDistance < Constants.App.tapThreshold {
-                    if let hitNode = viewModel.model.visibleNodes().first(where: { distance($0.position, tapModelPos) < modelHitRadius }) {
+                    let tapScreenPos = value.startLocation  // Use screen pos directly for hit test
+                    let visibleNodes = viewModel.model.visibleNodes()
+                    let visibleEdges = viewModel.model.visibleEdges()
+                    
+                    // Use new screen-space hit test with locked centroid
+                    if let hitNode = hitTestNodesInScreenSpace(at: tapScreenPos, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
                         let updatedNode = hitNode.handlingTap()
                         viewModel.model.updateNode(updatedNode)
                         selectedNodeID = (selectedNodeID == hitNode.id) ? nil : hitNode.id
                         selectedEdgeID = nil
-                        #if DEBUG
-                        logger.debug("Tap detected at model position: \(String(describing: tapModelPos)). SelectedNodeID before: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID before: \(selectedEdgeID?.uuidString ?? "nil")")
-                        #endif
-                        WKInterfaceDevice.current().play(.click)
-                    } else if let hitEdge = viewModel.model.visibleEdges().first(where: { edge in
-                        if let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                           let to = viewModel.model.nodes.first(where: { $0.id == edge.to }),
-                           pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < modelHitRadius {
-                            return true
-                        }
-                        return false
-                    }) {
-                        #if DEBUG
-                        logger.debug("Edge hit detected with tightened radius.")
-                        #endif
-                        selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
-                        selectedNodeID = nil
                         WKInterfaceDevice.current().play(.click)
                     } else {
-                        #if DEBUG
-                        logger.debug("Background tap confirmed (no hit with tightened radius). Deselecting everything.")
-                        #endif
-                        selectedNodeID = nil
-                        selectedEdgeID = nil
+                        // Edge check (keep model-space, but scale threshold)
+                        let tapModelPos = screenToModel(tapScreenPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+                        let edgeHitRadius = Constants.App.hitScreenRadius / zoomScale  // Scaled for zoom
+                        if let hitEdge = visibleEdges.first(where: { edge in
+                            if let from = visibleNodes.first(where: { $0.id == edge.from }),
+                               let to = visibleNodes.first(where: { $0.id == edge.to }),
+                               pointToLineDistance(point: tapModelPos, from: from.position, to: to.position) < edgeHitRadius {
+                                return true
+                            }
+                            return false
+                        }) {
+                            selectedEdgeID = (selectedEdgeID == hitEdge.id) ? nil : hitEdge.id
+                            selectedNodeID = nil
+                            WKInterfaceDevice.current().play(.click)
+                        } else {
+                            // Background miss: Deselect + subtle feedback
+                            selectedNodeID = nil
+                            selectedEdgeID = nil
+                            //WKInterfaceDevice.current().play(Constants.App.missHapticType)  // New: Inform user
+                        }
                     }
                     
                     #if DEBUG

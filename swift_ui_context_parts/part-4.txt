@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-02 13:15:46
+Current date: 2025-09-02 18:20:54
 Table of Contents:
 1. GraphEditorWatch/Views/GraphCanvasView.swift
 2. GraphEditorWatch/Views/GraphGesturesModifier.swift
@@ -9,14 +9,14 @@ Table of Contents:
 4. GraphEditorWatch/Views/NodeView.swift--------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-09-02 12:25:27
+Last modified: 2025-09-02 15:03:00
 
 Contents:
 import SwiftUI
 import WatchKit
 import GraphEditorShared
 
-// New: Custom wrapper for reliable crown focus
+// Reverted: Custom wrapper for reliable crown focus (without crown—handled in ContentView now)
 struct FocusableView<Content: View>: View {
     let content: Content
     @FocusState private var isFocused: Bool
@@ -26,24 +26,23 @@ struct FocusableView<Content: View>: View {
     }
     
     var body: some View {
-            content
-                .id("CrownFocusableCanvas")
-                .focused($isFocused)
-                .onAppear {
-                    isFocused = true
-                    // New: Force crown update on appear (simulates WK willActivate)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        isFocused = true  // Double-focus for WatchOS reliability
-                    }
+        content
+            .id("CrownFocusableCanvas")
+            .focused($isFocused)
+            .onAppear {
+                isFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    isFocused = true  // Double-focus for WatchOS reliability
                 }
-                .onChange(of: isFocused) { oldValue, newValue in
-                    print("Canvas focus: \(newValue)")
-                    if !newValue {
-                        isFocused = true  // Auto-recover focus loss
-                    }
+            }
+            .onChange(of: isFocused) { oldValue, newValue in
+                print("Canvas focus changed: from \(oldValue) to \(newValue)")
+                if !newValue {
+                    isFocused = true  // Auto-recover focus loss
                 }
-        }
+            }
     }
+}
 
 struct GraphCanvasView: View {
     let viewModel: GraphViewModel
@@ -81,7 +80,7 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping() -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
-        isAddingEdge: Binding<Bool>,
+        isAddingEdge: Binding<Bool>
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -197,7 +196,7 @@ struct GraphCanvasView: View {
     
     var body: some View {
         Group {
-            FocusableView {
+            FocusableView {  // Reverted: No crown params
                 accessibleCanvas
             }
             .modifier(GraphGesturesModifier(
@@ -218,7 +217,6 @@ struct GraphCanvasView: View {
                 isAddingEdge: $isAddingEdge  // Pass to modifier
             ))
         }
-        .focusable(true)  // Explicitly make the whole view focusable for crown
         .onChange(of: selectedNodeID) {
             viewModel.saveViewState()
         }
@@ -257,7 +255,7 @@ extension CGRect {
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-08-28 17:16:22
+Last modified: 2025-09-02 15:32:16
 
 Contents:
 //

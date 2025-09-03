@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-02 13:15:46
+Current date: 2025-09-02 18:20:54
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
@@ -133,9 +133,11 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-09-02 08:08:55
+Last modified: 2025-09-02 15:25:18
 
 Contents:
+// Utilities.swift (Updated with rounding in screenToModel)
+
 import Foundation
 import CoreGraphics
 
@@ -274,7 +276,8 @@ public struct CoordinateTransformer {
         print("screenToModel: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid), ViewSize \(viewSize)")
         #endif
         
-        return modelPos
+        // New: Round to 3 decimals to eliminate floating-point drift
+        return CGPoint(x: modelPos.x.rounded(to: 3), y: modelPos.y.rounded(to: 3))
     }
     
     public static func modelToScreen(
@@ -612,7 +615,7 @@ import WatchKit  // For WKApplication
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-09-02 09:43:44
+Last modified: 2025-09-02 18:17:07
 
 Contents:
 // ContentView.swift (Updated with Equatable fix via enhanced NodeWrapper and closure for onCenterGraph)
@@ -732,25 +735,52 @@ struct ContentView: View {
                 .onAppear {
                     Task { await viewModel.resumeSimulation() }
                     updateZoomRanges(for: geo.size)
-                     wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
-                    print(geo.size) 
+                    wristSide = WKInterfaceDevice.current().wristLocation  // Property is wristLocation
+                    print(geo.size)
+                    canvasFocus = true  // Force focus on appear
+                    
+                    // New: Sync initial zoomScale to match starting crownPosition
+                    let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
+                    zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
+                    #if DEBUG
+                    print("Initial sync: crownPosition \(crownPosition) -> zoomScale \(zoomScale)")
+                    #endif
                 }
-                .onChange(of: viewModel.model.nodes) {oldValue, newValue in
+                .onChange(of: viewModel.model.nodes) { _, _ in
                     updateZoomRanges(for: geo.size)
                 }
-                .onChange(of: viewModel.model.edges) { oldValue, newValue in
+                .onChange(of: viewModel.model.edges) { _, _ in
                     updateZoomRanges(for: geo.size)
                 }
                 .onChange(of: crownPosition) { oldValue, newValue in
+                    print("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
                     handleCrownRotation(newValue: newValue)
                 }
                 .onChange(of: canvasFocus) { oldValue, newValue in
+                    print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
                     if !newValue { canvasFocus = true }
+                }
+                // New: Bi-directional sync—update crownPosition if zoomScale changes (e.g., via gestures)
+                .onChange(of: zoomScale) { oldValue, newValue in
+                    let normalized = (newValue - minZoom) / (maxZoom - minZoom)
+                    crownPosition = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
+                    #if DEBUG
+                    print("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(crownPosition)")
+                    #endif
                 }
         }
         .ignoresSafeArea()
-        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)
-        .focusable(true)
+        .focusable(true)  // Make the whole view focusable for crown
+        .focused($canvasFocus)  // Bind focus state
+        .digitalCrownRotation(  // Restored: Put back here for root-level handling
+            $crownPosition,
+            from: 0,
+            through: Double(AppConstants.crownZoomSteps),
+            by: 1,
+            sensitivity: .high,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
     }
 
     private func mainContent(in geo: GeometryProxy) -> some View {
@@ -864,9 +894,20 @@ struct ContentView: View {
     }
 
     private func handleCrownRotation(newValue: Double) {
+        #if DEBUG
+        print("handleCrownRotation triggered with newValue: \(newValue)")
+        #endif
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
-        zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+        let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+        
+        // New: Animate the zoom change for smoothness
+        withAnimation(.easeInOut(duration: 0.1)) {
+            zoomScale = targetZoom
+        }
         viewModel.centerGraph()  // Direct call
+        #if DEBUG
+        print("Updated zoomScale to: \(zoomScale)")
+        #endif
     }
 
     private func updateZoomRanges(for viewSize: CGSize) {
