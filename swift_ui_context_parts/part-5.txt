@@ -1,489 +1,718 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-02 18:20:54
+Current date: 2025-09-04 09:54:20
 Table of Contents:
-1. GraphEditorWatchTests/GraphEditorWatchTests.swift
-2. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-3. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
-File: GraphEditorWatchTests.swift
-Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-09-02 13:15:09
+1. GraphEditorWatch/Views/GraphGesturesModifier.swift
+2. GraphEditorWatch/Views/MenuView.swift
+3. GraphEditorWatch/Views/NodeView.swift--------------------------------------------------
+File: GraphGesturesModifier.swift
+Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
+Last modified: 2025-09-04 09:53:09
 
 Contents:
-import Testing
-import Foundation
-import CoreGraphics
-@testable import GraphEditorWatch // Already present
-@testable import GraphEditorShared // Changed to @testable for accessing internal members
-import XCTest
+//
+//  GraphGesturesModifier.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on 2025-08-16
+
 import SwiftUI
+import WatchKit
+import GraphEditorShared
+import os.log  // Added for optimized logging
 
-class MockGraphStorage: GraphStorage {
-    var nodes: [any NodeProtocol] = []
-    var edges: [GraphEdge] = []
-    
-    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws {
-        self.nodes = nodes
-        self.edges = edges
-    }
-    
-    func load() throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
-        (nodes, edges)
-    }
-    
-    func clear() throws {
-        nodes = []
-        edges = []
-    }
+enum HitType {
+    case node
+    case edge
 }
 
-// Add this helper function at the top of the test file or in the test struct
-func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
-    return hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
-}
-
-struct GraphModelTests {
-    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
-        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300)) // Mock size for tests
+struct GraphGesturesModifier: ViewModifier {
+    let viewModel: GraphViewModel
+    @Binding var zoomScale: CGFloat
+    @Binding var offset: CGSize
+    @Binding var draggedNode: (any NodeProtocol)?
+    @Binding var dragOffset: CGPoint
+    @Binding var potentialEdgeTarget: (any NodeProtocol)?
+    @Binding var selectedNodeID: NodeID?
+    @Binding var selectedEdgeID: UUID?
+    let viewSize: CGSize
+    @Binding var panStartOffset: CGSize?
+    @Binding var showMenu: Bool
+    let maxZoom: CGFloat
+    @Binding var crownPosition: Double
+    let onUpdateZoomRanges: () -> Void
+    @Binding var isAddingEdge: Bool
+    
+    @State private var dragStartNode: (any NodeProtocol)? = nil
+    @State private var isMovingSelectedNode: Bool = false
+    @State private var longPressTimer: Timer? = nil
+    @State private var isLongPressTriggered: Bool = false
+    @State private var gestureStartCentroid: CGPoint = .zero  // New: Lock centroid at gesture start
+    
+    private let dragStartThreshold: CGFloat = 5.0
+    
+    // Optimized logger
+    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
+    
+    // New helper: Model to screen conversion (inverse of screenToModel; use your existing if available)
+    private func modelToScreen(_ modelPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> CGPoint {
+        let safeZoom = max(zoomScale, 0.1)
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        let relative = modelPos - effectiveCentroid
+        let scaled = relative * safeZoom
+        let screenPos = scaled + viewCenter + panOffset
+        return screenPos
     }
     
-    @Test func testUndoRedoMixedOperations() async throws {
-        let storage = MockGraphStorage()
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodeCount = await MainActor.run { model.nodes.count }
-        let initialEdgeCount = await MainActor.run { model.edges.count }
+    // New: Screen-space hit test for nodes (consistent usability)
+    private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> (any NodeProtocol)? {
+        var closestNode: (any NodeProtocol)? = nil
+        var minScreenDist: CGFloat = .infinity
+        let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
         
-        // Specify node to delete (e.g., first in cycle removes 2 edges)
-        let nodeToDelete = await MainActor.run { model.nodes[0].id }
-        let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count }
-        await model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
+#if DEBUG
+        var nodeDistances: [(label: Int, screenPos: CGPoint, dist: CGFloat)] = []  // For logging
+        logger.debug("Using centroid: \(String(describing: effectiveCentroid)) for this gesture")
+#endif
         
-        await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no *manual* snapshot (internal one handles)
-        
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "After add: count back to initial")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
-        
-        await model.undo() // To post-delete
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
-        
-        await model.undo() // To initial
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
-        
-        await model.redo() // To post-delete
-        #expect(await model.nodes.count == initialNodeCount - 1, "Redo applies delete")
-        
-        await model.redo() // To post-add
-        #expect(await model.nodes.count == initialNodeCount, "Redo applies add")
-    }
-    
-    @Test func testInitializationWithDefaults() async throws {
-        let storage = MockGraphStorage()
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(await model.nodes.count >= 3, "Should load default or saved nodes")
-        #expect(await model.edges.count >= 3, "Should load default edges")
-    }
-    
-    @Test func testSnapshotAndUndo() async throws {
-        let storage = MockGraphStorage()
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let initialNodes = await model.nodes
-        await model.snapshot()
-        await model.addNode(at: CGPoint.zero)
-        #expect(await model.nodes.count == initialNodes.count + 1, "Node added")
-        await model.undo()
-        let restoredNodes = await model.nodes
-        let idsMatch = Set(restoredNodes.map { $0.id }) == Set(initialNodes.map { $0.id })
-        let labelsMatch = Set(restoredNodes.map { $0.label }) == Set(initialNodes.map { $0.label })
-        let positionsMatch = zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) }
-        #expect(idsMatch && labelsMatch && positionsMatch, "Undo restores state")
-    }
-    
-    @Test func testDeleteNodeAndEdges() async throws {
-        let storage = MockGraphStorage()
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(await !model.nodes.isEmpty, "Assumes default nodes exist")
-        let nodeID = await model.nodes[0].id
-        let initialEdgeCount = await model.edges.count
-        await model.deleteNode(withID: nodeID)
-        #expect(await model.nodes.first { $0.id == nodeID } == nil, "Node deleted")
-        #expect(await model.edges.count < initialEdgeCount, "Edges reduced")
-    }
-    
-    @Test func testSaveLoadRoundTrip() async throws {
-        let storage = MockGraphStorage()
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        let originalNodeCount = await model.nodes.count
-        let originalEdges = await model.edges
-        // Modify and snapshot to trigger save
-        await model.addNode(at: CGPoint.zero)
-        await model.snapshot()
-        // New instance to trigger load
-        let newModel = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        #expect(await newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include added one")
-        #expect(await newModel.edges == originalEdges, "Edges unchanged")
-    }
-      
-    
-    
-    /*
-    // New: Basic convergence test with tightened threshold
-    // New: Basic convergence test with tightened threshold
-    @Test(arguments: 1..<5) func testConvergencePropertyBased(seed: Int) throws {
-        let model = GraphModel(storage: MockGraphStorage(), physicsEngine: mockPhysicsEngine())
-        srand48(seed)  // Seed random for reproducibility
-        //print(model.nodes.map { ($0.label, $0.position) })
-        model.nodes = (0..<5).map { _ in
-            Node(label: Int(drand48() * 10), position: CGPoint(x: CGFloat(drand48() * 300), y: CGFloat(drand48() * 300)))
-        }
-        model.edges = (0..<3).map { _ in
-            GraphEdge(from: model.nodes[Int(drand48() * 5)].id, to: model.nodes[Int(drand48() * 5)].id)
-        }
-        
-        model.startSimulation()
-        // Manual loop for test with substeps
-        for _ in 0..<Constants.Physics.maxSimulationSteps {
-            var nodes = model.nodes
-            var activeAccum = false  // Accumulator declared here (outside inner loop)
-            for _ in 0..<20 {  // Increased substeps as suggested
-                let (updatedNodes, stepActive) = model.physicsEngine.simulationStep(nodes: nodes, edges: model.edges)
-                nodes = updatedNodes
-                activeAccum = activeAccum || stepActive  // Update accumulator
-                if !stepActive { break }  // Optional: Early break if inactive in a substep
+        for node in visibleNodes {
+            let nodeScreenPos = modelToScreen(node.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+            let dist = hypot(screenPos.x - nodeScreenPos.x, screenPos.y - nodeScreenPos.y)
+            
+#if DEBUG
+            nodeDistances.append((node.label, nodeScreenPos, dist))
+#endif
+            
+            if dist < minScreenDist && dist <= hitScreenRadius {
+                minScreenDist = dist
+                closestNode = node
             }
-            model.nodes = nodes
-            if !activeAccum { break }  // Now uses the accumulator (in scope)
         }
         
-        let totalVel = model.nodes.reduce(0.0) { $0 + $1.velocity.magnitude }
-        #expect(totalVel < 2.0 * CGFloat(model.nodes.count), "Velocities near zero for seed \(seed)")
-    }
-    // New/Fixed: Property-based convergence test with tightened threshold and proper parameterization
-    @Test func testSimulationConvergence() {
-        let tolerance: CGFloat = 0.05
-        let model = GraphModel(storage: MockGraphStorage(), physicsEngine: mockPhysicsEngine())
-        model.nodes = [
-            Node(label: 1, position: CGPoint(x: 100, y: 100), velocity: CGPoint(x: 10, y: 10)),
-            Node(label: 2, position: CGPoint(x: 200, y: 200), velocity: CGPoint(x: -10, y: -10))
-        ]
-        model.edges = [GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id)]
+#if DEBUG
+        // Log sorted by distance for verification
+        nodeDistances.sort { $0.dist < $1.dist }
+        logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: screenPos))")
+        for (label, pos, dist) in nodeDistances.prefix(5) {  // Limit to top 5 closest
+            logger.debug("Node \(label): screen pos \(String(describing: pos)), dist \(dist)")
+        }
+        if let closest = closestNode {
+            logger.debug("Hit: Node \(closest.label) (dist \(minScreenDist) <= \(hitScreenRadius))")
+        } else {
+            logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
+        }
+#endif
         
-        model.startSimulation()
-        for _ in 0..<Constants.Physics.maxSimulationSteps {
-            var nodes = model.nodes
-            var activeAccum = false
-            let subSteps = 20  // Increased as suggested
-            for _ in 0..<subSteps {
-                let edges = model.edges
-                let (updatedNodes, stepActive) = model.physicsEngine.simulationStep(nodes: nodes, edges: edges)
-                nodes = updatedNodes
-                activeAccum = activeAccum || stepActive
-                if !stepActive { break }  // Optional early break
+        return closestNode
+    }
+    
+    // New: Screen-space hit test for edges (for consistency with nodes)
+    private func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> GraphEdge? {
+        var closestEdge: GraphEdge? = nil
+        var minScreenDist: CGFloat = .infinity
+        let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius / 2  // Smaller for edges to avoid overlapping node taps
+        
+#if DEBUG
+        var edgeDistances: [(id: UUID, dist: CGFloat)] = []  // For logging
+#endif
+        
+        for edge in visibleEdges {
+            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                  let toNode = visibleNodes.first(where: { $0.id == edge.to }) else { continue }
+            
+            let fromScreen = modelToScreen(fromNode.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+            let toScreen = modelToScreen(toNode.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+            
+            let dist = pointToLineDistance(point: screenPos, from: fromScreen, to: toScreen)
+            
+#if DEBUG
+            edgeDistances.append((edge.id, dist))
+#endif
+            
+            if dist < minScreenDist && dist <= hitScreenRadius {
+                minScreenDist = dist
+                closestEdge = edge
             }
-            model.nodes = nodes
-            if !activeAccum { break }
         }
         
-        #expect(model.nodes[0].velocity.magnitude < 1.2 + tolerance, "Node 1 velocity converges to near-zero")
-        #expect(model.nodes[1].velocity.magnitude < 1.2 + tolerance, "Node 2 velocity converges to near-zero")
-    }
-     */
-}
-
-struct CoordinateTransformerTests {
-    @Test func testCoordinateRoundTrip() {
-        let viewSize = CGSize(width: 205, height: 251)  // Apple Watch Ultra 2 points
-        let centroid = CGPoint(x: 150, y: 150)
-        let modelPos = CGPoint(x: 167.78, y: 165.66)  // From your log
-        let zoom: CGFloat = 1.0
-        let offset = CGSize.zero
+#if DEBUG
+        edgeDistances.sort { $0.dist < $1.dist }
+        logger.debug("Edge Hit Test: Top distances \(edgeDistances.prefix(5).map { "\($0.id): \($0.dist)" }.joined(separator: ", "))")
+        if let closest = closestEdge {
+            logger.debug("Hit: Edge \(closest.id) (dist \(minScreenDist) <= \(hitScreenRadius))")
+        }
+#endif
         
-        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        
-        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
+        return closestEdge
     }
     
-    @Test func testCoordinateRoundTripWithZoomAndOffset() {
-        let viewSize = CGSize(width: 205, height: 251)
-        let centroid = CGPoint(x: 56.73, y: 161.10)  // From your log
-        let modelPos = CGPoint(x: -40.27, y: 52.60)
-        let zoom: CGFloat = 1.0
-        let offset = CGSize(width: 81, height: 111.5)
+    private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
+        let minDist = viewModel.model.visibleNodes().map { distance($0.position, modelPos) }.min() ?? 0
+        print("Tap at \(modelPos); closest node dist: \(minDist)")
         
-        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        
-        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
+        let modelHitRadius = Constants.App.hitScreenRadius / zoomScale * 2.0
+        switch type {
+        case .node:
+            return viewModel.model.visibleNodes().first { distance($0.position, modelPos) < modelHitRadius }
+        case .edge:
+            return viewModel.model.visibleEdges().first { edge in
+                guard let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
+                      let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return false }
+                let dist = pointToLineDistance(point: modelPos, from: from.position, to: to.position)
+                return dist < modelHitRadius / 2  // Example usage if needed; adjust as per your logic
+            }
+        }
     }
-}
-
     
-struct GestureTests {
-    @Test func testDragCreatesEdge() async throws {
-        let storage = MockGraphStorage()
-        let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
+    private func focalPointForCentering() -> CGPoint {
+        let visibleNodes = viewModel.model.visibleNodes()
+        guard !visibleNodes.isEmpty else { return .zero }
+        var effectiveCentroid = centroid(of: visibleNodes) ?? .zero
         
-        // Setup: Clear default nodes/edges if needed, but since test assumes empty edges after adding, adjust expectations.
-        // Note: GraphModel init adds defaults if empty, so to match test intent, we'll clear them here for the test.
-        await MainActor.run { model.nodes = [] }
-        await MainActor.run { model.edges = [] }
-        await model.addNode(at: CGPoint(x: 0, y: 0))
-        await model.addNode(at: CGPoint(x: 50, y: 50))
-        #expect(await model.edges.isEmpty, "No edges initially")
+        // Check if selectedNodeID is non-nil
+        if let nodeID = selectedNodeID {
+            // Find the selected node
+            guard let selected = visibleNodes.first(where: { $0.id == nodeID }) else {
+                return effectiveCentroid
+            }
+            effectiveCentroid = selected.position
+        } else if let edgeID = selectedEdgeID {
+            // Find the edge and its connected nodes
+            guard let edge = viewModel.model.edges.first(where: { $0.id == edgeID }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }),
+                  let to = visibleNodes.first(where: { $0.id == edge.to }) else {
+                return effectiveCentroid
+            }
+            effectiveCentroid = (from.position + to.position) / 2
+        }
         
-        let viewModel = await GraphViewModel(model: model)
-        let draggedNode: (any NodeProtocol)? = await model.nodes[0]
-        let potentialEdgeTarget: (any NodeProtocol)? = await model.nodes[1]
+        #if DEBUG
+        logger.debug("Focal point calculated: \(String(describing: effectiveCentroid))")
+        #endif
         
-        // Mock gesture properties instead of creating Value
-        let mockTranslation = CGSize(width: 50, height: 50)
-        let dragOffset: CGPoint = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)  // Assume zoomScale=1
-        
-        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
-        if let node = draggedNode,
-           let index = await viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-            await viewModel.snapshot()
-            if dragDistance < AppConstants.tapThreshold {
-                // Tap logic (skipped)
-            } else {
-                // Drag logic
-                if let target = potentialEdgeTarget, target.id != node.id {
-                    // Break up complex predicate
-                    let fromID = node.id
-                    let toID = target.id
-                    let edgeExists = await MainActor.run {
-                        viewModel.model.edges.contains { edge in
-                            (edge.from == fromID && edge.to == toID) ||
-                            (edge.from == toID && edge.to == fromID)
+        return effectiveCentroid
+    }
+    
+    func body(content: Content) -> some View {
+        let dragGesture = DragGesture(minimumDistance: dragStartThreshold, coordinateSpace: .local)
+            .onChanged { value in
+                Task { @MainActor in
+                    gestureStartCentroid = focalPointForCentering()  // Lock at start if not already
+                    
+                    // Set panStartOffset early if no hit at current location (for immediate panning near nodes if not long-pressing)
+                    let currentHit = hitTestNodesInScreenSpace(at: value.location, visibleNodes: viewModel.model.visibleNodes(), zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid)
+                    if currentHit == nil && !isLongPressTriggered {
+                        if panStartOffset == nil {
+                            panStartOffset = offset
+                            #if DEBUG
+                            logger.debug("Pan started: Initial offset \(String(describing: offset))")
+                            #endif
                         }
                     }
-                    if !edgeExists {
-                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, to: toID)) }
-                        await viewModel.model.startSimulation()
-                    } else {
-                        // Move logic (skipped, but update to use vars)
-                        await MainActor.run { viewModel.model.nodes[index].position = CGPoint(x: viewModel.model.nodes[index].position.x + dragOffset.x, y: viewModel.model.nodes[index].position.y + dragOffset.y) }
-                        await viewModel.model.startSimulation()
+                    
+                    // Existing long press timer logic...
+                    if longPressTimer == nil && !isLongPressTriggered {
+                        longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+                            isLongPressTriggered = true
+                            WKInterfaceDevice.current().play(.click)
+                        }
                     }
+                    
+                    // Panning update (allow during gesture if no drag active)
+                    if let startOffset = panStartOffset, draggedNode == nil {
+                        offset = startOffset + CGSize(width: value.translation.width, height: value.translation.height)
+                        #if DEBUG
+                        logger.debug("Panning updated: New offset \(String(describing: offset)), Translation \(String(describing: value.translation))")
+                        #endif
+                    }
+                    
+                    if isLongPressTriggered {
+                        // Initiate node drag only on long press
+                        if let hitNode = hitTestNodesInScreenSpace(at: value.startLocation, visibleNodes: viewModel.model.visibleNodes(), zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
+                            draggedNode = hitNode
+                            dragStartNode = hitNode
+                            dragOffset = .zero
+                            if let currentID = selectedNodeID, currentID == hitNode.id {
+                                isMovingSelectedNode = true
+                            } else {
+                                selectedNodeID = hitNode.id  // Select if not already
+                            }
+                            Task { await viewModel.model.pauseSimulation() }
+                            Task { await viewModel.snapshot() }
+                            showMenu = true  // Show menu only on long press
+                        }
+                        
+                        if let node = draggedNode {
+                            dragOffset = CGPoint(x: value.translation.width / zoomScale, y: value.translation.height / zoomScale)
+                            let tempPos = node.position + dragOffset
+                            let visibleNodes = viewModel.model.visibleNodes()
+                            let nearby = viewModel.model.physicsEngine.queryNearby(position: tempPos, radius: Constants.Physics.minCollisionDist, nodes: visibleNodes)
+                            potentialEdgeTarget = nearby.first { $0.id != node.id }
+                        }
+                    }
+                    
+                    // Existing diagnostic logs...
+                    #if DEBUG
+                    let effectiveCentroid = focalPointForCentering()
+                    let translated = CGPoint(x: value.location.x - viewSize.width / 2 - offset.width, y: value.location.y - viewSize.height / 2 - offset.height)
+                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+                    let touchPos = effectiveCentroid + unscaled
+                    logger.debug("--- .onChanged Diagnostic ---")
+                    logger.debug("Effective Centroid: \(String(describing: effectiveCentroid))")
+                    logger.debug("Screen Pos: \(String(describing: value.location))")
+                    logger.debug("Translated: \(String(describing: translated))")
+                    logger.debug("Unscaled: \(String(describing: unscaled))")
+                    logger.debug("Model Pos (touchPos): \(String(describing: touchPos))")
+                    logger.debug("Visible Nodes Count: \(viewModel.model.visibleNodes().count)")
+                    logger.debug("-----------------------------")
+                    #endif
+                }
+            }
+            .onEnded { value in
+                Task { @MainActor in
+                    longPressTimer?.invalidate()
+                    longPressTimer = nil
+                    isLongPressTriggered = false
+                    
+                    let translationMagnitude = hypot(value.translation.width, value.translation.height)
+                    let isTap = translationMagnitude < dragStartThreshold
+                    
+                    let visibleNodes = viewModel.model.visibleNodes()
+                    let visibleEdges = viewModel.model.visibleEdges()
+                    
+                    let tapScreenPos = value.startLocation
+                    let translated = CGPoint(x: tapScreenPos.x - viewSize.width / 2 - offset.width, y: tapScreenPos.y - viewSize.height / 2 - offset.height)
+                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+                    let tapModelPos = gestureStartCentroid + unscaled
+                    
+                    if isTap {
+                        Task { await viewModel.snapshot() }
+                        if let hitNode = hitTestNodesInScreenSpace(at: tapScreenPos, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
+                            #if DEBUG
+                            logger.debug("Tap hit node: \(hitNode.id)")
+                            #endif
+                            let updatedNode = hitNode.handlingTap()
+                            // Fixed: Check for changes using Equatable properties to avoid existential != issues
+                            if updatedNode.id == hitNode.id && (updatedNode.position != hitNode.position || updatedNode.velocity != hitNode.velocity || updatedNode.isExpanded != hitNode.isExpanded || updatedNode.content != hitNode.content) {
+                                Task { await viewModel.model.updateNode(withID: updatedNode.id) }  // Fixed: Use withID to match function signature
+                            }
+                            if let currentNodeID = selectedNodeID {
+                                if currentNodeID == hitNode.id {
+                                    selectedNodeID = nil  // Deselect if already selected
+                                } else {
+                                    selectedNodeID = hitNode.id  // Select new
+                                    selectedEdgeID = nil
+                                }
+                            } else {
+                                selectedNodeID = hitNode.id  // Select if none
+                                selectedEdgeID = nil
+                            }
+                            WKInterfaceDevice.current().play(.success)  // UX: Confirm selection
+                            #if DEBUG
+                            logger.debug("Tap selection updated: selectedNodeID \(selectedNodeID?.uuidString ?? "nil")")
+                            #endif
+                        } else {
+                            // Edge hit test (now screen-space for consistency)
+                            if let hitEdge = hitTestEdgesInScreenSpace(at: tapScreenPos, visibleEdges: visibleEdges, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
+                                #if DEBUG
+                                logger.debug("Tap hit edge: \(hitEdge.id)")
+                                #endif
+                                if let currentEdgeID = selectedEdgeID {
+                                    if currentEdgeID == hitEdge.id {
+                                        selectedEdgeID = nil
+                                    } else {
+                                        selectedEdgeID = hitEdge.id
+                                        selectedNodeID = nil
+                                    }
+                                } else {
+                                    selectedEdgeID = hitEdge.id
+                                    selectedNodeID = nil
+                                }
+                                WKInterfaceDevice.current().play(.success)
+                                #if DEBUG
+                                logger.debug("Tap selection updated: selectedEdgeID \(selectedEdgeID?.uuidString ?? "nil")")
+                                #endif
+                            } else {
+                                // Miss: Deselect all with feedback
+                                selectedNodeID = nil
+                                selectedEdgeID = nil
+                                WKInterfaceDevice.current().play(.failure)  // UX: Indicate miss
+                                #if DEBUG
+                                logger.debug("Tap miss: Deselected all")
+                                #endif
+                            }
+                        }
+                        
+#if DEBUG
+                        logger.debug("SelectedNodeID after tap: \(selectedNodeID?.uuidString ?? "nil"), SelectedEdgeID after: \(selectedEdgeID?.uuidString ?? "nil")")
+#endif
+                        
+                        // Diagnostic logs (gated and summarized)
+#if DEBUG
+                        let effectiveCentroid = focalPointForCentering()
+                        let translated = CGPoint(x: value.startLocation.x - viewSize.width / 2 - offset.width, y: value.startLocation.y - viewSize.height / 2 - offset.height)
+                        let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
+                        logger.debug("--- Tap (.onEnded) Diagnostic ---")
+                        logger.debug("Effective Centroid: \(String(describing: effectiveCentroid))")
+                        logger.debug("Screen Pos: \(String(describing: value.startLocation))")
+                        logger.debug("Translated: \(String(describing: translated))")
+                        logger.debug("Unscaled: \(String(describing: unscaled))")
+                        logger.debug("Model Pos (tapModelPos): \(String(describing: tapModelPos))")
+                        logger.debug("Visible Nodes Count: \(visibleNodes.count)")  // Summarized
+                        logger.debug("--------------------------------")
+#endif
+                    } else {
+                        Task { await viewModel.snapshot() }
+                        if let startNode = dragStartNode, let target = potentialEdgeTarget, target.id != startNode.id {
+                            let newEdge = GraphEdge(from: startNode.id, to: target.id)
+                            if !viewModel.model.hasCycle(adding: newEdge) &&
+                                !viewModel.model.edges.contains(where: { $0.from == startNode.id && $0.to == target.id }) {
+                                Task {  // Already wrapped, but ensure all async in Task
+                                    await viewModel.model.addEdge(from: startNode.id, to: target.id)
+                                    await MainActor.run { WKInterfaceDevice.current().play(.success) }
+                                }
+                            }
+                        } else if isMovingSelectedNode, let node = dragStartNode,
+                                  let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                            var updatedNode = viewModel.model.nodes[index]
+                            // Fixed: Update position immutably to avoid subproperty mutation issues on existentials
+                            let newX = updatedNode.position.x + value.translation.width / zoomScale
+                            let newY = updatedNode.position.y + value.translation.height / zoomScale
+                            updatedNode.position = CGPoint(x: newX, y: newY)
+                            viewModel.model.nodes[index] = updatedNode
+                            Task { await viewModel.model.startSimulation() }
+                            WKInterfaceDevice.current().play(.click)
+                        }
+                        // Removed: Task { await viewModel.handleTap() } — Assuming it's redundant; restore if needed for custom logic
+                    }
+                    
+                    withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
+                        onUpdateZoomRanges()
+                    }
+                    
+                    dragStartNode = nil
+                    isMovingSelectedNode = false
+                    draggedNode = nil
+                    dragOffset = .zero
+                    potentialEdgeTarget = nil
+                    panStartOffset = nil
+                    onUpdateZoomRanges()
+                }
+            }
+        
+        content
+            .highPriorityGesture(dragGesture)  // New: Prioritize over system gestures on WatchOS
+    }
+    
+    private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
+        hypot(p1.x - p2.x, p1.y - p2.y)
+    }
+    
+    private func pointToLineDistance(point: CGPoint, from: CGPoint, to: CGPoint) -> CGFloat {
+        let lineVec = to - from
+        let pointVec = point - from
+        let lineLen = hypot(lineVec.x, lineVec.y)
+        if lineLen == 0 { return hypot(point.x - from.x, point.y - from.y) }
+        let dot = pointVec.x * lineVec.x + pointVec.y * lineVec.y
+        let denom = lineLen * lineLen
+        let tUnclamped = dot / denom
+        // Fixed: Explicit CGFloat literals to resolve type inference and conformance error
+        let t = max(CGFloat(0), min(CGFloat(1), tUnclamped))
+        let projection = from + (lineVec * t)
+        return hypot(point.x - projection.x, point.y - projection.y)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: MenuView.swift
+Path: GraphEditorWatch/Views/MenuView.swift
+Last modified: 2025-09-02 09:42:47
+
+Contents:
+//
+//  MenuView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/20/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+
+struct AddSection: View {
+    let viewModel: GraphViewModel
+    let selectedNodeID: NodeID?
+    let onDismiss: () -> Void
+    let onAddEdge: () -> Void  // New: Callback for starting add edge mode
+    
+    var body: some View {
+        Section(header: Text("Add")) {
+            Button("Add Node") {
+                Task { await viewModel.addNode(at: .zero) }
+                onDismiss()
+            }
+            Button("Add Toggle Node") {
+                Task { await viewModel.addToggleNode(at: .zero) }
+                onDismiss()
+            }
+            if let selectedID = selectedNodeID {
+                Button("Add Child") {
+                    Task { await viewModel.addChild(to: selectedID) }
+                    onDismiss()
+                }
+                Button("Add Edge") {  // New
+                    onAddEdge()
+                    onDismiss()
                 }
             }
         }
-        
-        await #expect(viewModel.model.edges.count == 1, "Edge created after simulated drag")
-        let newEdge = await viewModel.model.edges.first
-        #expect(newEdge != nil, "New edge exists")
-        if let newEdge = newEdge {
-            #expect(newEdge.from == draggedNode?.id, "Edge from correct node")
-            #expect(newEdge.to == potentialEdgeTarget?.id, "Edge to correct node")
+    }
+}
+
+struct EditSection: View {
+    let viewModel: GraphViewModel
+    let selectedNodeID: NodeID?
+    let selectedEdgeID: UUID?
+    let onDismiss: () -> Void
+    let onEditNode: () -> Void  // New: Callback for showing edit sheet
+    
+    var body: some View {
+        Section(header: Text("Edit")) {
+            if let selectedID = selectedNodeID {
+                Button("Edit Node") {  // New
+                    onEditNode()
+                    onDismiss()
+                }
+                Button("Delete Node", role: .destructive) {  // Line ~67?
+                    Task { await viewModel.deleteNode(withID: selectedID) }
+                    onDismiss()
+                }
+            }
+            if let selectedEdgeID = selectedEdgeID,
+               let selectedEdge = viewModel.model.edges.first(where: { $0.id == selectedEdgeID }) {
+                let fromID = selectedEdge.from
+                let toID = selectedEdge.to
+                let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
+                Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
+                    Task { await viewModel.snapshot() }
+                    if isBi {
+                        let pair = viewModel.model.edgesBetween(fromID, toID)
+                        viewModel.model.edges.removeAll { pair.contains($0) }
+                    } else {
+                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    }
+                    Task { await viewModel.model.startSimulation() }
+                    onDismiss()
+                }
+                Button("Reverse Edge") {  // New
+                    Task { await viewModel.snapshot() }
+                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    viewModel.model.edges.append(GraphEdge(from: toID, to: fromID))
+                    Task { await viewModel.model.startSimulation() }
+                    onDismiss()
+                }
+            }
+            if viewModel.canUndo {
+                Button("Undo") {
+                    Task { await viewModel.undo() }
+                    onDismiss()
+                }
+            }
+            if viewModel.canRedo {
+                Button("Redo") {
+                    Task { await viewModel.redo() }
+                    onDismiss()
+                }
+            }
         }
     }
 }
 
-struct AccessibilityTests {
-    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
-        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-    }
+struct ViewSection: View {
+    @Binding var showOverlays: Bool
+    let isSimulating: Binding<Bool>
+    let onCenterGraph: () -> Void
+    let onDismiss: () -> Void
+    let onSimulationChange: (Bool) -> Void
     
-    @Test func testGraphDescription() async throws {
-        let storage = MockGraphStorage()
-        // Preload with dummy to avoid defaults and set nextNodeLabel to 1
-        storage.nodes = [Node(label: 0, position: .zero)]
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
-                await MainActor.run { model.nodes = [] }
-                await MainActor.run { model.edges = [] }
-        
-                await MainActor.run { model.nextNodeLabel = 1 }
-        
-                await model.addNode(at: .zero)
-                await model.addNode(at: CGPoint(x: 10, y: 10))
-        
-                await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id)) }  // Or await model.addEdge(...) if added
-        
-                let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
-        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
-        
-                let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
-        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
+    var body: some View {
+        Section(header: Text("View")) {
+            Toggle("Show Overlays", isOn: $showOverlays)
+            Toggle("Run Simulation", isOn: isSimulating)
+                .onChange(of: isSimulating.wrappedValue) { oldValue, newValue in
+                    onSimulationChange(newValue)
+                }
+            
+            Button("Center Graph") {
+                onCenterGraph()
+                onDismiss()
+            }
+        }
     }
 }
+
+struct GraphSection: View {
+    let viewModel: GraphViewModel
+    let onDismiss: () -> Void
+    
+    var body: some View {
+        Section(header: Text("Graph")) {
+            Button("Reset Graph", role: .destructive) {
+                Task { await viewModel.resetGraph() }
+                onDismiss()
+            }
+            Button("Save Graph") {
+                Task { await viewModel.model.save() }
+                onDismiss()
+            }
+            Button("Load Graph") {
+                Task { await viewModel.loadGraph() }
+                onDismiss()
+            }
+        }
+    }
+}
+
+struct MenuView: View {
+    let viewModel: GraphViewModel
+    @Binding var showOverlays: Bool
+    @Binding var showMenu: Bool
+    let onCenterGraph: () -> Void
+    @State private var showEditSheet: Bool = false  // New: Local state for edit sheet
+    @State private var isAddingEdge: Bool = false  // New: Local state for add edge mode
+    @FocusState private var isMenuFocused: Bool  // New
+    
+    private var isSimulatingBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.model.isSimulating },
+            set: { viewModel.model.isSimulating = $0 }
+        )
+    }
+    
+    var body: some View {
+        List {
+            if let selected = viewModel.selectedNodeID {
+                Button("Edit Node") { showEditSheet = true }  // If sheet in MenuView, add @State showEditSheet: Bool = false and .sheet similar to ContentView
+                Button("Delete Node") {
+                    Task { await viewModel.deleteNode(withID: selected) }
+                    showMenu = false
+                }
+                Button("Add Edge from Node") { isAddingEdge = true; showMenu = false }
+            }
+            if let selectedEdge = viewModel.selectedEdgeID {
+                Button("Delete Edge") {
+                    Task { await viewModel.deleteEdge(withID: selectedEdge) }
+                    showMenu = false
+                }
+                Button("Reverse Edge") {
+                    if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdge }) {
+                        let edge = viewModel.model.edges[edgeIndex]
+                        viewModel.model.edges[edgeIndex] = GraphEdge(id: edge.id, from: edge.to, to: edge.from)
+                        Task { await viewModel.model.startSimulation() }
+                    }
+                    WKInterfaceDevice.current().play(.success)
+                    showMenu = false
+                }
+            }
+            
+            ViewSection(
+                showOverlays: $showOverlays,
+                isSimulating: isSimulatingBinding,
+                onCenterGraph: onCenterGraph, onDismiss: { showMenu = false },
+                onSimulationChange: { newValue in
+                    viewModel.model.isSimulating = newValue
+                    if newValue {
+                        Task { await viewModel.model.startSimulation() }
+                    } else {
+                        Task { await viewModel.model.stopSimulation() }
+                    }
+                }
+            )
+            
+            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
+        }
+        .navigationTitle("Menu")
+        .focused($isMenuFocused)  // New: Bind focus to list
+        .onAppear {
+            isMenuFocused = true  // Force focus on appear
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isMenuFocused = true  // Double-focus for reliability
+            }
+        }
+        .onChange(of: isMenuFocused) { oldValue, newValue in
+            print("Menu focus: (newValue)") // Debug
+            if !newValue {
+                isMenuFocused = true // Auto-recover
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
+            if let selectedID = viewModel.selectedNodeID {
+                EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
+                    Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
+                    showEditSheet = false
+                })
+            }
+        }
+        .onChange(of: isAddingEdge) { oldValue, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+            if newValue {
+                // Optionally notify viewModel or handle here
+            }
+        }
+    }
+}
+
+#Preview {
+    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
+    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
+}
 ----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-08-09 17:07:24
+File: NodeView.swift
+Path: GraphEditorWatch/Views/NodeView.swift
+Last modified: 2025-08-16 10:12:42
 
 Contents:
 //
-//  GraphEditorWatchUITests.swift
-//  GraphEditorWatchUITests
+//  NodeView.swift
+//  GraphEditor
 //
-//  Created by handcart on 8/4/25.
+//  Created by handcart on 8/13/25.
 //
 
-import XCTest
+import SwiftUI
+import GraphEditorShared
 
-final class GraphEditorWatchUITests: XCTestCase {
 
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
-        continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
+struct NodeView: View {
+    let node: any NodeProtocol
+    let isSelected: Bool
+    let zoomScale: CGFloat
     
-    func testLaunch() throws {
-            let app = XCUIApplication()
-            app.launch()
+    var body: some View {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .stroke(Color.yellow, lineWidth: 4 * zoomScale)
+                    .frame(width: node.radius * 2 * zoomScale + 4 * zoomScale, height: node.radius * 2 * zoomScale + 4 * zoomScale)
+            }
+            Circle()
+                .fill(node.fillColor)  // Or dynamic based on node type
+                .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
             
-            // Basic assertion: Check if the app launches without crashing
-            XCTAssertTrue(app.exists, "App should launch successfully")
+            // Add icon/label as in ToggleNode.draw
+            if let toggleNode = node as? ToggleNode {
+                Text(toggleNode.isExpanded ? "-" : "+")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
+            }
+            
+            Text("\(node.label)")
+                .foregroundColor(.white)
+                .font(.system(size: max(8.0, 12.0 * zoomScale)))
+                .offset(y: -(node.radius + 10) * zoomScale)  // Position above
         }
-    
-    func testDragToCreateEdge() throws {
-        let app = XCUIApplication()
-        app.launch()
-
-        let canvas = app.otherElements["GraphCanvas"]  // Assumes accessibilityIdentifier set on GraphCanvasView
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear")
-
-        // Assume default nodes: Adjust start/end based on positions (e.g., node0 at (100,100), node1 at (200,200))
-        let startPoint = CGVector(dx: 0.3, dy: 0.3)  // Near node0
-        let endPoint = CGVector(dx: 0.6, dy: 0.6)    // Near node1
-
-        let dragStart = canvas.coordinate(withNormalizedOffset: startPoint)
-        let dragEnd = canvas.coordinate(withNormalizedOffset: endPoint)
-        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
-
-        // Assert: Updated label reflects directed edge (e.g., "Graph with 3 nodes and 4 directed edges." and mentions direction)
-        let updatedLabel = app.staticTexts["Graph with 3 nodes and 4 directed edges. No node selected."]  // Adjust based on post-drag (add "directed")
-        XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Directed edge created, updating graph description")
-
-        // Optional: Select the from-node and check description mentions "outgoing to" the to-node
-        // Simulate tap on startPoint to select, then check label includes "outgoing to: <label>"
-    }
-    
-    func testUndoAfterAddNode() throws {
-            let app = XCUIApplication()
-            app.launch()
-            
-            let canvas = app.otherElements["GraphCanvas"]  // Assume identifier set
-            XCTAssertTrue(canvas.waitForExistence(timeout: 5))
-            
-            // Simulate add node: Assume menu button "Add Node" exists
-            app.buttons["Show Menu"].tap()  // Or long press if using gestures
-            app.buttons["Add Node"].tap()
-            
-            // Assert: Graph description updates (e.g., nodes increase)
-            let updatedLabel = app.staticTexts["Graph with 4 nodes"]  // Adjust based on defaults +1
-            XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Node added")
-            
-            // Undo via button
-            app.buttons["Undo"].tap()  // Assume undo button in menu or UI
-            let revertedLabel = app.staticTexts["Graph with 3 nodes"]  // Back to defaults
-            XCTAssertTrue(revertedLabel.waitForExistence(timeout: 2), "Undo reverts add")
-        }
-        
-        func testMenuDisplayAndAction() throws {
-            let app = XCUIApplication()
-            app.launch()
-            
-            let canvas = app.otherElements["GraphCanvas"]
-            XCTAssertTrue(canvas.waitForExistence(timeout: 5))
-            
-            // Long press to show menu (if using sheet)
-            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 1.0)
-            
-            // Assert menu appears with buttons
-            let addButton = app.buttons["Add Node"]
-            XCTAssertTrue(addButton.waitForExistence(timeout: 2), "Menu shows with actions")
-            
-            addButton.tap()
-            // Assert action effect (e.g., via label)
-            let updatedLabel = app.staticTexts["Graph with 4 nodes"]
-            XCTAssertTrue(updatedLabel.waitForExistence(timeout: 2), "Menu action adds node")
-        }
-    
-    // New: Test for digital crown zooming (using proxy button; manual test crown in simulator)
-    func testDigitalCrownZooming() throws {
-        let app = XCUIApplication()
-        app.launch()
-        
-        let canvas = app.otherElements["GraphCanvas"]  // Assume identifier set
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
-        
-        // Simulate crown via menu button (add "Zoom In" to menu if not present)
-        app.buttons["Show Menu"].tap()
-        app.buttons["Zoom In"].tap()  // Proxy for crown rotation; adjust if button named differently
-        
-        // Assert: Check if description or visible elements change (e.g., more details visible)
-        let zoomedLabel = app.staticTexts["Graph with 3 nodes"]  // Adjust to match post-zoom (e.g., if zoom reveals more)
-        XCTAssertTrue(zoomedLabel.waitForExistence(timeout: 2), "Zoom updates view")
-    }
-    
-    
-    @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launch()
-
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-    }
-
-    @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITestsLaunchTests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
-Last modified: 2025-08-04 15:45:24
-
-Contents:
-//
-//  GraphEditorWatchUITestsLaunchTests.swift
-//  GraphEditorWatchUITests
-//
-//  Created by handcart on 8/4/25.
-//
-
-import XCTest
-
-final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
-
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-    }
-
-    @MainActor
-    func testLaunch() throws {
-        let app = XCUIApplication()
-        app.launch()
-
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 }
 --------------------------------------------------

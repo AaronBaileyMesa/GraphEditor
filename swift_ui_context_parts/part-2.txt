@@ -1,18 +1,17 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-02 18:20:54
+Current date: 2025-09-04 09:54:19
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
 3. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
 4. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 5. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-7. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
+6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift--------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-08-26 10:10:51
+Last modified: 2025-09-03 18:18:01
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -69,6 +68,8 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     
     /// Creates a copy with updated position and velocity.
     func with(position: CGPoint, velocity: CGPoint) -> Self
+    
+    func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self
     
     /// Renders the node as a SwiftUI view, customizable by zoom and selection.
     /// - Parameters:
@@ -130,7 +131,14 @@ public extension NodeProtocol {
         get { nil }
         set { }  // No-op default
     }
+    
+    func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> Self {  // Default to nil
+            // Default: Ignore content if not overridden; just update position/velocity
+            self.with(position: position, velocity: velocity)  // Call existing with (assumes it exists)
+        }
 }
+
+
 
 /// Extension providing default rendering implementations using GraphicsContext.
 /// Override for custom node appearances (e.g., different shapes/colors).
@@ -202,7 +210,8 @@ public extension NodeProtocol {
 }
 
 public struct AnyNode: NodeProtocol, Equatable {
-    private var base: any NodeProtocol
+    private var base: any NodeProtocol  // var for mutability (e.g., position, content setters)
+    
     public var content: NodeContent? {
         get { base.content }
         set { base.content = newValue }
@@ -239,8 +248,19 @@ public struct AnyNode: NodeProtocol, Equatable {
         var newBase = base
         newBase.position = position
         newBase.velocity = velocity
-        newBase.content = base.content
+        newBase.content = base.content  // Preserve existing content
         return AnyNode(newBase)
+    }
+    
+    // Fixed: Use 'base' instead of 'box'; delegate and handle content mutation for usability
+    public func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> AnyNode {
+        var newBase = base
+        newBase.position = position
+        newBase.velocity = velocity
+        if let content = content {
+            newBase.content = content  // Mutate content if provided (makes updates easy)
+        }
+        return AnyNode(newBase)  // Re-wrap for polymorphism
     }
     
     public func handlingTap() -> Self {
@@ -418,7 +438,7 @@ public class PersistenceManager: GraphStorage {
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-08-22 14:30:27
+Last modified: 2025-09-04 08:55:35
 
 Contents:
 //
@@ -442,6 +462,7 @@ public class PhysicsEngine {
     private let maxNodesForQuadtree = 200
     private let symmetricFactor: CGFloat = 0.5
     internal let repulsionCalculator: RepulsionCalculator
+    private var dampingBoostSteps: Int = 0
     internal let attractionCalculator: AttractionCalculator
     internal let centeringCalculator: CenteringCalculator
     internal let positionUpdater: PositionUpdater
@@ -454,6 +475,10 @@ public class PhysicsEngine {
         self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)  // Added missing arg
     }
     
+    public func temporaryDampingBoost(steps: Int = 20) {
+        dampingBoostSteps = steps
+    }
+     
     private var simulationSteps = 0
     
     public func resetSimulation() {
@@ -465,26 +490,35 @@ public class PhysicsEngine {
     public var isPaused: Bool = false
     
     @discardableResult
-        public func simulationStep(nodes: [any NodeProtocol], edges: [GraphEdge]) -> ([any NodeProtocol], Bool) {
-            if isPaused || stepCount > Constants.Physics.maxSimulationSteps { return (nodes, false) }
-            stepCount += 1
-            
-            let (forces, quadtree) = repulsionCalculator.computeRepulsions(nodes: nodes)
-            var updatedForces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
-            updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
-            
-            let (updatedNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
-            
-            // New: Reset velocities if stable
-            let resetNodes = isActive ? updatedNodes : updatedNodes.map { $0.with(position: $0.position, velocity: .zero) }
-            
-            if stepCount % 10 == 0 {  // Reduced logging frequency
-                let totalVel = resetNodes.reduce(0.0) { $0 + $1.velocity.magnitude }
-                os_log("Step %d: Total velocity = %.2f", log: physicsLogger, type: .debug, stepCount, totalVel)
+    public func simulationStep(nodes: [any NodeProtocol], edges: [GraphEdge]) -> ([any NodeProtocol], Bool) {
+        if isPaused || stepCount > Constants.Physics.maxSimulationSteps { return (nodes, false) }
+        stepCount += 1
+        
+        let (forces, quadtree) = repulsionCalculator.computeRepulsions(nodes: nodes)
+        var updatedForces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
+        updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
+        
+        let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)  // Changed var to let
+        // New: Reset velocities if stable
+        let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: .zero) }
+         // NEW: Apply boosted damping if active
+        var updatedNodes = resetNodes
+        if dampingBoostSteps > 0 {
+            let extraDamping = Constants.Physics.damping * 1.2  // 20% boost; adjust as needed
+            updatedNodes = updatedNodes.map { node in
+                var boostedNode = node
+                boostedNode.velocity *= extraDamping
+                return boostedNode
             }
-            
-            return (resetNodes, isActive)
+            dampingBoostSteps -= 1
         }
+        if stepCount % 10 == 0 {  // Reduced logging frequency
+            let totalVel = resetNodes.reduce(0.0) { $0 + $1.velocity.magnitude }
+            os_log("Step %d: Total velocity = %.2f", log: physicsLogger, type: .debug, stepCount, totalVel)
+        }
+        
+        return (resetNodes, isActive)
+    }
     
     public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
         guard !nodes.isEmpty else { return .zero }
@@ -515,6 +549,12 @@ public class PhysicsEngine {
             let newPosition = CGPoint(x: node.position.x + dx, y: node.position.y + dy)
             return node.with(position: newPosition, velocity: node.velocity)
         }
+    }
+    
+    public func queryNearby(position: CGPoint, radius: CGFloat, nodes: [any NodeProtocol]) -> [any NodeProtocol] {
+        guard !nodes.isEmpty else { return [] }
+        let quadtree = repulsionCalculator.buildQuadtree(nodes: nodes)
+        return quadtree.queryNearby(position: position, radius: radius)
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -898,115 +938,6 @@ public class Quadtree {  // Made public for consistency/test access
         let dist = sqrt(distSquared)
         let forceMagnitude = Constants.Physics.repulsion * mass / distSquared
         return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: RepulsionCalculator.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-Last modified: 2025-08-25 11:30:35
-
-Contents:
-//
-//  RepulsionCalculator.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/12/25.
-//
-
-import Foundation
-import CoreGraphics
-
-struct RepulsionCalculator {
-    private let maxNodesForQuadtree: Int
-    private let simulationBounds: CGSize
-
-    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
-        self.maxNodesForQuadtree = maxNodesForQuadtree
-        self.simulationBounds = simulationBounds
-    }
-
-    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
-        var forces: [NodeID: CGPoint] = [:]
-        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
-        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
-
-        for node in nodes {
-            var repulsion: CGPoint = .zero
-            if let quadtree = quadtree {
-                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
-                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
-            } else {
-                for otherNode in nodes where otherNode.id != node.id {
-                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
-                }
-            }
-            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
-        }
-        return (forces, quadtree)  // New: Return tuple
-    }
-
-    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
-        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
-        let quadtree = Quadtree(bounds: boundingBox)
-        for node in nodes {
-            quadtree.insert(node)
-        }
-        return quadtree
-    }
-
-    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
-        let dx = queryPosition.x - repellerPosition.x
-        let dy = queryPosition.y - repellerPosition.y
-        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
-        let distance = sqrt(distanceSquared)
-        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
-        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
-    }
-    
-    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
-        var force = CGPoint.zero
-        func calculateRepulsion(qt: Quadtree) {
-            if qt.children == nil {
-                for other in qt.nodes where other.id != node.id {
-                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
-                }
-                return
-            }
-
-            let dx = qt.centerOfMass.x - node.position.x
-            let dy = qt.centerOfMass.y - node.position.y
-            let distance = hypot(dx, dy)
-            let width = qt.bounds.width
-
-            if width / distance < theta && distance > 0 {  // Use theta
-                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
-                force += approxForce
-            } else {
-                if let children = qt.children {
-                    calculateRepulsion(qt: children[0])
-                    calculateRepulsion(qt: children[1])
-                    calculateRepulsion(qt: children[2])
-                    calculateRepulsion(qt: children[3])
-                }
-            }
-        }
-
-        calculateRepulsion(qt: quadtree)
-        return force
-    }
-
-    // Added missing boundingBox func
-    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard !nodes.isEmpty else { return .zero }
-        var minX = nodes[0].position.x, minY = nodes[0].position.y
-        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
-        for node in nodes {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
-        }
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 --------------------------------------------------

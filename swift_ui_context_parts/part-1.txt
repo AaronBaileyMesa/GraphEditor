@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-02 18:20:53
+Current date: 2025-09-04 09:54:19
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -104,7 +104,7 @@ struct CenteringCalculator {
 ----------------------------------------------------------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-09-02 15:25:18
+Last modified: 2025-09-03 10:27:32
 
 Contents:
 //
@@ -123,12 +123,12 @@ public enum Constants {
     public enum Physics {
         public static let stiffness: CGFloat = 0.4  // Reduced from 0.8 for softer springs
         public static let repulsion: CGFloat = 1200  // Reduced from 2200 for less aggressive push
-        public static let damping: CGFloat = 0.85  // Reduced from 0.99 for faster settling
+        public static let damping: CGFloat = 0.9  // Reduced from 0.99 for faster settling
         public static let idealLength: CGFloat = 80  // Slightly increased for more space
         public static let centeringForce: CGFloat = 0.03  // Reduced from 0.06 to avoid over-pull
         public static let distanceEpsilon: CGFloat = 1e-3
         public static let timeStep: CGFloat = 0.02  // Slightly reduced for finer steps
-        public static let velocityThreshold: CGFloat = 0.5  // Increased from 0.2 for earlier stop
+        public static let velocityThreshold: CGFloat = 0.3  // Increased from 0.2 for earlier stop
         public static let maxSimulationSteps = 500  // Further reduced from 1000 for quick convergence
         public static let minQuadSize: CGFloat = 1e-6
         public static let maxQuadtreeDepth = 20
@@ -138,7 +138,7 @@ public enum Constants {
     
     public enum App {
         public static let nodeModelRadius: CGFloat = 10.0
-        public static let hitScreenRadius: CGFloat = 40.0  // Larger for watchOS tap targets
+        public static let hitScreenRadius: CGFloat = 50.0  // Larger for watchOS tap targets
         public static let tapThreshold: CGFloat = 8.0  // Tightened from 10.0 for small screens
         public static let numZoomLevels: Int = 20  // For crown mapping
         public static let contentPadding: CGFloat = 50.0  // Padding for graph bounds
@@ -150,7 +150,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-09-02 08:12:39
+Last modified: 2025-09-03 16:58:34
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -413,23 +413,45 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         physicsEngine.resetSimulation()
         await startSimulation()
     }
-    
+            
     public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
-        await snapshot()
-        if let index = nodes.firstIndex(where: { $0.id == id }) {
-            nodes[index].content = newContent
-            objectWillChange.send()
-            await save()
-        }
+        guard let index = nodes.firstIndex(where: { $0.id == id }) else { return }
+        var updatedNode = nodes[index]
+        updatedNode.content = newContent  // Assumes AnyNode supports mutable content
+        nodes[index] = updatedNode
+        await snapshot()  // Save undo state
+        physicsEngine.temporaryDampingBoost()  // Optional: Boost for quick settling (from prior fixes)
+        await startSimulation()  // Restart sim to reflect changes visually
     }
     
-    public func updateNode(_ updatedNode: any NodeProtocol) {
-        if let index = nodes.firstIndex(where: { $0.id == updatedNode.id }) {
-            let existingContent = nodes[index].content
-            nodes[index] = AnyNode(updatedNode)
-            nodes[index].content = existingContent
-            objectWillChange.send()
+    @MainActor
+    public func updateNode(withID id: NodeID, newPosition: CGPoint? = nil, newContent: NodeContent? = nil) async {
+        guard let index = nodes.firstIndex(where: { $0.id == id }) else {
+            print("Warning: No node found for update with ID \(id.uuidString)")  // Debug for usability
+            return
         }
+        let original = nodes[index]  // AnyNode
+        var updatedUnwrapped = original.unwrapped  // Unwrap to any NodeProtocol for updates
+        
+        if let newPosition = newPosition {
+            updatedUnwrapped = updatedUnwrapped.with(position: newPosition, velocity: .zero)  // Reset velocity to avoid drifts
+        } else if let newContent = newContent {
+            // Option 1: Direct mutation (if your existentials support it)
+            // updatedUnwrapped.content = newContent
+            
+            // Option 2: Immutable pattern (add to NodeProtocol if missing)
+            updatedUnwrapped = updatedUnwrapped.with(position: updatedUnwrapped.position, velocity: updatedUnwrapped.velocity, content: newContent)
+        } else {
+            // Handle tap/toggle (e.g., for ToggleNode)
+            updatedUnwrapped = updatedUnwrapped.handlingTap()  // Toggles isExpanded if applicable; returns any NodeProtocol
+        }
+        
+        nodes[index] = AnyNode(updatedUnwrapped)  // Re-wrap as AnyNode for assignment (fixes type error)
+        await snapshot()  // Save undo state
+        
+        physicsEngine.temporaryDampingBoost()  // NEW: Boost damping for quick settling post-change
+        
+        await startSimulation()  // Restart sim with boosted damping active
     }
     
     public func deleteNode(withID id: NodeID) async {
@@ -659,7 +681,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-01 20:34:25
+Last modified: 2025-09-03 10:27:02
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -744,6 +766,7 @@ class GraphSimulator {
                         let (updated, active) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: tempNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
                         tempNodes = updated
                         stepActive = stepActive || active
+                        
                     }
                     
                     let totalVel = tempNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
