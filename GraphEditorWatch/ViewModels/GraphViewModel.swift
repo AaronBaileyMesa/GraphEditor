@@ -68,18 +68,20 @@ import WatchKit  // For WKApplication
     }
     
     func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
-        let graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes)  // Fixed: Access via model.physicsEngine
-        guard graphBounds.width > 0 && graphBounds.height > 0 else {
-            return (AppConstants.defaultMinZoom, AppConstants.defaultMaxZoom)
+        var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes)
+        if graphBounds.width < 100 || graphBounds.height < 100 {  // Handle small/stacked graphs
+            graphBounds = graphBounds.insetBy(dx: -50, dy: -50)  // Inflate by 100 total
         }
-        
-        let fitScaleWidth = viewSize.width / graphBounds.width * AppConstants.zoomPaddingFactor
-        let fitScaleHeight = viewSize.height / graphBounds.height * AppConstants.zoomPaddingFactor
-        let minZoom = min(fitScaleWidth, fitScaleHeight)
-        let maxZoom = max(minZoom * 5, AppConstants.defaultMaxZoom)
-        
-        print("Updated zoom ranges: min=\(minZoom), max=\(maxZoom)")
-        return (minZoom, maxZoom)
+        let contentPadding: CGFloat = Constants.App.contentPadding  // e.g., 50 from your constants
+        let paddedWidth = graphBounds.width + 2 * contentPadding
+        let paddedHeight = graphBounds.height + 2 * contentPadding
+        let fitWidth = viewSize.width / paddedWidth
+        let fitHeight = viewSize.height / paddedHeight
+        let calculatedMin = min(fitWidth, fitHeight)
+        let minZoom = max(calculatedMin, 0.5)  // Floor to prevent over-zoom
+        let maxZoom = minZoom * Constants.App.maxZoom  // e.g., 2.5x min
+        print("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds \(graphBounds)")  // For debugging
+        return (min: minZoom, max: maxZoom)
     }
     
     func saveViewState() {  // Made non-@MainActor since callsites treat as sync; internal hops handle isolation

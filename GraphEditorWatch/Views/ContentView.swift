@@ -239,13 +239,16 @@ struct ContentView: View {
 
     // Existing add node button (unchanged, but renamed for clarity)
     private func addNodeButton(in geo: GeometryProxy) -> some View {
-        Button(action: { Task { await viewModel.addToggleNode(at: .zero) } }) {  // Changed to addToggleNode for variety; revert if needed
+        Button(action: {
+            let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))  // Random spread
+            Task { await viewModel.addNode(at: randomPos) }  // Changed to addNode for regular nodes; use addToggleNode if desired
+        }) {
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 30))
                 .foregroundColor(.green)
         }
         .buttonStyle(.plain)
-        .position(x: wristSide == .left ? 20 : geo.size.width - 20, y: geo.size.height - 20)  // Bottom-left/right based on wrist
+        .position(x: wristSide == .left ? 20 : geo.size.width - 20, y: geo.size.height - 20)
     }
 
     // New: Menu button positioned next to add node button
@@ -291,8 +294,10 @@ struct InnerView: View {
             showOverlays: config.showOverlays,
             isAddingEdge: config.isAddingEdge  // Add this param (update init below too)
         )
-        .accessibilityIdentifier("GraphCanvas")
-        .focused(config.canvasFocus.projectedValue)
+            .accessibilityIdentifier("GraphCanvas")
+            .focused(config.canvasFocus.projectedValue)
+                .focusable()  // Add this to ensure view property for crown
+        //        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)  // Ensure sensitivity isn't too high to reduce jitter
         
         if config.showMenu.wrappedValue {
             MenuView(
