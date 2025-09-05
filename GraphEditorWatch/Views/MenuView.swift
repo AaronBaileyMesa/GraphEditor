@@ -160,35 +160,29 @@ struct MenuView: View {
     }
     
     var body: some View {
+        // In MenuView.swift, replace the entire List contents with this (remove the old if let selected... blocks)
         List {
-            if let selected = viewModel.selectedNodeID {
-                Button("Edit Node") { showEditSheet = true }  // If sheet in MenuView, add @State showEditSheet: Bool = false and .sheet similar to ContentView
-                Button("Delete Node") {
-                    Task { await viewModel.deleteNode(withID: selected) }
-                    showMenu = false
-                }
-                Button("Add Edge from Node") { isAddingEdge = true; showMenu = false }
-            }
-            if let selectedEdge = viewModel.selectedEdgeID {
-                Button("Delete Edge") {
-                    Task { await viewModel.deleteEdge(withID: selectedEdge) }
-                    showMenu = false
-                }
-                Button("Reverse Edge") {
-                    if let edgeIndex = viewModel.model.edges.firstIndex(where: { $0.id == selectedEdge }) {
-                        let edge = viewModel.model.edges[edgeIndex]
-                        viewModel.model.edges[edgeIndex] = GraphEdge(id: edge.id, from: edge.to, to: edge.from)
-                        Task { await viewModel.model.startSimulation() }
-                    }
-                    WKInterfaceDevice.current().play(.success)
-                    showMenu = false
-                }
-            }
+            AddSection(
+                viewModel: viewModel,
+                selectedNodeID: viewModel.selectedNodeID,
+                onDismiss: { showMenu = false },
+                onAddEdge: { isAddingEdge = true }  // Wires up "Add Edge" button
+            )
             
+            EditSection(
+                viewModel: viewModel,
+                selectedNodeID: viewModel.selectedNodeID,
+                selectedEdgeID: viewModel.selectedEdgeID,
+                onDismiss: { showMenu = false },
+                onEditNode: { showEditSheet = true }  // Wires up "Edit Node" to show sheet
+            )
+            
+            // Keep your existing ViewSection and GraphSection here
             ViewSection(
                 showOverlays: $showOverlays,
                 isSimulating: isSimulatingBinding,
-                onCenterGraph: onCenterGraph, onDismiss: { showMenu = false },
+                onCenterGraph: onCenterGraph,
+                onDismiss: { showMenu = false },
                 onSimulationChange: { newValue in
                     viewModel.model.isSimulating = newValue
                     if newValue {
@@ -200,8 +194,7 @@ struct MenuView: View {
             )
             
             GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
-        }
-        .navigationTitle("Menu")
+        }        .navigationTitle("Menu")
         .focused($isMenuFocused)  // New: Bind focus to list
         .onAppear {
             isMenuFocused = true  // Force focus on appear

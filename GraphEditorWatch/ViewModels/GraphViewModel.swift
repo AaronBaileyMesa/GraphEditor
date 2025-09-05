@@ -169,6 +169,7 @@ import WatchKit  // For WKApplication
     
     func addNode(at position: CGPoint) async {
         await model.addNode(at: position)
+        await model.resizeSimulationBounds(for: model.nodes.count)  // New: Resize after adding
     }
 
     func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
