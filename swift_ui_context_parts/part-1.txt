@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-05 09:29:09
+Current date: 2025-09-06 13:07:52
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -11,7 +11,7 @@ Table of Contents:
 6. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift--------------------------------------------------
 File: AttractionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
-Last modified: 2025-08-22 08:18:46
+Last modified: 2025-09-05 10:30:23
 
 Contents:
 //
@@ -25,11 +25,9 @@ import Foundation
 import CoreGraphics
 
 struct AttractionCalculator {
-    let useAsymmetricAttraction: Bool
     let symmetricFactor: CGFloat
 
-    init(useAsymmetricAttraction: Bool, symmetricFactor: CGFloat) {
-        self.useAsymmetricAttraction = useAsymmetricAttraction
+    init(symmetricFactor: CGFloat) {
         self.symmetricFactor = symmetricFactor
     }
 
@@ -54,9 +52,15 @@ struct AttractionCalculator {
             updatedForces[fromNode.id] = CGPoint(x: currentForceFrom.x + symForceX, y: currentForceFrom.y + symForceY)
             
             let currentForceTo = updatedForces[toNode.id] ?? .zero
-            if useAsymmetricAttraction {
-                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * (1 + self.symmetricFactor), y: currentForceTo.y - forceY * (1 + self.symmetricFactor))
+            let isAsymmetric = edge.type == .hierarchy  // Asymmetric for .hierarchy
+            if isAsymmetric {
+                // Stronger pull for 'to' (child) toward 'from' (parent); add vertical bias
+                let asymmetricFactor: CGFloat = 1.5  // Tune: Stronger for hierarchy
+                var asymmetricForceY = forceY * asymmetricFactor
+                asymmetricForceY += Constants.Physics.verticalBias  // Pull downward (assume positive Y down; adjust if not)
+                updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX * asymmetricFactor, y: currentForceTo.y - asymmetricForceY)
             } else {
+                // Symmetric for .association
                 updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX + symForceX, y: currentForceTo.y - forceY + symForceY)
             }
         }
@@ -104,7 +108,7 @@ struct CenteringCalculator {
 ----------------------------------------------------------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-09-04 11:33:25
+Last modified: 2025-09-05 10:34:19
 
 Contents:
 //
@@ -134,6 +138,7 @@ public enum Constants {
         public static let maxQuadtreeDepth = 20
         public static let maxNodesForQuadtree = 200
         public static let minCollisionDist: CGFloat = 35.0  // New: For anti-collision separation
+        public static let verticalBias: CGFloat = 10.0  // New: Downward bias for hierarchy edges (tune as needed)
     }
     
     public enum App {
@@ -150,7 +155,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-09-04 15:06:09
+Last modified: 2025-09-05 13:02:35
 
 Contents:
 // Sources/GraphEditorShared/GraphModel.swift
@@ -187,19 +192,20 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         var hidden = Set<NodeID>()
         var toHide: [NodeID] = []
 
-        // Seed with direct children of collapsed toggle nodes
+        // Seed with direct children of collapsed toggle nodes, but only via .hierarchy edges
         for node in nodes {
             if node.unwrapped.shouldHideChildren() {
-                let children = edges.filter { $0.from == node.id }.map { $0.to }
+                let children = edges.filter { $0.from == node.id && $0.type == .hierarchy }.map { $0.to }
                 toHide.append(contentsOf: children)
             }
         }
 
-        // Iteratively hide all descendants (DFS)
+        // Iteratively hide all descendants (DFS), only along .hierarchy edges
+        let adj = buildAdjacencyList(for: .hierarchy)  // Filter by type
         while !toHide.isEmpty {
             let current = toHide.removeLast()
             if hidden.insert(current).inserted {
-                let children = edges.filter { $0.from == current }.map { $0.to }
+                let children = adj[current] ?? []
                 toHide.append(contentsOf: children)
             }
         }
@@ -241,23 +247,28 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         !redoStack.isEmpty
     }
     
-    // Single initializer with optional nextNodeLabel for testing.
-    public init(storage: GraphStorage = PersistenceManager(), physicsEngine: PhysicsEngine, nextNodeLabel: Int? = nil) {
+    // UPDATED: Init no longer loads (to avoid async in init); call load() after creation
+    public init(storage: GraphStorage, physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
-        self.nodes = []  // Start empty; load async later
-        self.edges = []
-        self.nextNodeLabel = nextNodeLabel ?? 1
-        Task { try? await loadFromStorage() }  // Fire async load; ignore errors for init
+        // No loading here—do it async via load() to fix concurrency errors
     }
-
-    public func loadFromStorage() async throws {
-        let loaded = try await storage.load()
-        nodes = loaded.nodes.map { AnyNode($0) }
-        edges = loaded.edges
-        objectWillChange.send()
-        await resizeSimulationBounds(for: nodes.count)  // New: Make async call
+    
+    // UPDATED: Made loadFromStorage private async (fixes lines 95/105)
+    private func loadFromStorage() async throws {
+        let (loadedNodes, loadedEdges) = try await storage.load()  // Add await (fixes line 114)
+        self.nodes = loadedNodes.map { AnyNode($0) }
+        self.edges = loadedEdges
+        self.nextNodeLabel = (nodes.map { $0.unwrapped.label }.max() ?? 0) + 1
     }
+    
+    // NEW/UPDATED: Public async load() to trigger loading (call from GraphViewModel)
+    public func load() async throws {
+        try await loadFromStorage()
+        // Optional: Restart simulation after load
+        await startSimulation()
+    }
+    
 
     // Added: Missing visibleNodes and visibleEdges from errors
     public func visibleNodes() -> [any NodeProtocol] {
@@ -293,7 +304,48 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
                 self.objectWillChange.send()
             }
         )
-        await startSimulation()  // Await the async call
+    }
+
+    // New: Cycle check method (filters by .hierarchy)
+    public func wouldCreateCycle(withNewEdgeFrom from: NodeID, to: NodeID, type: EdgeType) -> Bool {
+        guard type == .hierarchy else { return false }  // No check for .association
+        var tempEdges = edges.filter { $0.type == .hierarchy }  // Filter existing .hierarchy
+        tempEdges.append(GraphEdge(from: from, to: to, type: type))
+        return !isAcyclic(edges: tempEdges)
+    }
+
+    private func isAcyclic(edges: [GraphEdge]) -> Bool {
+        // Build adjacency list from filtered edges
+        var adj: [NodeID: [NodeID]] = [:]
+        var inDegree: [NodeID: Int] = [:]
+        nodes.forEach { inDegree[$0.id] = 0 }
+        for edge in edges {
+            adj[edge.from, default: []].append(edge.to)
+            inDegree[edge.to, default: 0] += 1
+        }
+        // Kahn's algorithm
+        var queue = nodes.filter { inDegree[$0.id] == 0 }.map { $0.id }
+        var count = 0
+        while !queue.isEmpty {
+            let node = queue.removeFirst()
+            count += 1
+            for neighbor in adj[node] ?? [] {
+                inDegree[neighbor]! -= 1
+                if inDegree[neighbor]! == 0 { queue.append(neighbor) }
+            }
+        }
+        return count == nodes.count  // Acyclic if all nodes processed
+    }
+
+    // New/Updated: Add edge with type and cycle check
+    public func addEdge(from: NodeID, to: NodeID, type: EdgeType) async {
+        if wouldCreateCycle(withNewEdgeFrom: from, to: to, type: type) {
+            print("Cannot add edge: Would create cycle in hierarchy")
+            return  // Reject if cycle in .hierarchy
+        }
+        edges.append(GraphEdge(from: from, to: to, type: type))
+        objectWillChange.send()
+        await startSimulation()
     }
     
     public func boundingBox() -> CGRect {
@@ -354,12 +406,12 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     }
     
     public func clearGraph() async {
-        nodes = []
-        edges = []
-        nextNodeLabel = 1
-        objectWillChange.send()
-        await startSimulation()
-    }
+            nodes = []
+            edges = []
+            nextNodeLabel = 1
+            try? await storage.clear()
+            objectWillChange.send()
+        }
     
     public func deleteNode(withID id: NodeID) async {
         nodes.removeAll { $0.id == id }
@@ -393,15 +445,23 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     }
     
     public func addChild(to parentID: NodeID) async {
-        let newLabel = nextNodeLabel
-        nextNodeLabel += 1
-        let newPosition = CGPoint(x: CGFloat.random(in: -50...50), y: CGFloat.random(in: -50...50))  // Random near parent
-        let newNode = AnyNode(Node(label: newLabel, position: newPosition))
-        nodes.append(newNode)
-        edges.append(GraphEdge(from: parentID, to: newNode.id))
-        objectWillChange.send()
-        await startSimulation()
-    }
+            let newLabel = nextNodeLabel
+            nextNodeLabel += 1
+            let newPosition = CGPoint(x: CGFloat.random(in: -50...50), y: CGFloat.random(in: -50...50))  // Random near parent
+            let newNode = AnyNode(Node(label: newLabel, position: newPosition))
+            nodes.append(newNode)
+            await addEdge(from: parentID, to: newNode.id, type: .hierarchy)  // Use .hierarchy
+        }
+
+        // Updated: buildAdjacencyList with optional type filter
+        private func buildAdjacencyList(for edgeType: EdgeType? = nil) -> [NodeID: [NodeID]] {
+            var adj = [NodeID: [NodeID]]()
+            let filteredEdges = edgeType != nil ? edges.filter { $0.type == edgeType! } : edges
+            for edge in filteredEdges {
+                adj[edge.from, default: []].append(edge.to)
+            }
+            return adj
+        }
     
     public func addNode(at position: CGPoint) async {
         let newLabel = nextNodeLabel
@@ -467,63 +527,63 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     
 
     public func isBidirectionalBetween(_ id1: NodeID, _ id2: NodeID) -> Bool {
-        edges.contains(where: { $0.from == id1 && $0.to == id2 }) &&  // Parenthesized
-        edges.contains(where: { $0.from == id2 && $0.to == id1 })     // Parenthesized
-    }
-    
-    public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
-        edges.filter { ($0.from == id1 && $0.to == id2) || ($0.from == id2 && $0.to == id1) }
-    }
-    
-    private func buildAdjacencyList() -> [NodeID: [NodeID]] {
-        var adj = [NodeID: [NodeID]]()
-        for edge in edges {
-            adj[edge.from, default: []].append(edge.to)
+            edges.contains(where: { $0.from == id1 && $0.to == id2 }) &&  // Parenthesized
+            edges.contains(where: { $0.from == id2 && $0.to == id1 })     // Parenthesized
         }
-        return adj
+        
+        public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
+            edges.filter { ($0.from == id1 && $0.to == id2) || ($0.from == id2 && $0.to == id1) }
+        }
+        
+        private func buildAdjacencyList() -> [NodeID: [NodeID]] {
+            var adj = [NodeID: [NodeID]]()
+            for edge in edges {
+                adj[edge.from, default: []].append(edge.to)
+            }
+            return adj
+        }
+        
     }
-    
-}
 
-@available(iOS 13.0, watchOS 6.0, *)
-extension GraphModel {
-    
-    public func graphDescription(selectedID: NodeID?, selectedEdgeID: UUID?) -> String {
-        let edgeCount = edges.count
-        let edgeWord = edgeCount == 1 ? "edge" : "edges"  // New: Handle plural
-        var desc = "Graph with \(nodes.count) nodes and \(edgeCount) directed \(edgeWord)."
-        if let selectedEdgeID = selectedEdgeID, let selectedEdge = edges.first(where: { $0.id == selectedEdgeID }),
-           let fromNode = nodes.first(where: { $0.id == selectedEdge.from })?.unwrapped,
-           let toNode = nodes.first(where: { $0.id == selectedEdge.to })?.unwrapped {
-            desc += " Directed edge from node \(fromNode.label) to node \(toNode.label) selected."
-        } else if let selectedID = selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID })?.unwrapped {
-            let outgoingLabels = edges
-                .filter { $0.from == selectedID }
-                .compactMap { edge in
-                    let toID = edge.to
-                    return nodes.first { $0.id == toID }?.unwrapped.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let incomingLabels = edges
-                .filter { $0.to == selectedID }
-                .compactMap { edge in
-                    let fromID = edge.from
-                    return nodes.first { $0.id == fromID }?.unwrapped.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
-            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
-            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
-        } else {
-            desc += " No node or edge selected."
+    @available(iOS 13.0, watchOS 6.0, *)
+    extension GraphModel {
+        
+        public func graphDescription(selectedID: NodeID?, selectedEdgeID: UUID?) -> String {
+            let edgeCount = edges.count
+            let edgeWord = edgeCount == 1 ? "edge" : "edges"  // New: Handle plural
+            var desc = "Graph with \(nodes.count) nodes and \(edgeCount) directed \(edgeWord)."
+            if let selectedEdgeID = selectedEdgeID, let selectedEdge = edges.first(where: { $0.id == selectedEdgeID }),
+               let fromNode = nodes.first(where: { $0.id == selectedEdge.from })?.unwrapped,
+               let toNode = nodes.first(where: { $0.id == selectedEdge.to })?.unwrapped {
+                desc += " Directed edge from node \(fromNode.label) to node \(toNode.label) selected."
+            } else if let selectedID = selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID })?.unwrapped {
+                let outgoingLabels = edges
+                    .filter { $0.from == selectedID }
+                    .compactMap { edge in
+                        let toID = edge.to
+                        return nodes.first { $0.id == toID }?.unwrapped.label
+                    }
+                    .sorted()
+                    .map { String($0) }
+                    .joined(separator: ", ")
+                let incomingLabels = edges
+                    .filter { $0.to == selectedID }
+                    .compactMap { edge in
+                        let fromID = edge.from
+                        return nodes.first { $0.id == fromID }?.unwrapped.label
+                    }
+                    .sorted()
+                    .map { String($0) }
+                    .joined(separator: ", ")
+                let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
+                let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
+                desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
+            } else {
+                desc += " No node or edge selected."
+            }
+            return desc
         }
-        return desc
     }
-}
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
@@ -656,7 +716,7 @@ class GraphSimulator {
 ----------------------------------------------------------------------------------------------------
 File: GraphTypes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-08-26 12:26:10
+Last modified: 2025-09-05 10:11:42
 
 Contents:
 import SwiftUI
@@ -733,20 +793,28 @@ public struct Node: NodeProtocol, Equatable {
         }
 }
 
+// New: EdgeType enum
+public enum EdgeType: String, Codable {
+    case hierarchy  // DAG-enforced, directed
+    case association  // Allows cycles, symmetric/undirected feel
+}
+
 // Represents an edge connecting two nodes.
 public struct GraphEdge: Identifiable, Equatable, Codable {
     public let id: NodeID
     public let from: NodeID
     public let to: NodeID
+    public let type: EdgeType  // New: Required type
     
     enum CodingKeys: String, CodingKey {
-        case id, from, to
+        case id, from, to, type  // Added type
     }
     
-    public init(id: NodeID = NodeID(), from: NodeID, to: NodeID) {
+    public init(id: NodeID = NodeID(), from: NodeID, to: NodeID, type: EdgeType = .association) {  // Default to .association
         self.id = id
         self.from = from
         self.to = to
+        self.type = type
     }
     
     public init(from decoder: Decoder) throws {
@@ -754,6 +822,7 @@ public struct GraphEdge: Identifiable, Equatable, Codable {
         id = try container.decode(NodeID.self, forKey: .id)
         from = try container.decode(NodeID.self, forKey: .from)
         to = try container.decode(NodeID.self, forKey: .to)
+        type = try container.decode(EdgeType.self, forKey: .type)  // Decode type
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -761,6 +830,7 @@ public struct GraphEdge: Identifiable, Equatable, Codable {
         try container.encode(id, forKey: .id)
         try container.encode(from, forKey: .from)
         try container.encode(to, forKey: .to)
+        try container.encode(type, forKey: .type)  // Encode type
     }
 }
 

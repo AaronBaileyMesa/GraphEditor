@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-05 09:29:10
+Current date: 2025-09-06 13:07:53
 Table of Contents:
 1. GraphEditorWatch/Views/GraphCanvasView.swift
 2. GraphEditorWatch/Views/GraphGesturesModifier.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/Views/NodeView.swift--------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-09-02 15:03:00
+Last modified: 2025-09-05 12:16:13
 
 Contents:
 import SwiftUI
@@ -130,35 +130,47 @@ struct GraphCanvasView: View {
                         let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)
                         let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)
                         
-                        let path = Path { path in
+                        let linePath = Path { path in
                             path.move(to: fromScreen)
                             path.addLine(to: toScreen)
                         }
                         
-                        context.stroke(path, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
+                        let isSelected = edge.id == selectedEdgeID
+                        let color: Color = isSelected ? .red : .gray  // UPDATED: Base color
                         
-                        // Arrowhead
-                        let arrowLength: CGFloat = 10
-                        let arrowAngle: CGFloat = .pi / 6
-                        let lineAngle = atan2(toScreen.y - fromScreen.y, toScreen.x - fromScreen.x)
-                        
-                        let arrowPoint1 = CGPoint(
-                            x: toScreen.x - arrowLength * cos(lineAngle - arrowAngle),
-                            y: toScreen.y - arrowLength * sin(lineAngle - arrowAngle)
-                        )
-                        let arrowPoint2 = CGPoint(
-                            x: toScreen.x - arrowLength * cos(lineAngle + arrowAngle),
-                            y: toScreen.y - arrowLength * sin(lineAngle + arrowAngle)
-                        )
-                        
-                        let arrowPath = Path { path in
-                            path.move(to: toScreen)
-                            path.addLine(to: arrowPoint1)
-                            path.move(to: toScreen)
-                            path.addLine(to: arrowPoint2)
+                        // NEW: Type-specific rendering
+                        switch edge.type {
+                        case .hierarchy:
+                            // Solid line with arrow
+                            context.stroke(linePath, with: .color(color), lineWidth: 2)
+                            
+                            // Arrowhead
+                            let arrowLength: CGFloat = 10
+                            let arrowAngle = CGFloat.pi / 6
+                            let lineAngle = atan2(toScreen.y - fromScreen.y, toScreen.x - fromScreen.x)
+                            
+                            let arrowPoint1 = CGPoint(
+                                x: toScreen.x - arrowLength * cos(lineAngle - arrowAngle),
+                                y: toScreen.y - arrowLength * sin(lineAngle - arrowAngle)
+                            )
+                            let arrowPoint2 = CGPoint(
+                                x: toScreen.x - arrowLength * cos(lineAngle + arrowAngle),
+                                y: toScreen.y - arrowLength * sin(lineAngle + arrowAngle)
+                            )
+                            
+                            let arrowPath = Path { path in
+                                path.move(to: toScreen)
+                                path.addLine(to: arrowPoint1)
+                                path.move(to: toScreen)
+                                path.addLine(to: arrowPoint2)
+                            }
+                            
+                            context.stroke(arrowPath, with: .color(color), lineWidth: 2)
+                        case .association:
+                            // Dashed line without arrow
+                            let dashStyle = StrokeStyle(lineWidth: 2, dash: [5, 5])
+                            context.stroke(linePath, with: .color(color), style: dashStyle)
                         }
-                        
-                        context.stroke(arrowPath, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
                     }
                 }
                 
@@ -255,7 +267,7 @@ extension CGRect {
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-09-04 11:35:13
+Last modified: 2025-09-06 08:40:51
 
 Contents:
 //
@@ -370,7 +382,6 @@ struct GraphGesturesModifier: ViewModifier {
             
             let fromScreen = modelToScreen(fromNode.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
             let toScreen = modelToScreen(toNode.position, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-            
             let dist = pointToLineDistance(point: screenPos, from: fromScreen, to: toScreen)
             
 #if DEBUG
@@ -384,138 +395,94 @@ struct GraphGesturesModifier: ViewModifier {
         }
         
 #if DEBUG
+        // Log sorted by distance
         edgeDistances.sort { $0.dist < $1.dist }
-        logger.debug("Edge Hit Test: Top distances \(edgeDistances.prefix(5).map { "\($0.id): \($0.dist)" }.joined(separator: ", "))")
+        logger.debug("Edge Hit Test at screen \(String(describing: screenPos))")
+        for (id, dist) in edgeDistances.prefix(3) {
+            logger.debug("Edge \(id): dist \(dist)")
+        }
         if let closest = closestEdge {
             logger.debug("Hit: Edge \(closest.id) (dist \(minScreenDist) <= \(hitScreenRadius))")
+        } else {
+            logger.debug("Miss: Closest dist \(edgeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
         }
 #endif
         
         return closestEdge
     }
     
-    private func hitTest(at modelPos: CGPoint, type: HitType) -> Any? {
-        let minDist = viewModel.model.visibleNodes().map { distance($0.position, modelPos) }.min() ?? 0
-        print("Tap at \(modelPos); closest node dist: \(minDist)")
-        
-        let modelHitRadius = Constants.App.hitScreenRadius / zoomScale * 2.0
-        switch type {
-        case .node:
-            return viewModel.model.visibleNodes().first { distance($0.position, modelPos) < modelHitRadius }
-        case .edge:
-            return viewModel.model.visibleEdges().first { edge in
-                guard let from = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-                      let to = viewModel.model.nodes.first(where: { $0.id == edge.to }) else { return false }
-                let dist = pointToLineDistance(point: modelPos, from: from.position, to: to.position)
-                return dist < modelHitRadius / 2  // Smaller for edges
-            }
-        }
+    // New: Screen to model conversion (with effective centroid)
+    private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> CGPoint {
+        let safeZoom = max(zoomScale, 0.1)
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let panOffset = CGPoint(x: offset.width, y: offset.height)
+        let translated = screenPos - viewCenter - panOffset
+        let unscaled = translated / safeZoom
+        return unscaled + effectiveCentroid
     }
     
     func body(content: Content) -> some View {
-        let dragStartThreshold: CGFloat = 5.0  // Lowered from 10.0 for better drag detection
-        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
+        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
             .onChanged { value in
-                let translation = value.translation
-                let dragMagnitude = hypot(translation.width, translation.height)
-                
-                // Lock centroid once at gesture start (if not set)
-                if gestureStartCentroid == .zero {
-                    gestureStartCentroid = viewModel.effectiveCentroid
-                }
-                
-                // On initial touch-down, record start and check for node hit
-                if startLocation == nil && dragMagnitude < 1.0 {
-                    startLocation = value.startLocation
-                    print("Touch-down detected at screen: \(value.startLocation)")
-                    
-                    // Immediately check and set draggedNode if hit (enables drag from start)
-                    let visibleNodes = viewModel.model.visibleNodes()
-                    if let hitNode = hitTestNodesInScreenSpace(at: value.startLocation, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
-                        draggedNode = hitNode
-                        print("Potential drag on node: \(hitNode.label) at \(hitNode.position)")
-                    }
-                    return
-                }
-                
-                // Suppress action for small movements (potential taps)
-                if dragMagnitude < dragStartThreshold {
-                    return
-                }
-                
-                // Drag in progress: Update offset or potential edge
-                if let dragged = draggedNode {
-                    dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-                    
-                    if isAddingEdge {
-                        let targetPos = dragged.position + dragOffset
-                        potentialEdgeTarget = viewModel.model.visibleNodes().first {
-                            $0.id != dragged.id && distance($0.position, targetPos) < Constants.App.hitScreenRadius
-                        }
-                    }
-                } else if let selectedID = selectedNodeID, dragStartNode == nil {
-                    if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                        dragStartNode = node
-                        draggedNode = node
-                        isMovingSelectedNode = true
-                    }
-                } else if panStartOffset == nil {
-                    panStartOffset = offset
-                }
-                
-                if let startOffset = panStartOffset {
-                    offset = CGSize(
-                        width: startOffset.width + translation.width,
-                        height: startOffset.height + translation.height
-                    )
-                }
-            }
-            .onEnded { value in
+                let location = value.location
                 let translation = value.translation
                 let dragMagnitude = hypot(translation.width, translation.height)
                 
                 let visibleNodes = viewModel.model.visibleNodes()
                 let visibleEdges = viewModel.model.visibleEdges()
                 
-                // Handle as tap if below threshold
-                if let tapScreenPos = startLocation, dragMagnitude < dragStartThreshold {
-                    print("Processing as tap at screen: \(tapScreenPos)")
-                    
-                    if let hitNode = hitTestNodesInScreenSpace(at: tapScreenPos, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
-                        print("Tapped node: \(hitNode.label) at model position \(hitNode.position)")
-                        if let currentNodeID = selectedNodeID {
-                            if currentNodeID == hitNode.id {
-                                selectedNodeID = nil
-                            } else {
-                                selectedNodeID = hitNode.id
-                                selectedEdgeID = nil
-                            }
-                        } else {
-                            selectedNodeID = hitNode.id
-                            selectedEdgeID = nil
-                        }
-                    } else if let hitEdge = hitTestEdgesInScreenSpace(at: tapScreenPos, visibleEdges: visibleEdges, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: gestureStartCentroid) {
-                        print("Tapped edge: from \(hitEdge.from.uuidString) to \(hitEdge.to.uuidString)")
-                        if let currentEdgeID = selectedEdgeID {
-                            if currentEdgeID == hitEdge.id {
-                                selectedEdgeID = nil
-                            } else {
-                                selectedEdgeID = hitEdge.id
-                                selectedNodeID = nil
-                            }
-                        } else {
-                            selectedEdgeID = hitEdge.id
-                            selectedNodeID = nil
-                        }
+                // New: Use gestureStartCentroid if set; else fallback to viewModel
+                if gestureStartCentroid == .zero {
+                    gestureStartCentroid = viewModel.effectiveCentroid
+                }
+                let effectiveCentroid = gestureStartCentroid
+                
+                if startLocation == nil {
+                    startLocation = location
+                    selectedNodeID = nil
+                    selectedEdgeID = nil
+                }
+                
+                if dragStartNode == nil && dragMagnitude > dragStartThreshold {
+                    if let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid) {
+                        draggedNode = hitNode
+                        dragStartNode = hitNode
+                        dragOffset = .zero
+                        potentialEdgeTarget = nil
+                        print("Started drag on node \(hitNode.label)")
+                    } else if let hitEdge = hitTestEdgesInScreenSpace(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid) {
+                        selectedEdgeID = hitEdge.id
+                        print("Selected edge \(hitEdge.id)")
                     } else {
-                        print("Tapped empty space at screen: \(tapScreenPos)")
-                        selectedNodeID = nil
-                        selectedEdgeID = nil
+                        panStartOffset = offset
+                        print("Started pan")
                     }
-
+                }
+                
+                if let dragged = draggedNode {
+                    dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
+                    let draggedModelPos = dragged.position + dragOffset
+                    potentialEdgeTarget = hitTestNodesInScreenSpace(at: modelToScreen(draggedModelPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid), visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                } else if let startOffset = panStartOffset {
+                    offset = CGSize(width: startOffset.width + translation.width, height: startOffset.height + translation.height)
+                }
+                
+                onUpdateZoomRanges()
+            }
+            .onEnded { value in
+                let tapScreenPos = value.location
+                let translation = value.translation
+                let dragMagnitude = hypot(translation.width, translation.height)
+                
+                let visibleNodes = viewModel.model.visibleNodes()
+                let visibleEdges = viewModel.model.visibleEdges()
+                
+                let effectiveCentroid = gestureStartCentroid != .zero ? gestureStartCentroid : viewModel.effectiveCentroid
+                
+                if dragMagnitude < dragStartThreshold, let start = startLocation, distance(start, tapScreenPos) < dragStartThreshold {
+                    // Handle as tap
                     #if DEBUG
-                    let effectiveCentroid = viewModel.effectiveCentroid
-                    let translated = CGPoint(x: tapScreenPos.x - viewSize.width / 2 - offset.width, y: tapScreenPos.y - viewSize.height / 2 - offset.height)
+                    let translated = tapScreenPos - CGPoint(x: viewSize.width / 2 + offset.width, y: viewSize.height / 2 + offset.height)
                     let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
                     let tapModelPos = unscaled + effectiveCentroid
                     logger.debug("--- Tap (.onEnded) Diagnostic ---")
@@ -528,7 +495,8 @@ struct GraphGesturesModifier: ViewModifier {
                     logger.debug("--------------------------------")
                     #endif
 
-                    Task { await viewModel.handleTap() }
+                    let modelPos = screenToModel(tapScreenPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)  // Use helper (add if missing, as in previous response)
+                    Task { await viewModel.handleTap(at: modelPos) }  // Pass position
                 } else {
                     // Non-tap: Handle drag completion (move node or add edge)
                     print("Processing as drag: magnitude \(dragMagnitude), translation \(translation)")
@@ -540,11 +508,13 @@ struct GraphGesturesModifier: ViewModifier {
                         if let target = potentialEdgeTarget, target.id != dragged.id {
                             if isAddingEdge {
                                 if !viewModel.model.edges.contains(where: { ($0.from == dragged.id && $0.to == target.id) || ($0.from == target.id && $0.to == dragged.id) }) {
-                                    viewModel.model.edges.append(GraphEdge(from: dragged.id, to: target.id))
-                                    print("Created edge from node \(dragged.label) to \(target.label)")
+                                    // UPDATED: Use pendingEdgeType from ViewModel
+                                    let type = viewModel.pendingEdgeType
+                                    viewModel.model.edges.append(GraphEdge(from: dragged.id, to: target.id, type: type))
+                                    print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
                                     Task { await viewModel.model.startSimulation() }
+                                    isAddingEdge = false  // Exit mode
                                 }
-                                isAddingEdge = false
                             }
                         } else {
                             if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
@@ -587,6 +557,7 @@ struct GraphGesturesModifier: ViewModifier {
         content
             .highPriorityGesture(dragGesture)
     }
+        
     private func distance(_ p1: CGPoint, _ p2: CGPoint) -> CGFloat {
         hypot(p1.x - p2.x, p1.y - p2.y)
     }
@@ -608,7 +579,7 @@ struct GraphGesturesModifier: ViewModifier {
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-09-04 16:12:16
+Last modified: 2025-09-05 12:16:13
 
 Contents:
 //
@@ -626,7 +597,9 @@ struct AddSection: View {
     let viewModel: GraphViewModel
     let selectedNodeID: NodeID?
     let onDismiss: () -> Void
-    let onAddEdge: () -> Void  // New: Callback for starting add edge mode
+    let onAddEdge: (EdgeType) -> Void  // UPDATED: Pass type to callback
+    
+    @State private var selectedEdgeType: EdgeType = .association  // NEW: Local state for Picker
     
     var body: some View {
         Section(header: Text("Add")) {
@@ -643,8 +616,13 @@ struct AddSection: View {
                     Task { await viewModel.addChild(to: selectedID) }
                     onDismiss()
                 }
-                Button("Add Edge") {  // New
-                    onAddEdge()
+                // NEW: Picker for edge type
+                Picker("Edge Type", selection: $selectedEdgeType) {
+                    Text("Association").tag(EdgeType.association)
+                    Text("Hierarchy").tag(EdgeType.hierarchy)
+                }
+                Button("Add Edge") {  // UPDATED: Pass selected type
+                    onAddEdge(selectedEdgeType)
                     onDismiss()
                 }
             }
@@ -690,20 +668,8 @@ struct EditSection: View {
                 Button("Reverse Edge") {  // New
                     Task { await viewModel.snapshot() }
                     viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                    viewModel.model.edges.append(GraphEdge(from: toID, to: fromID))
+                    viewModel.model.edges.append(GraphEdge(from: toID, to: fromID))  // Reversed
                     Task { await viewModel.model.startSimulation() }
-                    onDismiss()
-                }
-            }
-            if viewModel.canUndo {
-                Button("Undo") {
-                    Task { await viewModel.undo() }
-                    onDismiss()
-                }
-            }
-            if viewModel.canRedo {
-                Button("Redo") {
-                    Task { await viewModel.redo() }
                     onDismiss()
                 }
             }
@@ -758,44 +724,41 @@ struct GraphSection: View {
 
 struct MenuView: View {
     let viewModel: GraphViewModel
-    @Binding var showOverlays: Bool
-    @Binding var showMenu: Bool
+    let isSimulatingBinding: Binding<Bool>
     let onCenterGraph: () -> Void
-    @State private var showEditSheet: Bool = false  // New: Local state for edit sheet
-    @State private var isAddingEdge: Bool = false  // New: Local state for add edge mode
-    @FocusState private var isMenuFocused: Bool  // New
+    @Binding var showMenu: Bool  // NEW: Add as parameter to fix "Cannot find 'showMenu' in scope"
+    @Binding var showOverlays: Bool  // NEW: Add as parameter to fix "Cannot find '$showOverlays' in scope"
     
-    private var isSimulatingBinding: Binding<Bool> {
-        Binding(
-            get: { viewModel.model.isSimulating },
-            set: { viewModel.model.isSimulating = $0 }
-        )
-    }
+    @FocusState private var isMenuFocused: Bool
+    @State private var showEditSheet: Bool = false  // New: Local state for sheet
+    @State private var isAddingEdge: Bool = false  // New: Local state for add edge mode
     
     var body: some View {
-        // In MenuView.swift, replace the entire List contents with this (remove the old if let selected... blocks)
         List {
             AddSection(
                 viewModel: viewModel,
                 selectedNodeID: viewModel.selectedNodeID,
-                onDismiss: { showMenu = false },
-                onAddEdge: { isAddingEdge = true }  // Wires up "Add Edge" button
+                onDismiss: { showMenu = false },  // Now in scope
+                onAddEdge: { type in  // UPDATED: Receive type
+                    viewModel.pendingEdgeType = type  // NEW: Set in ViewModel for gestures
+                    isAddingEdge = true
+                }
             )
             
             EditSection(
                 viewModel: viewModel,
                 selectedNodeID: viewModel.selectedNodeID,
                 selectedEdgeID: viewModel.selectedEdgeID,
-                onDismiss: { showMenu = false },
+                onDismiss: { showMenu = false },  // Now in scope
                 onEditNode: { showEditSheet = true }  // Wires up "Edit Node" to show sheet
             )
             
             // Keep your existing ViewSection and GraphSection here
             ViewSection(
-                showOverlays: $showOverlays,
+                showOverlays: $showOverlays,  // Now in scope
                 isSimulating: isSimulatingBinding,
                 onCenterGraph: onCenterGraph,
-                onDismiss: { showMenu = false },
+                onDismiss: { showMenu = false },  // Now in scope
                 onSimulationChange: { newValue in
                     viewModel.model.isSimulating = newValue
                     if newValue {
@@ -806,7 +769,7 @@ struct MenuView: View {
                 }
             )
             
-            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
+            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
         }        .navigationTitle("Menu")
         .focused($isMenuFocused)  // New: Bind focus to list
         .onAppear {
@@ -840,7 +803,14 @@ struct MenuView: View {
 
 #Preview {
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
+    // UPDATED: Pass new bindings for preview (use placeholders)
+    MenuView(
+        viewModel: mockViewModel,
+        isSimulatingBinding: .constant(false),
+        onCenterGraph: {},
+        showMenu: .constant(true),
+        showOverlays: .constant(false)
+    )
 }
 ----------------------------------------------------------------------------------------------------
 File: NodeView.swift

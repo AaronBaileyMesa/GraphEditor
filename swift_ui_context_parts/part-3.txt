@@ -1,124 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-05 09:29:10
+Current date: 2025-09-06 13:07:53
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-2. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-3. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-4. GraphEditorWatch/GraphEditorWatch.swift
-5. GraphEditorWatch/Models/AppConstants.swift
-6. GraphEditorWatch/ViewModels/GraphViewModel.swift
-7. GraphEditorWatch/Views/ContentView.swift--------------------------------------------------
-File: RepulsionCalculator.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-Last modified: 2025-08-25 11:30:35
-
-Contents:
-//
-//  RepulsionCalculator.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/12/25.
-//
-
-import Foundation
-import CoreGraphics
-
-struct RepulsionCalculator {
-    private let maxNodesForQuadtree: Int
-    private let simulationBounds: CGSize
-
-    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
-        self.maxNodesForQuadtree = maxNodesForQuadtree
-        self.simulationBounds = simulationBounds
-    }
-
-    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
-        var forces: [NodeID: CGPoint] = [:]
-        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
-        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
-
-        for node in nodes {
-            var repulsion: CGPoint = .zero
-            if let quadtree = quadtree {
-                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
-                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
-            } else {
-                for otherNode in nodes where otherNode.id != node.id {
-                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
-                }
-            }
-            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
-        }
-        return (forces, quadtree)  // New: Return tuple
-    }
-
-    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
-        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
-        let quadtree = Quadtree(bounds: boundingBox)
-        for node in nodes {
-            quadtree.insert(node)
-        }
-        return quadtree
-    }
-
-    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
-        let dx = queryPosition.x - repellerPosition.x
-        let dy = queryPosition.y - repellerPosition.y
-        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
-        let distance = sqrt(distanceSquared)
-        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
-        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
-    }
-    
-    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
-        var force = CGPoint.zero
-        func calculateRepulsion(qt: Quadtree) {
-            if qt.children == nil {
-                for other in qt.nodes where other.id != node.id {
-                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
-                }
-                return
-            }
-
-            let dx = qt.centerOfMass.x - node.position.x
-            let dy = qt.centerOfMass.y - node.position.y
-            let distance = hypot(dx, dy)
-            let width = qt.bounds.width
-
-            if width / distance < theta && distance > 0 {  // Use theta
-                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
-                force += approxForce
-            } else {
-                if let children = qt.children {
-                    calculateRepulsion(qt: children[0])
-                    calculateRepulsion(qt: children[1])
-                    calculateRepulsion(qt: children[2])
-                    calculateRepulsion(qt: children[3])
-                }
-            }
-        }
-
-        calculateRepulsion(qt: quadtree)
-        return force
-    }
-
-    // Added missing boundingBox func
-    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard !nodes.isEmpty else { return .zero }
-        var minX = nodes[0].position.x, minY = nodes[0].position.y
-        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
-        for node in nodes {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
-        }
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-}
-----------------------------------------------------------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+3. GraphEditorWatch/GraphEditorWatch.swift
+4. GraphEditorWatch/Models/AppConstants.swift
+5. GraphEditorWatch/ViewModels/GraphViewModel.swift
+6. GraphEditorWatch/Views/ContentView.swift--------------------------------------------------
 File: ToggleNode.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 Last modified: 2025-09-03 18:11:16
@@ -429,7 +319,7 @@ public struct CoordinateTransformer {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-09-02 09:10:57
+Last modified: 2025-09-05 13:54:39
 
 Contents:
 //
@@ -451,9 +341,15 @@ struct GraphEditorWatch: App {
             let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
             let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
             let viewModel = GraphViewModel(model: model)  // Sync init
-            ContentView(viewModel: viewModel)
+            ContentView(
+                viewModel: viewModel,
+                isSimulatingBinding: Binding(  // Unchanged
+                    get: { viewModel.model.isSimulating },
+                    set: { viewModel.model.isSimulating = $0 }
+                )
+            )
             .task {
-            await viewModel.loadGraph()  // Async load inside
+                await viewModel.loadGraph()  // Async load inside
             }
         }
     }
@@ -490,7 +386,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-04 15:06:25
+Last modified: 2025-09-06 08:43:02
 
 Contents:
 // GraphViewModel.swift (Add access to model's physicsEngine and confirm centerGraph)
@@ -502,6 +398,7 @@ import WatchKit  // For WKApplication
 @MainActor class GraphViewModel: ObservableObject {
     @Published var model: GraphModel
     @Published var selectedEdgeID: UUID? = nil
+    @Published var pendingEdgeType: EdgeType = .association
     @Published var selectedNodeID: UUID? = nil
     @Published var offset: CGPoint = .zero
     @Published var zoomScale: CGFloat = 1.0
@@ -586,13 +483,12 @@ import WatchKit  // For WKApplication
                 guard let self = self else { return }
                 self.centerGraph()  // Safe on main
                 do {
-                    try self.model.saveViewState(  // No 'await' – assuming sync based on impl; add if async
+                    try self.model.saveViewState(  // Assuming sync; no 'await'
                         offset: self.offset,
                         zoomScale: self.zoomScale,
                         selectedNodeID: self.selectedNodeID,
                         selectedEdgeID: self.selectedEdgeID
                     )
-                    print("Saved view state")
                 } catch {
                     print("Failed to save view state: \(error)")
                 }
@@ -602,9 +498,8 @@ import WatchKit  // For WKApplication
     
     func loadGraph() async {
         do {
-            try await model.loadFromStorage()
-            model.centerGraph()  // Remove 'await' if sync
-            await model.startSimulation()  // Keep if async
+            try await model.load()  // Now compiles
+            await model.startSimulation()
         } catch {
             print("Failed to load graph: \(error)")
         }
@@ -612,7 +507,7 @@ import WatchKit  // For WKApplication
     
     private func loadViewState() async {
         do {
-            if let state = try model.loadViewState() {
+            if let state = try model.loadViewState() {  // Assuming sync; no 'await'
                 self.offset = state.offset
                 self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
@@ -621,7 +516,7 @@ import WatchKit  // For WKApplication
                 self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
                 self.offset = .zero
             }
-            model.centerGraph()  // Remove 'await' if sync
+            model.centerGraph()  // Assuming sync; no 'await'
             self.offset = .zero
             await model.expandAllRoots()  // Keep if async
             self.objectWillChange.send()
@@ -636,7 +531,7 @@ import WatchKit  // For WKApplication
         } else {
             focusState = .graph
         }
-        model.centerGraph()  // Remove 'await' if sync
+        model.centerGraph()  // Assuming sync; no 'await'
         self.objectWillChange.send()
     }
     
@@ -693,6 +588,12 @@ import WatchKit  // For WKApplication
         await model.addChild(to: parentID)
     }
     
+    // NEW: Add this method for edge creation (used in gestures/menu)
+    func addEdge(from: NodeID, to: NodeID, type: EdgeType) async {
+        model.edges.append(GraphEdge(from: from, to: to, type: type))
+        await model.startSimulation()
+    }
+    
     func clearGraph() async {
         await model.clearGraph()
     }
@@ -711,17 +612,53 @@ import WatchKit  // For WKApplication
             Task { @MainActor in  // Hop to main for safe access
                 guard let self = self else { return }
                 if WKApplication.shared().applicationState == .active {
-                    await self.model.resumeSimulation()  // Add 'await' for async call (fixes line 229)
+                    await self.model.resumeSimulation()  // Consistent async call
                 }
             }
         }
     }
     
-    func handleTap() async {
+    // Updated handleTap (now takes modelPos)
+    func handleTap(at modelPos: CGPoint) async {
         await model.pauseSimulation()
+        
+        print("Handling tap at model pos: \(modelPos)")  // For testing
+        
+        // Efficient hit test with queryNearby
+        let hitRadius: CGFloat = 30.0  // Increased for watchOS touch accuracy; test and adjust
+        let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
+        print("Nearby nodes found: \(nearbyNodes.count)")  // For testing
+        
+        // Sort by distance to get closest (if multiple)
+        let sortedNearby = nearbyNodes.sorted { hypot($0.position.x - modelPos.x, $0.position.y - modelPos.y) < hypot($1.position.x - modelPos.x, $1.position.y - modelPos.y) }
+        
+        if let tappedNode = sortedNearby.first {
+            if let toggleNode = tappedNode as? ToggleNode {
+                // Tap to expand/collapse ToggleNode (no selection, per preference)
+                if let index = model.nodes.firstIndex(where: { $0.id == toggleNode.id }) {
+                    var updated = toggleNode.handlingTap()
+                    model.nodes[index] = updated as any NodeProtocol as! AnyNode  // Fix for your compile error
+                    print("Toggled expansion for ToggleNode \(toggleNode.label) to \(updated.isExpanded)")
+                    await model.startSimulation()
+                }
+                selectedNodeID = nil
+            } else {
+                // Tap to select regular Node
+                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+                selectedEdgeID = nil
+                print("Selected regular Node \(tappedNode.label)")
+            }
+        } else {
+            // Miss: Clear selections
+            selectedNodeID = nil
+            selectedEdgeID = nil
+            print("Tap missed; cleared selections")
+        }
+        
+        focusState = selectedNodeID.map { .node($0) } ?? .graph
+        objectWillChange.send()
         await resumeSimulationAfterDelay()
     }
-    
     func setSelectedNode(_ id: UUID?) {
         selectedNodeID = id
         focusState = id.map { .node($0) } ?? .graph
@@ -735,14 +672,25 @@ import WatchKit  // For WKApplication
     }
     
     func centerGraph() {
-        offset = .zero  // Basic reset; enhance as needed
+        // UPDATED: Enhanced to recalculate based on bounds
+        let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
+        let (minZoom, _) = calculateZoomRanges(for: viewSize)
+        zoomScale = minZoom
+        offset = .zero
         objectWillChange.send()
+    }
+    
+    // NEW: Helper for centroid (assuming it's defined elsewhere; add if missing)
+    private func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
+        guard !nodes.isEmpty else { return nil }
+        let sum = nodes.reduce(CGPoint.zero) { $0 + $1.position }
+        return sum / CGFloat(nodes.count)
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-09-04 14:20:38
+Last modified: 2025-09-06 07:50:46
 
 Contents:
 // ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
@@ -792,7 +740,8 @@ struct InnerViewConfig {
     let selectedEdgeID: Binding<UUID?>
     let canvasFocus: FocusState<Bool>
     let onCenterGraph: () -> Void
-    let isAddingEdge: Binding<Bool>  // Add
+    let isAddingEdge: Binding<Bool>
+    let isSimulatingBinding: Binding<Bool>  // NEW: Add this for MenuView
     
     init(
         geo: GeometryProxy,
@@ -812,8 +761,8 @@ struct InnerViewConfig {
         selectedEdgeID: Binding<UUID?>,
         canvasFocus: FocusState<Bool>,
         onCenterGraph: @escaping () -> Void,
-        isAddingEdge: Binding<Bool>
-    
+        isAddingEdge: Binding<Bool>,
+        isSimulatingBinding: Binding<Bool> // NEW: Add to init params
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -833,31 +782,33 @@ struct InnerViewConfig {
         self.canvasFocus = canvasFocus
         self.onCenterGraph = onCenterGraph
         self.isAddingEdge = isAddingEdge
+        self.isSimulatingBinding = isSimulatingBinding  // NEW: Assign it
     }
 }
 
-struct ContentView: View {
+public struct ContentView: View {
     @ObservedObject var viewModel: GraphViewModel
-    @State private var zoomScale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
-    @State private var dragOffset: CGPoint = .zero
-    @State private var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
-    @State private var selectedNodeID: NodeID? = nil
-    @State private var selectedEdgeID: UUID? = nil
-    @State private var panStartOffset: CGSize? = nil
-    @State private var showMenu: Bool = false
-    @State private var showOverlays: Bool = false
-    @FocusState private var canvasFocus: Bool
-    @State private var minZoom: CGFloat = AppConstants.defaultMinZoom
-    @State private var maxZoom: CGFloat = AppConstants.defaultMaxZoom
-    @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2
-    @State private var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
-    @State private var showEditSheet: Bool = false
-    @State private var isAddingEdge: Bool = false
-    @State private var viewSize: CGSize = .zero  // New: Store view size for use in onChange
+    @State public var zoomScale: CGFloat = 1.0
+    @State public var offset: CGSize = .zero
+    @State var draggedNode: NodeWrapper = NodeWrapper(node: nil)
+    @State public var dragOffset: CGPoint = .zero
+    @State var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
+    @State public var selectedNodeID: NodeID? = nil
+    @State public var selectedEdgeID: UUID? = nil
+    @State public var panStartOffset: CGSize? = nil
+    @State public var showMenu: Bool = false
+    @State public var showOverlays: Bool = false
+    @FocusState public var canvasFocus: Bool
+    @State public var minZoom: CGFloat = AppConstants.defaultMinZoom
+    @State public var maxZoom: CGFloat = AppConstants.defaultMaxZoom
+    @State public var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2
+    @State public var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
+    @State public var showEditSheet: Bool = false
+    @State public var isAddingEdge: Bool = false
+    @State public var viewSize: CGSize = .zero  // New: Store view size for use in onChange
+    @State public var isSimulatingBinding: Binding<Bool>
 
-    var body: some View {
+    public var body: some View {
         GeometryReader { geo in
             mainContent(in: geo)
                 .onAppear {
@@ -952,7 +903,8 @@ struct ContentView: View {
                 selectedEdgeID: $selectedEdgeID,
                 canvasFocus: _canvasFocus,
                 onCenterGraph: centerGraph,
-                isAddingEdge: $isAddingEdge
+                isAddingEdge: $isAddingEdge,
+                isSimulatingBinding: isSimulatingBinding
             ))
             
             addNodeButton(in: geo)
@@ -1030,7 +982,7 @@ struct ContentView: View {
 struct InnerView: View {
     let config: InnerViewConfig
     
-    var body: some View {
+    public var body: some View {
         let draggedNodeBinding = Binding<(any NodeProtocol)?>(
             get: { config.draggedNode.wrappedValue.node },
             set: { config.draggedNode.wrappedValue = NodeWrapper(node: $0) }
@@ -1061,14 +1013,14 @@ struct InnerView: View {
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
                 .focusable()  // Add this to ensure view property for crown
-        //        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)  // Ensure sensitivity isn't too high to reduce jitter
         
         if config.showMenu.wrappedValue {
             MenuView(
                 viewModel: config.viewModel,
-                showOverlays: config.showOverlays,
+                isSimulatingBinding: config.isSimulatingBinding,  // UPDATED: Use actual binding (removes placeholder)
+                onCenterGraph: config.onCenterGraph,
                 showMenu: config.showMenu,
-                onCenterGraph: config.onCenterGraph
+                showOverlays: config.showOverlays  // UPDATED: Correct order (showMenu before showOverlays)
             )
             .navigationTitle("Menu")
         } else {
@@ -1085,7 +1037,10 @@ extension CGFloat {
 
 #Preview {
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
+    ContentView(
+        viewModel: mockViewModel,
+        isSimulatingBinding: .constant(false)  // Unchanged
+    )
 }
 
 struct EditContentSheet: View {

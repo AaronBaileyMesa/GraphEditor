@@ -116,41 +116,55 @@ struct GraphCanvasView: View {
                         let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)
                         let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)
                         
-                        let path = Path { path in
+                        let linePath = Path { path in
                             path.move(to: fromScreen)
                             path.addLine(to: toScreen)
                         }
                         
-                        context.stroke(path, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
+                        let isSelected = edge.id == selectedEdgeID
+                        let color: Color = isSelected ? .red : .gray  // UPDATED: Base color
                         
-                        // Arrowhead
-                        let arrowLength: CGFloat = 10
-                        let arrowAngle: CGFloat = .pi / 6
-                        let lineAngle = atan2(toScreen.y - fromScreen.y, toScreen.x - fromScreen.x)
-                        
-                        let arrowPoint1 = CGPoint(
-                            x: toScreen.x - arrowLength * cos(lineAngle - arrowAngle),
-                            y: toScreen.y - arrowLength * sin(lineAngle - arrowAngle)
-                        )
-                        let arrowPoint2 = CGPoint(
-                            x: toScreen.x - arrowLength * cos(lineAngle + arrowAngle),
-                            y: toScreen.y - arrowLength * sin(lineAngle + arrowAngle)
-                        )
-                        
-                        let arrowPath = Path { path in
-                            path.move(to: toScreen)
-                            path.addLine(to: arrowPoint1)
-                            path.move(to: toScreen)
-                            path.addLine(to: arrowPoint2)
+                        // NEW: Type-specific rendering
+                        switch edge.type {
+                        case .hierarchy:
+                            // Solid line with arrow
+                            context.stroke(linePath, with: .color(color), lineWidth: 2)
+                            
+                            // Arrowhead
+                            let arrowLength: CGFloat = 10
+                            let arrowAngle = CGFloat.pi / 6
+                            let lineAngle = atan2(toScreen.y - fromScreen.y, toScreen.x - fromScreen.x)
+                            
+                            let arrowPoint1 = CGPoint(
+                                x: toScreen.x - arrowLength * cos(lineAngle - arrowAngle),
+                                y: toScreen.y - arrowLength * sin(lineAngle - arrowAngle)
+                            )
+                            let arrowPoint2 = CGPoint(
+                                x: toScreen.x - arrowLength * cos(lineAngle + arrowAngle),
+                                y: toScreen.y - arrowLength * sin(lineAngle + arrowAngle)
+                            )
+                            
+                            let arrowPath = Path { path in
+                                path.move(to: toScreen)
+                                path.addLine(to: arrowPoint1)
+                                path.move(to: toScreen)
+                                path.addLine(to: arrowPoint2)
+                            }
+                            
+                            context.stroke(arrowPath, with: .color(color), lineWidth: 2)
+                        case .association:
+                            // Dashed line without arrow
+                            let dashStyle = StrokeStyle(lineWidth: 2, dash: [5, 5])
+                            context.stroke(linePath, with: .color(color), style: dashStyle)
                         }
-                        
-                        context.stroke(arrowPath, with: .color(edge.id == selectedEdgeID ? .red : .gray), lineWidth: 2)
                     }
                 }
                 
                 // Draw nodes
                 for node in visibleNodes {
                     let screenPos = modelToScreen(node.position, effectiveCentroid: effectiveCentroid, size: size)
+                    let isSelected = (node.id == selectedNodeID)
+                    print("Canvas comparison: node \(node.label) id=\(node.id.uuidString.prefix(8)), selected=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), isSelected=\(isSelected)")
                     node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: node.id == selectedNodeID)
                 }
                 
@@ -170,6 +184,13 @@ struct GraphCanvasView: View {
             if showOverlays {
                 boundingBoxOverlay
             }
+            
+            if let selectedID = selectedNodeID {
+                Text("Selected: \(selectedID.uuidString.prefix(8))")  // Debug label
+                    .position(x: 10, y: 10)
+                    .foregroundColor(.yellow)
+            }
+            
         }
     }
     

@@ -45,7 +45,8 @@ struct InnerViewConfig {
     let selectedEdgeID: Binding<UUID?>
     let canvasFocus: FocusState<Bool>
     let onCenterGraph: () -> Void
-    let isAddingEdge: Binding<Bool>  // Add
+    let isAddingEdge: Binding<Bool>
+    let isSimulatingBinding: Binding<Bool>
     
     init(
         geo: GeometryProxy,
@@ -65,8 +66,8 @@ struct InnerViewConfig {
         selectedEdgeID: Binding<UUID?>,
         canvasFocus: FocusState<Bool>,
         onCenterGraph: @escaping () -> Void,
-        isAddingEdge: Binding<Bool>
-    
+        isAddingEdge: Binding<Bool>,
+        isSimulatingBinding: Binding<Bool>  // NEW: Add this param
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -86,6 +87,7 @@ struct InnerViewConfig {
         self.canvasFocus = canvasFocus
         self.onCenterGraph = onCenterGraph
         self.isAddingEdge = isAddingEdge
+        self.isSimulatingBinding = isSimulatingBinding  // NEW: Assign it
     }
 }
 
@@ -108,8 +110,30 @@ struct ContentView: View {
     @State private var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
     @State private var showEditSheet: Bool = false
     @State private var isAddingEdge: Bool = false
-    @State private var viewSize: CGSize = .zero  // New: Store view size for use in onChange
+    @State private var viewSize: CGSize = .zero
+    @State private var isSimulating: Bool = false
+    
+    // NEW: Custom Bindings to sync @State with ViewModel (two-way)
+        private var selectedNodeIDBinding: Binding<NodeID?> {
+            Binding(
+                get: { selectedNodeID },
+                set: { newValue in
+                    selectedNodeID = newValue
+                    viewModel.setSelectedNode(newValue)  // Sync to ViewModel
+                }
+            )
+        }
 
+        private var selectedEdgeIDBinding: Binding<UUID?> {
+            Binding(
+                get: { selectedEdgeID },
+                set: { newValue in
+                    selectedEdgeID = newValue
+                    viewModel.setSelectedEdge(newValue)  // Sync to ViewModel
+                }
+            )
+        }
+    
     var body: some View {
         GeometryReader { geo in
             mainContent(in: geo)
@@ -152,6 +176,16 @@ struct ContentView: View {
                         print("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(crownPosition)")
                         #endif
                     }
+                }
+                .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
+                    print("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    selectedNodeID = newValue  // Sync to local @State
+                    viewModel.objectWillChange.send()  // Force re-render if needed
+                }
+                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
+                    print("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    selectedEdgeID = newValue
+                    viewModel.objectWillChange.send()
                 }
                 // New: Center on stable simulation
                 .onReceive(viewModel.model.$isStable) { isStable in
@@ -205,7 +239,8 @@ struct ContentView: View {
                 selectedEdgeID: $selectedEdgeID,
                 canvasFocus: _canvasFocus,
                 onCenterGraph: centerGraph,
-                isAddingEdge: $isAddingEdge
+                isAddingEdge: $isAddingEdge,
+                isSimulatingBinding: $isSimulating,  // FIXED: Pass actual binding instance from @State
             ))
             
             addNodeButton(in: geo)
@@ -309,7 +344,7 @@ struct InnerView: View {
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge  // Add this param (update init below too)
+            isAddingEdge: config.isAddingEdge
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
@@ -319,9 +354,10 @@ struct InnerView: View {
         if config.showMenu.wrappedValue {
             MenuView(
                 viewModel: config.viewModel,
-                showOverlays: config.showOverlays,
+                isSimulatingBinding: config.isSimulatingBinding,  // FIXED: Use config's binding
+                onCenterGraph: config.onCenterGraph,
                 showMenu: config.showMenu,
-                onCenterGraph: config.onCenterGraph
+                showOverlays: config.showOverlays
             )
             .navigationTitle("Menu")
         } else {

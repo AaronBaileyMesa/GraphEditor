@@ -1,14 +1,15 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-05 09:29:09
+Current date: 2025-09-06 13:07:53
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
 3. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
 4. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 5. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift--------------------------------------------------
+6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+7. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 Last modified: 2025-09-03 18:18:01
@@ -311,15 +312,15 @@ public struct AnyNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-08-28 13:48:49
+Last modified: 2025-09-05 12:59:10
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
 
 import Foundation
-import os.log
+import os  // For Logger
 
-private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "storage")
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
 @available(iOS 13.0, watchOS 6.0, *)
 /// Error types for graph storage operations.
@@ -343,43 +344,44 @@ public class PersistenceManager: GraphStorage {
     }
     
     struct SavedState: Codable {
-        var version: Int = 1  // Change let to var
+        let version: Int = 1
         let nodes: [NodeWrapper]
         let edges: [GraphEdge]
         let viewState: ViewState?  // Embed view state (optional)
     }
     
+    // UPDATED: Made async (wrap sync ops in Task for non-blocking I/O)
     public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
-        let wrapped = nodes.map { node in
-            if let n = node as? Node {
-                return NodeWrapper.node(n)
-            } else if let tn = node as? ToggleNode {
-                return NodeWrapper.toggleNode(tn)
-            } else {
-                os_log("Unsupported node type: %{public}s", log: logger, type: .error, String(describing: type(of: node)))
-                fatalError("Unsupported node type: \(type(of: node))")
-            }
-        }
-        let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Populate viewState if needed from params
-            try await withCheckedThrowingContinuation { continuation in
-                do {
-                    let data = try JSONEncoder().encode(state)
-                    try data.write(to: fileURL)
-                    continuation.resume()
-                } catch let error as EncodingError {
-                    os_log("Encoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-                    continuation.resume(throwing: GraphStorageError.encodingFailed(error))
-                } catch {
-                    os_log("Writing failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-                    continuation.resume(throwing: GraphStorageError.writingFailed(error))
+        try await Task {  // Wrap in Task to make async
+            let wrapped = nodes.map { node in
+                if let n = node as? Node {
+                    return NodeWrapper.node(n)
+                } else if let tn = node as? ToggleNode {
+                    return NodeWrapper.toggleNode(tn)
+                } else {
+                    logger.error("Unsupported node type: \(String(describing: type(of: node)))")
+                    fatalError("Unsupported node type: \(type(of: node))")
                 }
             }
+            let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Populate viewState if needed
+            do {
+                let data = try JSONEncoder().encode(state)
+                try data.write(to: fileURL)
+            } catch let error as EncodingError {
+                logger.error("Encoding failed: \(error.localizedDescription)")
+                throw GraphStorageError.encodingFailed(error)
+            } catch {
+                logger.error("Writing failed: \(error.localizedDescription)")
+                throw GraphStorageError.writingFailed(error)
+            }
+        }.value  // Await the task's completion
     }
     
+    // UPDATED: Made async
     public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: fileURL.path) else { return ([], []) }
-        return try await withCheckedThrowingContinuation { continuation in
+        try await Task {
+            let fm = FileManager.default
+            guard fm.fileExists(atPath: fileURL.path) else { return ([], []) }
             do {
                 let data = try Data(contentsOf: fileURL)
                 let state = try JSONDecoder().decode(SavedState.self, from: data)
@@ -387,32 +389,28 @@ public class PersistenceManager: GraphStorage {
                     throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
                 }
                 let loadedNodes = state.nodes.map { $0.value }
-                continuation.resume(returning: (loadedNodes, state.edges))
+                return (loadedNodes, state.edges)
             } catch let error as DecodingError {
-                os_log("Decoding failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-                continuation.resume(throwing: GraphStorageError.decodingFailed(error))
+                logger.error("Decoding failed: \(error.localizedDescription)")
+                throw GraphStorageError.decodingFailed(error)
             } catch {
-                os_log("Loading failed: %{public}s", log: logger, type: .error, error.localizedDescription)
-                continuation.resume(throwing: GraphStorageError.loadingFailed(error))
+                logger.error("Loading failed: \(error.localizedDescription)")
+                throw GraphStorageError.loadingFailed(error)
             }
-        }
+        }.value
     }
     
+    // UPDATED: Made async
     public func clear() async throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: fileURL.path) {
-            try await withCheckedThrowingContinuation { cont in
-                do {
-                    try fm.removeItem(at: fileURL)
-                    cont.resume()
-                } catch {
-                    cont.resume(throwing: error)
-                }
+        try await Task {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: fileURL.path) {
+                try fm.removeItem(at: fileURL)
             }
-        }
+        }.value
     }
 
-    // Updated helper struct
+    // Updated helper struct (unchanged)
     struct ViewState: Codable {
         let offset: CGPoint
         let zoomScale: CGFloat
@@ -420,25 +418,29 @@ public class PersistenceManager: GraphStorage {
         let selectedEdgeID: UUID?  // Matches @Published in GraphViewModel
     }
 
-    // Updated save method
-    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
-        let state = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
-        let data = try JSONEncoder().encode(state)
-        UserDefaults.standard.set(data, forKey: "graphViewState")
-        UserDefaults.standard.synchronize()  // Ensure immediate write
+    // UPDATED: Made async for consistency (though UserDefaults is sync)
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
+        try await Task {
+            let state = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+            let data = try JSONEncoder().encode(state)
+            UserDefaults.standard.set(data, forKey: "graphViewState")
+            UserDefaults.standard.synchronize()  // Ensure immediate write
+        }.value
     }
 
-    // Updated load method
-    public func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
-        guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
-        let state = try JSONDecoder().decode(ViewState.self, from: data)
-        return (offset: state.offset, zoomScale: state.zoomScale, selectedNodeID: state.selectedNodeID, selectedEdgeID: state.selectedEdgeID)
+    // UPDATED: Made async
+    public func loadViewState() async throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+        try await Task {
+            guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
+            let state = try JSONDecoder().decode(ViewState.self, from: data)
+            return (offset: state.offset, zoomScale: state.zoomScale, selectedNodeID: state.selectedNodeID, selectedEdgeID: state.selectedEdgeID)
+        }.value
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-09-04 08:55:35
+Last modified: 2025-09-05 10:33:51
 
 Contents:
 //
@@ -470,9 +472,9 @@ public class PhysicsEngine {
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
         self.repulsionCalculator = RepulsionCalculator(maxNodesForQuadtree: 200, simulationBounds: simulationBounds)
-        self.attractionCalculator = AttractionCalculator(useAsymmetricAttraction: self.useAsymmetricAttraction, symmetricFactor: self.symmetricFactor)
+        self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor)  // Only symmetricFactor; per-edge logic handles asymmetry
         self.centeringCalculator = CenteringCalculator(simulationBounds: simulationBounds)
-        self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)  // Added missing arg
+        self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)
     }
     
     public func temporaryDampingBoost(steps: Int = 20) {
@@ -486,7 +488,6 @@ public class PhysicsEngine {
         stepCount = 0
     }
     
-    public var useAsymmetricAttraction: Bool = false  // Default to false for stability
     public var isPaused: Bool = false
     
     @discardableResult
@@ -498,7 +499,7 @@ public class PhysicsEngine {
         var updatedForces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
         updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
         
-        let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)  // Changed var to let
+        let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
         // New: Reset velocities if stable
         let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: .zero) }
          // NEW: Apply boosted damping if active
@@ -938,6 +939,115 @@ public class Quadtree {  // Made public for consistency/test access
         let dist = sqrt(distSquared)
         let forceMagnitude = Constants.Physics.repulsion * mass / distSquared
         return CGPoint(x: deltaX / dist * forceMagnitude, y: deltaY / dist * forceMagnitude)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: RepulsionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+Last modified: 2025-08-25 11:30:35
+
+Contents:
+//
+//  RepulsionCalculator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct RepulsionCalculator {
+    private let maxNodesForQuadtree: Int
+    private let simulationBounds: CGSize
+
+    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
+        self.maxNodesForQuadtree = maxNodesForQuadtree
+        self.simulationBounds = simulationBounds
+    }
+
+    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
+        var forces: [NodeID: CGPoint] = [:]
+        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
+        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
+
+        for node in nodes {
+            var repulsion: CGPoint = .zero
+            if let quadtree = quadtree {
+                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
+                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
+            } else {
+                for otherNode in nodes where otherNode.id != node.id {
+                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
+                }
+            }
+            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
+        }
+        return (forces, quadtree)  // New: Return tuple
+    }
+
+    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
+        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
+        let quadtree = Quadtree(bounds: boundingBox)
+        for node in nodes {
+            quadtree.insert(node)
+        }
+        return quadtree
+    }
+
+    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
+        let dx = queryPosition.x - repellerPosition.x
+        let dy = queryPosition.y - repellerPosition.y
+        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
+        let distance = sqrt(distanceSquared)
+        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
+        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
+    }
+    
+    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
+        var force = CGPoint.zero
+        func calculateRepulsion(qt: Quadtree) {
+            if qt.children == nil {
+                for other in qt.nodes where other.id != node.id {
+                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
+                }
+                return
+            }
+
+            let dx = qt.centerOfMass.x - node.position.x
+            let dy = qt.centerOfMass.y - node.position.y
+            let distance = hypot(dx, dy)
+            let width = qt.bounds.width
+
+            if width / distance < theta && distance > 0 {  // Use theta
+                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
+                force += approxForce
+            } else {
+                if let children = qt.children {
+                    calculateRepulsion(qt: children[0])
+                    calculateRepulsion(qt: children[1])
+                    calculateRepulsion(qt: children[2])
+                    calculateRepulsion(qt: children[3])
+                }
+            }
+        }
+
+        calculateRepulsion(qt: quadtree)
+        return force
+    }
+
+    // Added missing boundingBox func
+    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
+        guard !nodes.isEmpty else { return .zero }
+        var minX = nodes[0].position.x, minY = nodes[0].position.y
+        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
+        for node in nodes {
+            minX = min(minX, node.position.x - node.radius)
+            minY = min(minY, node.position.y - node.radius)
+            maxX = max(maxX, node.position.x + node.radius)
+            maxY = max(maxY, node.position.y + node.radius)
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 --------------------------------------------------

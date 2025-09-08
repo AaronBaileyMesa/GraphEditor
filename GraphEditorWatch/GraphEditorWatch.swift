@@ -17,9 +17,11 @@ struct GraphEditorWatch: App {
             let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
             let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
             let viewModel = GraphViewModel(model: model)  // Sync init
-            ContentView(viewModel: viewModel)
+            ContentView(
+                viewModel: viewModel
+            )
             .task {
-            await viewModel.loadGraph()  // Async load inside
+                await viewModel.loadGraph()  // Async load inside
             }
         }
     }
