@@ -279,12 +279,8 @@ struct AccessibilityTests {
         let storage = MockGraphStorage()
         // Preload with dummy to avoid defaults and set nextNodeLabel to 1
         storage.nodes = [Node(label: 0, position: .zero)]
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine(), nextNodeLabel: 1)
-                await MainActor.run { model.nodes = [] }
-                await MainActor.run { model.edges = [] }
-        
-                await MainActor.run { model.nextNodeLabel = 1 }
-        
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        await MainActor.run { model.nextNodeLabel = 1 }  // Set post-init if required
                 await model.addNode(at: .zero)
                 await model.addNode(at: CGPoint(x: 10, y: 10))
         

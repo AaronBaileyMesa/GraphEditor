@@ -201,6 +201,8 @@ import WatchKit  // For WKApplication
     func addEdge(from: NodeID, to: NodeID, type: EdgeType) async {
         model.edges.append(GraphEdge(from: from, to: to, type: type))
         await model.startSimulation()
+        await model.save()  // Persist if needed
+            objectWillChange.send()
     }
     
     func clearGraph() async {

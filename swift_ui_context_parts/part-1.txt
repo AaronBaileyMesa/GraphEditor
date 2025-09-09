@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-06 13:07:52
+Current date: 2025-09-08 11:28:15
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -108,7 +108,7 @@ struct CenteringCalculator {
 ----------------------------------------------------------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-09-05 10:34:19
+Last modified: 2025-09-06 17:08:42
 
 Contents:
 //
@@ -144,7 +144,7 @@ public enum Constants {
     public enum App {
         public static let nodeModelRadius: CGFloat = 10.0
         public static let hitScreenRadius: CGFloat = 50.0  // Larger for watchOS tap targets
-        public static let tapThreshold: CGFloat = 8.0  // Tightened from 10.0 for small screens
+        public static let tapThreshold: CGFloat = 20.0  // Tightened from 10.0 for small screens
         public static let numZoomLevels: Int = 20  // For crown mapping
         public static let contentPadding: CGFloat = 50.0  // Padding for graph bounds
         public static let maxZoom: CGFloat = 8.0  // Maximum zoom level

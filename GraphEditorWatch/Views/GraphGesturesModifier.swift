@@ -52,6 +52,14 @@ struct GraphGesturesModifier: ViewModifier {
         return screenPos
     }
     
+    private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> CGPoint {
+        let safeZoom = max(zoomScale, 0.1)
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        let translated = screenPos - viewCenter - CGPoint(x: offset.width, y: offset.height)
+        let unscaled = CGPoint(x: translated.x / safeZoom, y: translated.y / safeZoom)
+        return unscaled + effectiveCentroid
+    }
+    
     // New: Screen-space hit test for nodes (consistent usability)
     private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)? = nil
@@ -138,150 +146,129 @@ struct GraphGesturesModifier: ViewModifier {
         
         return closestEdge
     }
-    
-    // New: Screen to model conversion (with effective centroid)
-    private func screenToModel(_ screenPos: CGPoint, zoomScale: CGFloat, offset: CGSize, viewSize: CGSize, effectiveCentroid: CGPoint) -> CGPoint {
-        let safeZoom = max(zoomScale, 0.1)
-        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
-        let panOffset = CGPoint(x: offset.width, y: offset.height)
-        let translated = screenPos - viewCenter - panOffset
-        let unscaled = translated / safeZoom
-        return unscaled + effectiveCentroid
-    }
-    
+        
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
             .onChanged { value in
                 let location = value.location
                 let translation = value.translation
                 let dragMagnitude = hypot(translation.width, translation.height)
-                
-                let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.visibleEdges()
-                
-                // New: Use gestureStartCentroid if set; else fallback to viewModel
-                if gestureStartCentroid == .zero {
-                    gestureStartCentroid = viewModel.effectiveCentroid
-                }
-                let effectiveCentroid = gestureStartCentroid
-                
-                if startLocation == nil {
-                    startLocation = location
-                    selectedNodeID = nil
-                    selectedEdgeID = nil
-                }
-                
-                if dragStartNode == nil && dragMagnitude > dragStartThreshold {
-                    if let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid) {
-                        draggedNode = hitNode
-                        dragStartNode = hitNode
+
+                let visibleNodes = viewModel.model.visibleNodes()  // Or viewModel.model.nodes if no visibleNodes()
+                let effectiveCentroid = viewModel.effectiveCentroid  // From ViewModel
+
+                // Initial hit if no dragStartNode (start of drag)
+                if dragStartNode == nil {
+                    let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                    if let node = hitNode {
+                        dragStartNode = node
+                        draggedNode = node
                         dragOffset = .zero
-                        potentialEdgeTarget = nil
-                        print("Started drag on node \(hitNode.label)")
-                    } else if let hitEdge = hitTestEdgesInScreenSpace(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid) {
-                        selectedEdgeID = hitEdge.id
-                        print("Selected edge \(hitEdge.id)")
+                        isAddingEdge = true  // Enter edge creation mode
+                        logger.debug("Drag of \(dragMagnitude) started from Node \(node.label)")
                     } else {
-                        panStartOffset = offset
-                        print("Started pan")
+                        // Pan the canvas instead
+                        if panStartOffset == nil {
+                            panStartOffset = offset
+                        }
+                        let delta = CGSize(width: translation.width, height: translation.height)
+                        offset = panStartOffset! + delta
+                    }
+                    startLocation = location  // For tap threshold in onEnded
+                    gestureStartCentroid = effectiveCentroid
+                    return
+                }
+
+                // Ongoing drag: Update drag offset and check for potential target
+                if let node = draggedNode {
+                    dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
+                    let potential = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                    potentialEdgeTarget = (potential?.id != node.id) ? potential : nil  // Avoid self-edges
+                    if let target = potentialEdgeTarget {
+                        logger.debug("Potential edge target: Node \(target.label)")
                     }
                 }
-                
-                if let dragged = draggedNode {
-                    dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-                    let draggedModelPos = dragged.position + dragOffset
-                    potentialEdgeTarget = hitTestNodesInScreenSpace(at: modelToScreen(draggedModelPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid), visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                } else if let startOffset = panStartOffset {
-                    offset = CGSize(width: startOffset.width + translation.width, height: startOffset.height + translation.height)
-                }
-                
-                onUpdateZoomRanges()
             }
             .onEnded { value in
-                let tapScreenPos = value.location
+                let location = value.location  // Ensure scope
                 let translation = value.translation
                 let dragMagnitude = hypot(translation.width, translation.height)
                 
-                let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.visibleEdges()
+                // Defer cleanup (ensures reset even on errors/taps)
+                defer {
+                    dragStartNode = nil
+                    isMovingSelectedNode = false
+                    draggedNode = nil
+                    dragOffset = .zero
+                    potentialEdgeTarget = nil
+                    panStartOffset = nil
+                    startLocation = nil
+                    isAddingEdge = false
+                    onUpdateZoomRanges()
+                    gestureStartCentroid = .zero
+                }
                 
-                let effectiveCentroid = gestureStartCentroid != .zero ? gestureStartCentroid : viewModel.effectiveCentroid
-                
-                if dragMagnitude < dragStartThreshold, let start = startLocation, distance(start, tapScreenPos) < dragStartThreshold {
-                    // Handle as tap
-                    #if DEBUG
-                    let translated = tapScreenPos - CGPoint(x: viewSize.width / 2 + offset.width, y: viewSize.height / 2 + offset.height)
-                    let unscaled = CGPoint(x: translated.x / zoomScale, y: translated.y / zoomScale)
-                    let tapModelPos = unscaled + effectiveCentroid
-                    logger.debug("--- Tap (.onEnded) Diagnostic ---")
-                    logger.debug("Effective Centroid: \(String(describing: effectiveCentroid))")
-                    logger.debug("Screen Pos: \(String(describing: tapScreenPos))")
-                    logger.debug("Translated: \(String(describing: translated))")
-                    logger.debug("Unscaled: \(String(describing: unscaled))")
-                    logger.debug("Model Pos (tapModelPos): \(String(describing: tapModelPos))")
+                // Early exit for taps (short drag) - fixed scope
+                if let start = startLocation, dragMagnitude < dragStartThreshold, distance(start, location) < dragStartThreshold {
+                    let tapScreenPos = location  // Now defined here, in scope for all uses below
+                #if DEBUG
+                    let visibleNodes = viewModel.model.visibleNodes()  // Replace with viewModel.model.nodes if needed
+                    let effectiveCentroid = viewModel.effectiveCentroid
+                    logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: tapScreenPos))")
                     logger.debug("Visible Nodes Count: \(visibleNodes.count)")
                     logger.debug("--------------------------------")
-                    #endif
-
-                    let modelPos = screenToModel(tapScreenPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)  // Use helper (add if missing, as in previous response)
-                    Task { await viewModel.handleTap(at: modelPos) }  // Pass position
-                } else {
-                    // Non-tap: Handle drag completion (move node or add edge)
-                    print("Processing as drag: magnitude \(dragMagnitude), translation \(translation)")
-                    if let dragged = draggedNode {
-                        Task { await viewModel.snapshot() }
-                        let modelDragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-                        print("Drag offset in model: \(modelDragOffset)")
-                        
-                        if let target = potentialEdgeTarget, target.id != dragged.id {
-                            if isAddingEdge {
-                                if !viewModel.model.edges.contains(where: { ($0.from == dragged.id && $0.to == target.id) || ($0.from == target.id && $0.to == dragged.id) }) {
-                                    // UPDATED: Use pendingEdgeType from ViewModel
-                                    let type = viewModel.pendingEdgeType
-                                    viewModel.model.edges.append(GraphEdge(from: dragged.id, to: target.id, type: type))
-                                    print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
-                                    Task { await viewModel.model.startSimulation() }
-                                    isAddingEdge = false  // Exit mode
-                                }
-                            }
-                        } else {
-                            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
-                                var updatedNode = viewModel.model.nodes[index]
-                                updatedNode.position += modelDragOffset
-                                viewModel.model.nodes[index] = updatedNode
-                                print("Moved node \(dragged.label) to new position \(updatedNode.position)")
-                                Task { await viewModel.model.startSimulation() }
-                            }
+                #endif
+                    let modelPos = screenToModel(tapScreenPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                    Task { await viewModel.handleTap(at: modelPos) }
+                    // Quick reset for tap (defer handles full cleanup)
+                    draggedNode = nil
+                    potentialEdgeTarget = nil
+                    isAddingEdge = false
+                    dragStartNode = nil
+                    return  // Exit early
+                }
+                
+                print("Processing as drag: magnitude \(dragMagnitude), translation \(translation)")
+                
+                if let dragged = draggedNode {
+                    Task { await viewModel.snapshot() }
+                    let modelDragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)  // Define here for full scope
+                    print("Drag offset in model: \(modelDragOffset)")
+                    
+                    if let target = potentialEdgeTarget, target.id != dragged.id, isAddingEdge {
+                        // Duplicate check with logging
+                        let exists = viewModel.model.edges.contains { edge in
+                            (edge.from == dragged.id && edge.to == target.id) || (edge.from == target.id && edge.to == dragged.id)
                         }
-                    } else if isMovingSelectedNode, let selectedID = selectedNodeID {
-                        if let index = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
-                            var updatedNode = viewModel.model.nodes[index]
-                            let modelDragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-                            updatedNode.position += modelDragOffset
+                        if !exists {
+                            print("No duplicate; adding edge")
+                            // Heuristic: Downward = hierarchy
+                            let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
+                            viewModel.pendingEdgeType = type  // Update for UI
+                            Task {
+                                await viewModel.addEdge(from: dragged.id, to: target.id, type: type)  // Async call
+                            }
+                            print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
+                            isAddingEdge = false
+                        } else {
+                            print("Duplicate edge ignored between \(dragged.label) and \(target.label)")
+                        }
+                    } else {
+                        // No target: Move the node (now properly in 'dragged' scope, protocol-safe)
+                        if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
+                            let oldNode = viewModel.model.nodes[index]
+                            let newPos = oldNode.position + modelDragOffset  // Uses local offset
+                            let updatedNode = oldNode.with(position: newPos, velocity: .zero)
                             viewModel.model.nodes[index] = updatedNode
-                            print("Moved selected node \(updatedNode.label) by \(modelDragOffset)")
+                            print("Moved node \(oldNode.label) to new position \(newPos)")
                             Task { await viewModel.model.startSimulation() }
                         }
                     }
-                }
-
+                }  // Explicit closing brace for 'if let dragged' scope
                 withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
                     onUpdateZoomRanges()
                 }
-
-                dragStartNode = nil
-                isMovingSelectedNode = false
-                draggedNode = nil
-                dragOffset = .zero
-                potentialEdgeTarget = nil
-                panStartOffset = nil
-                startLocation = nil
-                onUpdateZoomRanges()
-                
-                // Reset gesture centroid for next gesture
-                gestureStartCentroid = .zero
             }
-
         content
             .highPriorityGesture(dragGesture)
     }
