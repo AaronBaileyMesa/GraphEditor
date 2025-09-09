@@ -194,6 +194,10 @@ struct GraphGesturesModifier: ViewModifier {
                 let translation = value.translation
                 let dragMagnitude = hypot(translation.width, translation.height)
                 
+                let visibleNodes = viewModel.model.visibleNodes()
+                let visibleEdges = viewModel.model.visibleEdges()  // NEW: Get visible edges (assume method exists; use model.edges if not)
+                let effectiveCentroid = viewModel.effectiveCentroid
+                  
                 // Defer cleanup (ensures reset even on errors/taps)
                 defer {
                     dragStartNode = nil
@@ -208,18 +212,59 @@ struct GraphGesturesModifier: ViewModifier {
                     gestureStartCentroid = .zero
                 }
                 
-                // Early exit for taps (short drag) - fixed scope
+                // Early exit for taps (short drag) - enhanced for node/edge selection
                 if let start = startLocation, dragMagnitude < dragStartThreshold, distance(start, location) < dragStartThreshold {
                     let tapScreenPos = location  // Now defined here, in scope for all uses below
                 #if DEBUG
-                    let visibleNodes = viewModel.model.visibleNodes()  // Replace with viewModel.model.nodes if needed
-                    let effectiveCentroid = viewModel.effectiveCentroid
                     logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: tapScreenPos))")
                     logger.debug("Visible Nodes Count: \(visibleNodes.count)")
                     logger.debug("--------------------------------")
                 #endif
-                    let modelPos = screenToModel(tapScreenPos, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                    Task { await viewModel.handleTap(at: modelPos) }
+                    
+                    // NEW: Local hit testing for taps (prioritize node > edge > clear)
+                    // Pause simulation first (mimics handleTap)
+                    Task { await viewModel.model.pauseSimulation() }
+                    
+                    let hitNode = hitTestNodesInScreenSpace(at: tapScreenPos, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                    if let node = hitNode {
+                        // Node hit: Handle toggle or selection (replicates viewModel.handleTap logic)
+                        if let toggleNode = node as? ToggleNode {
+                            // Toggle without selection
+                            let updated = toggleNode.handlingTap()
+                            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == toggleNode.id }) {
+                                viewModel.model.nodes[index] = AnyNode(updated)  // Assume AnyNode wrapper if needed for polymorphism
+                            }
+                            selectedNodeID = nil
+                            selectedEdgeID = nil
+                            logger.debug("Toggled ToggleNode \(toggleNode.label)")
+                        } else {
+                            // Select regular node (toggle off if already)
+                            selectedNodeID = (node.id == selectedNodeID) ? nil : node.id
+                            selectedEdgeID = nil
+                            logger.debug("Selected regular Node \(node.label)")
+                        }
+                    } else {
+                        // No node: Check edges
+                        let hitEdge = hitTestEdgesInScreenSpace(at: tapScreenPos, visibleEdges: visibleEdges, visibleNodes: visibleNodes, zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                        if let edge = hitEdge {
+                            // Select edge, clear node
+                            selectedEdgeID = edge.id
+                            selectedNodeID = nil
+                            logger.debug("Tap selected Edge \(edge.id.uuidString.prefix(8))")
+                        } else {
+                            // Miss: Clear all
+                            selectedNodeID = nil
+                            selectedEdgeID = nil
+                            logger.debug("Tap missed; cleared selections")
+                        }
+                    }
+                    
+                    // Sync with ViewModel (triggers onChange in ContentView)
+                    viewModel.objectWillChange.send()
+                    
+                    // Resume simulation after delay (mimics handleTap)
+                    Task { await viewModel.resumeSimulationAfterDelay() }
+                    
                     // Quick reset for tap (defer handles full cleanup)
                     draggedNode = nil
                     potentialEdgeTarget = nil

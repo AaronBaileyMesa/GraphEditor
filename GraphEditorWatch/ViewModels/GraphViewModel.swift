@@ -189,6 +189,14 @@ import WatchKit  // For WKApplication
         await model.updateNodeContent(withID: id, newContent: newContent)
     }
     
+    func updateNodePosition(id: NodeID, newPosition: CGPoint) async {
+        if let index = model.nodes.firstIndex(where: { $0.id == id }) {
+            model.nodes[index].position = newPosition
+            model.nodes[index].velocity = .zero  // Stop movement
+            await model.startSimulation()
+        }
+    }
+    
     func addToggleNode(at position: CGPoint) async {
         await model.addToggleNode(at: position)
     }

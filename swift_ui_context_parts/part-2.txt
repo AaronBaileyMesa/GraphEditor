@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-08 11:28:15
+Current date: 2025-09-09 11:58:23
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
@@ -315,7 +315,7 @@ public struct AnyNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-09-05 12:59:10
+Last modified: 2025-09-08 22:16:47
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -347,7 +347,7 @@ public class PersistenceManager: GraphStorage {
     }
     
     struct SavedState: Codable {
-        let version: Int = 1
+        var version: Int = 1
         let nodes: [NodeWrapper]
         let edges: [GraphEdge]
         let viewState: ViewState?  // Embed view state (optional)
@@ -355,64 +355,61 @@ public class PersistenceManager: GraphStorage {
     
     // UPDATED: Made async (wrap sync ops in Task for non-blocking I/O)
     public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
-        try await Task {  // Wrap in Task to make async
-            let wrapped = nodes.map { node in
-                if let n = node as? Node {
-                    return NodeWrapper.node(n)
-                } else if let tn = node as? ToggleNode {
-                    return NodeWrapper.toggleNode(tn)
-                } else {
-                    logger.error("Unsupported node type: \(String(describing: type(of: node)))")
-                    fatalError("Unsupported node type: \(type(of: node))")
-                }
+        let wrapped = nodes.compactMap { node -> NodeWrapper? in
+            if let n = node as? Node { return .node(n) }
+            else if let tn = node as? ToggleNode { return .toggleNode(tn) }
+            else {
+                logger.error("Unsupported node type: \(String(describing: type(of: node))); skipping.")
+                return nil  // Skip instead of fatalError
             }
-            let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Populate viewState if needed
-            do {
-                let data = try JSONEncoder().encode(state)
-                try data.write(to: fileURL)
-            } catch let error as EncodingError {
-                logger.error("Encoding failed: \(error.localizedDescription)")
-                throw GraphStorageError.encodingFailed(error)
-            } catch {
-                logger.error("Writing failed: \(error.localizedDescription)")
-                throw GraphStorageError.writingFailed(error)
-            }
-        }.value  // Await the task's completion
+        }
+        let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Add viewState if passed
+        do {
+            let data = try JSONEncoder().encode(state)
+            try data.write(to: fileURL)
+            logger.debug("Saved \(wrapped.count) nodes and \(edges.count) edges")
+        } catch let error as EncodingError {
+            logger.error("Encoding failed: \(error.localizedDescription)")
+            throw GraphStorageError.encodingFailed(error)
+        } catch {
+            logger.error("Writing failed: \(error.localizedDescription)")
+            throw GraphStorageError.writingFailed(error)
+        }
     }
     
     // UPDATED: Made async
     public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
-        try await Task {
-            let fm = FileManager.default
-            guard fm.fileExists(atPath: fileURL.path) else { return ([], []) }
-            do {
-                let data = try Data(contentsOf: fileURL)
-                let state = try JSONDecoder().decode(SavedState.self, from: data)
-                if state.version != 1 {
-                    throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
-                }
-                let loadedNodes = state.nodes.map { $0.value }
-                return (loadedNodes, state.edges)
-            } catch let error as DecodingError {
-                logger.error("Decoding failed: \(error.localizedDescription)")
-                throw GraphStorageError.decodingFailed(error)
-            } catch {
-                logger.error("Loading failed: \(error.localizedDescription)")
-                throw GraphStorageError.loadingFailed(error)
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: fileURL.path) else {
+            logger.debug("No saved file; returning empty")
+            return ([], [])
+        }
+        do {
+            let data = try Data(contentsOf: fileURL)
+            let state = try JSONDecoder().decode(SavedState.self, from: data)
+            if state.version != 1 {
+                throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
             }
-        }.value
-    }
-    
-    // UPDATED: Made async
-    public func clear() async throws {
-        try await Task {
-            let fm = FileManager.default
-            if fm.fileExists(atPath: fileURL.path) {
-                try fm.removeItem(at: fileURL)
-            }
-        }.value
+            let loadedNodes = state.nodes.map { $0.value }
+            logger.debug("Loaded \(loadedNodes.count) nodes and \(state.edges.count) edges")
+            return (loadedNodes, state.edges)
+        } catch let error as DecodingError {
+            logger.error("Decoding failed: \(error.localizedDescription)")
+            throw GraphStorageError.decodingFailed(error)
+        } catch {
+            logger.error("Loading failed: \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
+        }
     }
 
+    public func clear() async throws {
+        let fm = FileManager.default
+        if fm.fileExists(atPath: fileURL.path) {
+            try fm.removeItem(at: fileURL)
+            logger.debug("Cleared saved graph")
+        }
+    }
+    
     // Updated helper struct (unchanged)
     struct ViewState: Codable {
         let offset: CGPoint
@@ -443,7 +440,7 @@ public class PersistenceManager: GraphStorage {
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-09-05 10:33:51
+Last modified: 2025-09-09 11:56:39
 
 Contents:
 //
@@ -471,11 +468,12 @@ public class PhysicsEngine {
     internal let attractionCalculator: AttractionCalculator
     internal let centeringCalculator: CenteringCalculator
     internal let positionUpdater: PositionUpdater
+    public var useAsymmetricAttraction: Bool = false
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
         self.repulsionCalculator = RepulsionCalculator(maxNodesForQuadtree: 200, simulationBounds: simulationBounds)
-        self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor)  // Only symmetricFactor; per-edge logic handles asymmetry
+        self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor, useAsymmetric: useAsymmetricAttraction)
         self.centeringCalculator = CenteringCalculator(simulationBounds: simulationBounds)
         self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)
     }
@@ -504,8 +502,7 @@ public class PhysicsEngine {
         
         let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
         // New: Reset velocities if stable
-        let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: .zero) }
-         // NEW: Apply boosted damping if active
+        let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: CGPoint.zero) }         // NEW: Apply boosted damping if active
         var updatedNodes = resetNodes
         if dampingBoostSteps > 0 {
             let extraDamping = Constants.Physics.damping * 1.2  // 20% boost; adjust as needed
