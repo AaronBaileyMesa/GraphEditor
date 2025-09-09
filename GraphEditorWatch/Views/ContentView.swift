@@ -303,15 +303,20 @@ struct ContentView: View {
         .position(x: wristSide == .left ? 20 : geo.size.width - 20, y: geo.size.height - 20)
     }
 
-    // New: Menu button positioned next to add node button
     private func menuButton(in geo: GeometryProxy) -> some View {
-        Button(action: { showMenu = true }) {
-            Image(systemName: "ellipsis.circle.fill")
+        Button(action: {
+            if showMenu {
+                showMenu = false  // Back to graph
+            } else {
+                showMenu = true   // Open menu
+            }
+        }) {
+            Image(systemName: showMenu ? "chart.xyaxis.line" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
-                .foregroundColor(.blue)
+                .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
         }
         .buttonStyle(.plain)
-        .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Adjacent: 40pt offset from add button
+        .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Preserve adjacent positioning
     }
 }
 
@@ -354,10 +359,12 @@ struct InnerView: View {
         if config.showMenu.wrappedValue {
             MenuView(
                 viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulatingBinding,  // FIXED: Use config's binding
+                isSimulatingBinding: config.isSimulatingBinding,
                 onCenterGraph: config.onCenterGraph,
                 showMenu: config.showMenu,
-                showOverlays: config.showOverlays
+                showOverlays: config.showOverlays,
+                selectedNodeID: config.selectedNodeID,    // NEW: Pass binding
+                selectedEdgeID: config.selectedEdgeID     // NEW: Pass binding
             )
             .navigationTitle("Menu")
         } else {
@@ -374,7 +381,7 @@ extension CGFloat {
 
 #Preview {
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    ContentView(viewModel: mockViewModel)  // <-- If ContentView now takes viewModel, add it here too (see next fix)
+    ContentView(viewModel: mockViewModel)
 }
 
 struct EditContentSheet: View {
