@@ -150,6 +150,7 @@ struct GraphCanvasView: View {
                     
                     switch edge.type {
                     case .hierarchy:
+                        // Directed: Shorten to boundaries + margin (line ends before arrow) - unchanged
                         let totalShorten = fromRadiusScreen + toRadiusScreen + margin
                         if length <= totalShorten { continue }
                         
@@ -165,11 +166,20 @@ struct GraphCanvasView: View {
                         context.stroke(linePath, with: .color(color), lineWidth: lineWidth)
                         
                     case .association:
+                        // Undirected: Shorten to boundaries (no margin, since no arrow) but keep dashed
+                        let totalShorten = fromRadiusScreen + toRadiusScreen
+                        if length <= totalShorten { continue }  // Skip if too short (avoids glitches)
+                        
+                        let startPoint = CGPoint(x: fromScreen.x + unitDx * fromRadiusScreen,
+                                                 y: fromScreen.y + unitDy * fromRadiusScreen)
+                        let endPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
+                                               y: toScreen.y - unitDy * toRadiusScreen)
+                        
                         let linePath = Path { path in
-                            path.move(to: fromScreen)
-                            path.addLine(to: toScreen)
+                            path.move(to: startPoint)
+                            path.addLine(to: endPoint)
                         }
-                        let dashStyle = StrokeStyle(lineWidth: lineWidth, dash: [5 * zoomScale, 5 * zoomScale])
+                        let dashStyle = StrokeStyle(lineWidth: lineWidth, dash: [5 * zoomScale, 5 * zoomScale])  // Scale dashes with zoom
                         context.stroke(linePath, with: .color(color), style: dashStyle)
                     }
                 }
