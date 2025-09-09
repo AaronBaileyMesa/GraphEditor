@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-09 11:58:23
+Current date: 2025-09-09 13:40:54
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
@@ -491,7 +491,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-08 14:30:30
+Last modified: 2025-09-09 12:11:46
 
 Contents:
 // GraphViewModel.swift (Fixed: Corrected handleTap function, removed invalid SwiftUI code, fixed scoping/syntax errors, added proper ToggleNode handling)
@@ -683,6 +683,14 @@ import WatchKit  // For WKApplication
 
     public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
         await model.updateNodeContent(withID: id, newContent: newContent)
+    }
+    
+    func updateNodePosition(id: NodeID, newPosition: CGPoint) async {
+        if let index = model.nodes.firstIndex(where: { $0.id == id }) {
+            model.nodes[index].position = newPosition
+            model.nodes[index].velocity = .zero  // Stop movement
+            await model.startSimulation()
+        }
     }
     
     func addToggleNode(at position: CGPoint) async {
