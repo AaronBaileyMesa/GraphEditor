@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-09 13:40:54
+Current date: 2025-09-10 08:46:54
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
@@ -120,10 +120,16 @@ struct RepulsionCalculator {
 ----------------------------------------------------------------------------------------------------
 File: ToggleNode.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-09-03 18:11:16
+Last modified: 2025-09-09 16:01:21
 
 Contents:
-// Full corrected ToggleNode.swift with missing brace added
+//
+//  ToggleNode.swift
+//  GraphEditorShared
+//
+//  Created by handcart on [date]; updated for completeness.
+//
+
 import SwiftUI
 import Foundation
 
@@ -134,12 +140,12 @@ public struct ToggleNode: NodeProtocol, Equatable {
     public let label: Int
     public var position: CGPoint
     public var velocity: CGPoint = .zero
-    public var radius: CGFloat = 10.0
-    public var isExpanded: Bool = true  // Default to expanded
-    public var content: NodeContent? = nil  // New
+    public var radius: CGFloat = Constants.App.nodeModelRadius  // Use constant for consistency
+    public var isExpanded: Bool = true
+    public var content: NodeContent? = nil
     public var fillColor: Color { isExpanded ? .green : .red }
 
-    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true, content: NodeContent? = nil) {
+    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = Constants.App.nodeModelRadius, isExpanded: Bool = true, content: NodeContent? = nil) {
         self.id = id
         self.label = label
         self.position = position
@@ -153,67 +159,73 @@ public struct ToggleNode: NodeProtocol, Equatable {
         ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content)
     }
 
-    // In ToggleNode.swift, replace handlingTap with:
+    public func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self {
+        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content)
+    }
+
     public func handlingTap() -> Self {
-        print("ToggleNode \(label) tapped. Expansion state before: \(isExpanded), after: \(!isExpanded)")
         var updated = self
         updated.isExpanded.toggle()
         updated.velocity = .zero
         return updated
     }
 
-    // Override: Custom draw with +/- icon
     @available(iOS 15.0, *)
     @available(watchOS 9.0, *)
     public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
         let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? 4 * zoomScale : 0
+        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * zoomScale) : 0
         let borderRadius = scaledRadius + borderWidth / 2
 
+        // Draw border if selected
         if borderWidth > 0 {
             let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
             context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
         }
 
+        // Draw node circle
         let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(fillColor))  // Use self.fillColor (e.g., .green if expanded, .red if collapsed)
-        
-        // Draw +/- icon
-        let iconText = isExpanded ? "-" : "+"
-        let fontSize = max(8.0, 12.0 * zoomScale)  // Readable min size
-        let text = Text(iconText).foregroundColor(.white).font(.system(size: fontSize, weight: .bold))
-        let resolved = context.resolve(text)
-        context.draw(resolved, at: position, anchor: .center)  // Center in node
+        context.fill(innerPath, with: .color(fillColor))
 
-        // Draw label above (as in protocol default)
+        // Draw +/- icon centered in node
+        let iconText = isExpanded ? "-" : "+"
+        let iconFontSize = max(8.0, 12.0 * zoomScale)
+        let iconResolved = context.resolve(Text(iconText).foregroundColor(.white).font(.system(size: iconFontSize, weight: .bold)))
+        context.draw(iconResolved, at: position, anchor: .center)
+
+        // Draw label above node
         let labelFontSize = max(8.0, 12.0 * zoomScale)
-        let labelText = Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize))
-        let labelResolved = context.resolve(labelText)
+        let labelResolved = context.resolve(Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize)))
         let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
         context.draw(labelResolved, at: labelPosition, anchor: .center)
+
+        // Draw content below node if present and zoomed in
+        if let content = content, zoomScale > 0.5 {
+            let contentFontSize = max(6.0, 8.0 * zoomScale)
+            let contentResolved = context.resolve(Text(content.displayText).foregroundColor(.gray).font(.system(size: contentFontSize)))
+            let contentPosition = CGPoint(x: position.x, y: position.y + (scaledRadius + 10 * zoomScale))
+            context.draw(contentResolved, at: contentPosition, anchor: .center)
+        }
     }
 
-    // Codable conformance (for persistence)
+    // Codable conformance (ensure completeness)
     enum CodingKeys: String, CodingKey {
-        case id, label, radius, isExpanded
-        case positionX, positionY
-        case velocityX, velocityY
-        case content
+        case id, label, positionX, positionY, velocityX, velocityY, radius, isExpanded, content
     }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.id = try container.decode(NodeID.self, forKey: .id)
-        self.label = try container.decode(Int.self, forKey: .label)
-        self.radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0
-        self.isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
-        self.content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
+        id = try container.decode(NodeID.self, forKey: .id)
+        label = try container.decode(Int.self, forKey: .label)
+        radius = try container.decode(CGFloat.self, forKey: .radius)
+        isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
+        content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
         let posX = try container.decode(CGFloat.self, forKey: .positionX)
         let posY = try container.decode(CGFloat.self, forKey: .positionY)
-        self.position = CGPoint(x: posX, y: posY)
+        position = CGPoint(x: posX, y: posY)
         let velX = try container.decode(CGFloat.self, forKey: .velocityX)
         let velY = try container.decode(CGFloat.self, forKey: .velocityY)
-        self.velocity = CGPoint(x: velX, y: velY)
+        velocity = CGPoint(x: velX, y: velY)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -228,8 +240,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
         try container.encode(velocity.x, forKey: .velocityX)
         try container.encode(velocity.y, forKey: .velocityY)
     }
-        
-    // Add Equatable implementation
+
     public static func == (lhs: ToggleNode, rhs: ToggleNode) -> Bool {
         lhs.id == rhs.id &&
         lhs.label == rhs.label &&
@@ -237,26 +248,13 @@ public struct ToggleNode: NodeProtocol, Equatable {
         lhs.velocity == rhs.velocity &&
         lhs.radius == rhs.radius &&
         lhs.isExpanded == rhs.isExpanded &&
-        lhs.content == rhs.content  // Compare enum (Codable implies Equatable for cases)
-    }
-    
-    // In ToggleNode.swift
-    public func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> Self {
-        ToggleNode(
-            id: id,
-            label: label,
-            position: position,
-            velocity: velocity,
-            radius: radius,
-            isExpanded: isExpanded,
-            content: content ?? self.content  // Use new content if provided, else keep existing
-        )
+        lhs.content == rhs.content
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-09-03 16:40:19
+Last modified: 2025-09-09 14:21:18
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)

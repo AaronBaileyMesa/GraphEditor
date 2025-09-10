@@ -66,6 +66,8 @@ import WatchKit  // For WKApplication
                 await self?.resumeSimulationAfterDelay()
             }
         }
+
+        model.nodes = model.nodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
     }
     
     func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -169,6 +171,7 @@ import WatchKit  // For WKApplication
     func addNode(at position: CGPoint) async {
         await model.addNode(at: position)
         await model.resizeSimulationBounds(for: model.nodes.count)  // New: Resize after adding
+        model.objectWillChange.send()
     }
 
     func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
@@ -255,18 +258,37 @@ import WatchKit  // For WKApplication
         
         if let tappedNode = sortedNearby.first {
             if let toggleNode = tappedNode as? ToggleNode {
-                // Tap to expand/collapse ToggleNode (no selection, per preference)
                 let updated = toggleNode.handlingTap()
-                print("Toggled ToggleNode \(toggleNode.label) to \(updated.isExpanded)")
+                print("Toggled ToggleNode \(toggleNode.label) to \(updated.isExpanded ? "expanded" : "collapsed")")
                 
-                // TODO: Update model with new node state (e.g., await model.updateNode(id: toggleNode.id, node: updated))
-                // For now, assuming model handles it internally or via snapshot; add method if needed
-                await model.startSimulation()
+                // Persist the update in model.nodes (fixes toggle not applying)
+                if let index = model.nodes.firstIndex(where: { $0.id == toggleNode.id }) {
+                    model.nodes[index] = AnyNode(updated)
+                    model.objectWillChange.send()  // Trigger UI refresh
+                }
                 
-                selectedNodeID = nil
+                // Reduce bouncing: Zero velocities for all visible nodes
+                let visible = model.visibleNodes()
+                model.nodes = model.nodes.map { node in
+                    let zeroedVelocity = node.with(position: node.position, velocity: .zero)
+                    return AnyNode(zeroedVelocity)
+                }
+                
+                // Optional: Allow selection (uncomment to enable)
+                selectedNodeID = toggleNode.id
+                selectedEdgeID = nil
+                
+                // Delay simulation restart slightly to let changes settle
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    Task {
+                        await self.model.startSimulation()
+                    }
+                }
+                
+                selectedNodeID = nil  // Keep this if you want no selection for ToggleNodes
                 selectedEdgeID = nil
             } else {
-                // Tap to select regular Node (toggle off if already selected)
+                // Existing code for regular nodes remains unchanged
                 selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
                 selectedEdgeID = nil
                 print("Selected regular Node \(tappedNode.label)")
