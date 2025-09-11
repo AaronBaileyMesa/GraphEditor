@@ -91,8 +91,6 @@ struct EditSection: View {
                         isProcessing = true
                         do {
                             await viewModel.deleteNode(withID: selectedID)
-                        } catch {
-                            print("Delete node error: \(error)")  // NEW: Basic error handling
                         }
                         clearSelections()  // NEW: Clear after delete
                         isProcessing = false
@@ -302,11 +300,11 @@ struct MenuView: View {
 }
 
 #Preview {
+    @Previewable @State var mockSelectedNodeID: NodeID? = nil
+    @Previewable @State var mockSelectedEdgeID: UUID? = UUID()  // Simulate
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
     // UPDATED: Pass new bindings for preview (use placeholders); simulate selection for testing
     mockViewModel.setSelectedEdge(UUID())  // Simulate edge selection for preview
-    @State var mockSelectedNodeID: NodeID? = nil
-    @State var mockSelectedEdgeID: UUID? = UUID()  // Simulate
     return MenuView(
         viewModel: mockViewModel,
         isSimulatingBinding: .constant(false),

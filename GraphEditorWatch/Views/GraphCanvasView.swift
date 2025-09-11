@@ -106,7 +106,9 @@ struct GraphCanvasView: View {
             Canvas { context, size in
                 // Define visibleNodes and visibleEdges
                 let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.edges
+                let visibleEdges = viewModel.model.visibleEdges()  // Fix: Use visibleEdges() instead of all edges
+                let hiddenIDs = viewModel.model.hiddenNodeIDs.map { $0.uuidString.prefix(8) }
+                print("Visible: \(visibleNodes.count), Hidden IDs: \(hiddenIDs)")
                 
                 if visibleNodes.isEmpty {
                     print("Warning: No visible nodes")  // Transient; remove if desired
@@ -145,47 +147,25 @@ struct GraphCanvasView: View {
                     let margin: CGFloat = 3.0
                     
                     let isSelected = edge.id == selectedEdgeID
-                    let color: Color = isSelected ? .red : .gray
-                    let lineWidth: CGFloat = max(1.0, 2.0 * zoomScale)
+                    let lineColor: Color = isSelected ? .red : .gray
+                    let lineWidth: CGFloat = 3.0
                     
-                    switch edge.type {
-                    case .hierarchy:
-                        // Directed: Shorten to boundaries + margin (line ends before arrow) - unchanged
-                        let totalShorten = fromRadiusScreen + toRadiusScreen + margin
-                        if length <= totalShorten { continue }
-                        
-                        let startPoint = CGPoint(x: fromScreen.x + unitDx * fromRadiusScreen,
-                                                 y: fromScreen.y + unitDy * fromRadiusScreen)
-                        let endPoint = CGPoint(x: toScreen.x - unitDx * (toRadiusScreen + margin),
-                                               y: toScreen.y - unitDy * (toRadiusScreen + margin))
-                        
-                        let linePath = Path { path in
-                            path.move(to: startPoint)
-                            path.addLine(to: endPoint)
-                        }
-                        context.stroke(linePath, with: .color(color), lineWidth: lineWidth)
-                        
-                    case .association:
-                        // Undirected: Shorten to boundaries (no margin, since no arrow) but keep dashed
-                        let totalShorten = fromRadiusScreen + toRadiusScreen
-                        if length <= totalShorten { continue }  // Skip if too short (avoids glitches)
-                        
-                        let startPoint = CGPoint(x: fromScreen.x + unitDx * fromRadiusScreen,
-                                                 y: fromScreen.y + unitDy * fromRadiusScreen)
-                        let endPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
-                                               y: toScreen.y - unitDy * toRadiusScreen)
-                        
-                        let linePath = Path { path in
-                            path.move(to: startPoint)
-                            path.addLine(to: endPoint)
-                        }
-                        let dashStyle = StrokeStyle(lineWidth: lineWidth, dash: [5 * zoomScale, 5 * zoomScale])  // Scale dashes with zoom
-                        context.stroke(linePath, with: .color(color), style: dashStyle)
+                    let startPoint = CGPoint(x: fromScreen.x + unitDx * (fromRadiusScreen + margin),
+                                             y: fromScreen.y + unitDy * (fromRadiusScreen + margin))
+                    let endPoint = CGPoint(x: toScreen.x - unitDx * (toRadiusScreen + margin),
+                                           y: toScreen.y - unitDy * (toRadiusScreen + margin))
+                    
+                    let linePath = Path { path in
+                        path.move(to: startPoint)
+                        path.addLine(to: endPoint)
                     }
+                    
+                    context.stroke(linePath, with: .color(lineColor), lineWidth: lineWidth)
+                    print("Drawing line for edge \(edge.id.uuidString.prefix(8)) from \(startPoint) to \(endPoint)")  // Debug
                 }
                 
-                // Pass 2: Draw arrowheads only
-                for edge in visibleEdges where edge.type == .hierarchy {
+                // Pass 2: Draw arrows (over lines)
+                for edge in visibleEdges {
                     guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
                           let toNode = visibleNodes.first(where: { $0.id == edge.to }) else { continue }
                     
@@ -244,7 +224,7 @@ struct GraphCanvasView: View {
                     }
                 }
             }
-            .frame(width: viewSize.width, height: viewSize.height)            .frame(width: viewSize.width, height: viewSize.height)
+            .frame(width: viewSize.width, height: viewSize.height)
             
             if showOverlays {
                 boundingBoxOverlay

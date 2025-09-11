@@ -87,33 +87,31 @@ import WatchKit  // For WKApplication
         return (min: minZoom, max: maxZoom)
     }
     
-    func saveViewState() {  // Made non-@MainActor since callsites treat as sync; internal hops handle isolation
+    // Updated saveViewState to remove unnecessary do-try-catch (assuming model.saveViewState is non-throwing)
+    // Updated saveViewState in GraphViewModel.swift to handle throwing call with do-try-catch
+    func saveViewState() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in  // Hop to main for safe publishes/model access
+            Task { @MainActor in
                 guard let self = self else { return }
-                self.centerGraph()  // Safe on main
                 do {
-                    try self.model.saveViewState(  // Assuming sync; no 'await'
+                    try self.model.saveViewState(
                         offset: self.offset,
                         zoomScale: self.zoomScale,
                         selectedNodeID: self.selectedNodeID,
                         selectedEdgeID: self.selectedEdgeID
                     )
                 } catch {
-                    print("Failed to save view state: \(error)")
+                    print("Error saving view state: \(error)")
+                    // Optionally, add user-facing error handling, e.g., set a @Published error property
                 }
             }
         }
     }
     
     func loadGraph() async {
-        do {
-            try await model.load()  // Now compiles
+            await model.load()  // Now compiles
             await model.startSimulation()
-        } catch {
-            print("Failed to load graph: \(error)")
-        }
     }
     
     private func loadViewState() async {
@@ -257,16 +255,30 @@ import WatchKit  // For WKApplication
         }
         
         if let tappedNode = sortedNearby.first {
-            // Unified selection logic for all nodes (including ToggleNode): Tap to select/deselect, no auto-toggle
-            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-            selectedEdgeID = nil
-            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")  // Debug: Log node type for verification
-            
-            // Reduce potential bouncing: Zero velocities for all visible nodes
-            model.nodes = model.nodes.map { node in
-                let zeroedVelocity = node.with(position: node.position, velocity: .zero)
-                return AnyNode(zeroedVelocity)
-            }
+                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+                selectedEdgeID = nil
+                print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")
+                
+                // Add toggle if ToggleNode
+            if let toggleNode = tappedNode as? ToggleNode {
+                        let toggled = toggleNode.handlingTap()
+                        if let index = model.nodes.firstIndex(where: { $0.id == toggled.id }) {
+                            model.nodes[index] = AnyNode(toggled)
+                            await model.handleTap(on: toggled.id)  // Reposition
+                            // Immediate offset if expanded
+                            if toggled.isExpanded {
+                                let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.to }
+                                for (idx, childID) in children.enumerated() {
+                                    if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
+                                        var child = model.nodes[childIdx]
+                                        let offX = CGFloat(idx * 20) - CGFloat(children.count * 10)
+                                        child.position += CGPoint(x: offX, y: 20)
+                                        model.nodes[childIdx] = child
+                                    }
+                                }
+                            }
+                        }
+                    }
             model.objectWillChange.send()  // Trigger UI refresh
             
             // Delay simulation restart slightly to let changes settle
