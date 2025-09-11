@@ -1,126 +1,16 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-10 08:46:54
+Current date: 2025-09-10 19:58:17
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-2. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-3. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-4. GraphEditorWatch/GraphEditorWatch.swift
-5. GraphEditorWatch/Models/AppConstants.swift
-6. GraphEditorWatch/ViewModels/GraphViewModel.swift--------------------------------------------------
-File: RepulsionCalculator.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-Last modified: 2025-08-25 11:30:35
-
-Contents:
-//
-//  RepulsionCalculator.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/12/25.
-//
-
-import Foundation
-import CoreGraphics
-
-struct RepulsionCalculator {
-    private let maxNodesForQuadtree: Int
-    private let simulationBounds: CGSize
-
-    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
-        self.maxNodesForQuadtree = maxNodesForQuadtree
-        self.simulationBounds = simulationBounds
-    }
-
-    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
-        var forces: [NodeID: CGPoint] = [:]
-        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
-        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
-
-        for node in nodes {
-            var repulsion: CGPoint = .zero
-            if let quadtree = quadtree {
-                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
-                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
-            } else {
-                for otherNode in nodes where otherNode.id != node.id {
-                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
-                }
-            }
-            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
-        }
-        return (forces, quadtree)  // New: Return tuple
-    }
-
-    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
-        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
-        let quadtree = Quadtree(bounds: boundingBox)
-        for node in nodes {
-            quadtree.insert(node)
-        }
-        return quadtree
-    }
-
-    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
-        let dx = queryPosition.x - repellerPosition.x
-        let dy = queryPosition.y - repellerPosition.y
-        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
-        let distance = sqrt(distanceSquared)
-        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
-        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
-    }
-    
-    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
-        var force = CGPoint.zero
-        func calculateRepulsion(qt: Quadtree) {
-            if qt.children == nil {
-                for other in qt.nodes where other.id != node.id {
-                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
-                }
-                return
-            }
-
-            let dx = qt.centerOfMass.x - node.position.x
-            let dy = qt.centerOfMass.y - node.position.y
-            let distance = hypot(dx, dy)
-            let width = qt.bounds.width
-
-            if width / distance < theta && distance > 0 {  // Use theta
-                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
-                force += approxForce
-            } else {
-                if let children = qt.children {
-                    calculateRepulsion(qt: children[0])
-                    calculateRepulsion(qt: children[1])
-                    calculateRepulsion(qt: children[2])
-                    calculateRepulsion(qt: children[3])
-                }
-            }
-        }
-
-        calculateRepulsion(qt: quadtree)
-        return force
-    }
-
-    // Added missing boundingBox func
-    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard !nodes.isEmpty else { return .zero }
-        var minX = nodes[0].position.x, minY = nodes[0].position.y
-        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
-        for node in nodes {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
-        }
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-}
-----------------------------------------------------------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+3. GraphEditorWatch/GraphEditorWatch.swift
+4. GraphEditorWatch/Models/AppConstants.swift
+5. GraphEditorWatch/ViewModels/GraphViewModel.swift--------------------------------------------------
 File: ToggleNode.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-09-09 16:01:21
+Last modified: 2025-09-10 19:21:05
 
 Contents:
 //
@@ -160,14 +50,24 @@ public struct ToggleNode: NodeProtocol, Equatable {
     }
 
     public func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self {
-        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content)
+        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content ?? self.content)
     }
 
     public func handlingTap() -> Self {
         var updated = self
         updated.isExpanded.toggle()
-        updated.velocity = .zero
+        updated.velocity = .zero  // Reset to prevent immediate jumps
         return updated
+    }
+    
+    public func shouldHideChildren() -> Bool {
+        !isExpanded
+    }
+    
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        AnyView(Circle().fill(fillColor).frame(width: radius * 2 * zoomScale, height: radius * 2 * zoomScale))  // Simple default
     }
 
     @available(iOS 15.0, *)
@@ -489,7 +389,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-09 12:11:46
+Last modified: 2025-09-10 12:31:44
 
 Contents:
 // GraphViewModel.swift (Fixed: Corrected handleTap function, removed invalid SwiftUI code, fixed scoping/syntax errors, added proper ToggleNode handling)
@@ -560,6 +460,8 @@ import WatchKit  // For WKApplication
                 await self?.resumeSimulationAfterDelay()
             }
         }
+
+        model.nodes = model.nodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
     }
     
     func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -663,6 +565,7 @@ import WatchKit  // For WKApplication
     func addNode(at position: CGPoint) async {
         await model.addNode(at: position)
         await model.resizeSimulationBounds(for: model.nodes.count)  // New: Resize after adding
+        model.objectWillChange.send()
     }
 
     func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
@@ -738,7 +641,7 @@ import WatchKit  // For WKApplication
         print("Handling tap at model pos: \(modelPos)")  // For testing
         
         // Efficient hit test with queryNearby
-        let hitRadius: CGFloat = 30.0  // Increased for watchOS touch accuracy; test and adjust
+        let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
         print("Nearby nodes found: \(nearbyNodes.count)")  // For testing
         
@@ -748,22 +651,23 @@ import WatchKit  // For WKApplication
         }
         
         if let tappedNode = sortedNearby.first {
-            if let toggleNode = tappedNode as? ToggleNode {
-                // Tap to expand/collapse ToggleNode (no selection, per preference)
-                let updated = toggleNode.handlingTap()
-                print("Toggled ToggleNode \(toggleNode.label) to \(updated.isExpanded)")
-                
-                // TODO: Update model with new node state (e.g., await model.updateNode(id: toggleNode.id, node: updated))
-                // For now, assuming model handles it internally or via snapshot; add method if needed
-                await model.startSimulation()
-                
-                selectedNodeID = nil
-                selectedEdgeID = nil
-            } else {
-                // Tap to select regular Node (toggle off if already selected)
-                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-                selectedEdgeID = nil
-                print("Selected regular Node \(tappedNode.label)")
+            // Unified selection logic for all nodes (including ToggleNode): Tap to select/deselect, no auto-toggle
+            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+            selectedEdgeID = nil
+            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")  // Debug: Log node type for verification
+            
+            // Reduce potential bouncing: Zero velocities for all visible nodes
+            model.nodes = model.nodes.map { node in
+                let zeroedVelocity = node.with(position: node.position, velocity: .zero)
+                return AnyNode(zeroedVelocity)
+            }
+            model.objectWillChange.send()  // Trigger UI refresh
+            
+            // Delay simulation restart slightly to let changes settle
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                Task {
+                    await self.model.startSimulation()
+                }
             }
         } else {
             // Miss: Clear selections

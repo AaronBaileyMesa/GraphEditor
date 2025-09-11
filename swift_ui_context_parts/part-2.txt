@@ -1,17 +1,18 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-10 08:46:53
+Current date: 2025-09-10 19:58:17
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
 3. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
 4. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 5. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift--------------------------------------------------
+6. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+7. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-09-08 10:05:41
+Last modified: 2025-09-10 19:53:21
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -19,31 +20,16 @@ Contents:
 import SwiftUI
 import Foundation
 
+@available(iOS 15.0, *)
 private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
 private let maxCacheSize = 100  // Arbitrary limit; adjust based on testing
 private let nodeCacheQueue = DispatchQueue(label: "nodeTextCache", attributes: .concurrent)
 private var insertionOrder: [String] = []  // New: Track order
 
-
 /// Protocol for graph nodes, enabling polymorphism for types like standard or toggleable nodes.
 /// Conformers must provide core properties; defaults are available for common behaviors.
 @available(iOS 13.0, *)
 @available(watchOS 9.0, *)
-
-public enum NodeContent: Codable, Equatable {
-    case string(String)
-    case date(Date)
-    case number(Double)
-
-    public var displayText: String {
-        switch self {
-        case .string(let str): return str.prefix(10) + (str.count > 10 ? "…" : "")
-        case .date(let date): return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
-        case .number(let num): return String(format: "%.1f", num)
-        }
-    }
-}
-
 public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
     /// Unique identifier for the node.
     var id: NodeID { get }
@@ -63,7 +49,7 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     /// Expansion state for hierarchical nodes (e.g., true shows children).
     var isExpanded: Bool { get set }
     
-    //Data payload for the node
+    // Data payload for the node
     var content: NodeContent? { get set }
     
     /// Creates a copy with updated position and velocity.
@@ -105,6 +91,20 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool)
 }
 
+public enum NodeContent: Codable, Equatable {
+    case string(String)
+    case date(Date)
+    case number(Double)
+
+    public var displayText: String {
+        switch self {
+        case .string(let str): return str.prefix(10) + (str.count > 10 ? "…" : "")
+        case .date(let date): return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
+        case .number(let num): return String(format: "%.1f", num)
+        }
+    }
+}
+
 /// Extension providing default implementations for non-rendering behaviors.
 /// These can be overridden in conformers for custom logic.
 @available(iOS 13.0, *)
@@ -132,69 +132,47 @@ public extension NodeProtocol {
         set { }  // No-op default
     }
     
-    func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> Self {  // Default to nil
-            // Default: Ignore content if not overridden; just update position/velocity
-            self.with(position: position, velocity: velocity)  // Call existing with (assumes it exists)
-        }
-}
-
-
-
-/// Extension providing default rendering implementations using GraphicsContext.
-/// Override for custom node appearances (e.g., different shapes/colors).
-@available(iOS 15.0, *)
-@available(watchOS 9.0, *)
-public extension NodeProtocol {
-    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        AnyView(Canvas { context, _ in
-            self.draw(in: context, at: .zero, zoomScale: zoomScale, isSelected: isSelected)
-        })
+    func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self {
+        with(position: position, velocity: velocity)  // Default: Ignore content
     }
     
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        AnyView(Text("Node \(label)"))  // Default simple view
+    }
+    
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
     func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-            print("Drawing node \(label) at \(position), isSelected: \(isSelected), zoom: \(zoomScale)")
-        
-            let scaledRadius = radius * zoomScale
-            let borderWidth: CGFloat = isSelected ? max(3.0, 5 * zoomScale) : 0  // Tweak: Min 3px for visibility (from prior advice)
-            let borderRadius = scaledRadius + borderWidth / 2
+        let scaledRadius = radius * zoomScale
+        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * zoomScale) : 0
+        let borderRadius = scaledRadius + borderWidth / 2
 
-            if borderWidth > 0 {
-                let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-                context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
-                print("Drew yellow border for node \(label), width: \(borderWidth)")  // Add this
-            }
-        
-        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(.red))
-        
-        // Always draw label (removed if isSelected)
-        let fontSize = UIFontMetrics.default.scaledValue(for: 12) * zoomScale
-        let labelKey = "\(label)-\(fontSize)"
-        let resolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
-            if let cached = nodeTextCache[labelKey] { return cached }
-            let text = Text("\(label)").foregroundColor(.white).font(.system(size: fontSize))
-            let resolved = context.resolve(text)
-            nodeCacheQueue.async(flags: .barrier) {
-                nodeTextCache[labelKey] = resolved
-                insertionOrder.append(labelKey)  // Add to order
-                if nodeTextCache.count > maxCacheSize {
-                    let oldestKey = insertionOrder.removeFirst()  // True oldest
-                    nodeTextCache.removeValue(forKey: oldestKey)
-                }
-            }
-            return resolved
+        // Draw border if selected
+        if borderWidth > 0 {
+            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
         }
-        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))  // Fix: Use scaledRadius
-        
-        context.draw(resolved, at: labelPosition, anchor: .center)
-        
-         // Moved content drawing here (uses scaledRadius in scope)
+
+        // Draw node circle
+        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        context.fill(innerPath, with: .color(fillColor))
+
+        // Draw label above node
+        let labelFontSize = max(8.0, 12.0 * zoomScale)
+        let labelResolved = context.resolve(Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize)))
+        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
+        context.draw(labelResolved, at: labelPosition, anchor: .center)
+
+        // Draw content below node if present and zoomed in
         if let content = content, zoomScale > 0.5 {
-            let contentFontSize = max(6.0, 8.0 * zoomScale)
-            let contentKey = "\(content.displayText)-\(contentFontSize)"
-            let contentResolved: GraphicsContext.ResolvedText = nodeCacheQueue.sync {
-                if let cached = nodeTextCache[contentKey] { return cached }
-                let text = Text(content.displayText).foregroundColor(.gray).font(.system(size: contentFontSize))
+            let contentKey = "\(content.displayText)-\(zoomScale)"
+            let contentResolved: GraphicsContext.ResolvedText
+            if let cached = nodeTextCache[contentKey] {
+                contentResolved = cached
+            } else {
+                let text = Text(content.displayText).foregroundColor(.gray).font(.system(size: max(6.0, 8.0 * zoomScale)))
                 let resolved = context.resolve(text)
                 nodeCacheQueue.async(flags: .barrier) {
                     nodeTextCache[contentKey] = resolved
@@ -204,29 +182,30 @@ public extension NodeProtocol {
                         nodeTextCache.removeValue(forKey: oldestKey)
                     }
                 }
-                return resolved
+                contentResolved = resolved
             }
             let contentPosition = CGPoint(x: position.x, y: position.y + (scaledRadius + 5 * zoomScale))
             context.draw(contentResolved, at: contentPosition, anchor: .center)
         }
     }
 }
-
-public struct AnyNode: NodeProtocol, Equatable {
-    private var base: any NodeProtocol  // var for mutability (e.g., position, content setters)
+@available(iOS 13.0, *)
+@available(watchOS 9.0, *)
+public struct AnyNode: NodeProtocol {
+    private var base: any NodeProtocol  // var for mutability
     
     public var content: NodeContent? {
         get { base.content }
         set { base.content = newValue }
     }
     
-    public var unwrapped: any NodeProtocol { base }  // Public accessor to avoid private exposure
+    public var unwrapped: any NodeProtocol { base }
     
     public var id: NodeID { base.id }
     public var label: Int { base.label }
     public var position: CGPoint {
         get { base.position }
-        set { base.position = newValue }  // Now mutates var base
+        set { base.position = newValue }
     }
     public var velocity: CGPoint {
         get { base.velocity }
@@ -251,19 +230,17 @@ public struct AnyNode: NodeProtocol, Equatable {
         var newBase = base
         newBase.position = position
         newBase.velocity = velocity
-        newBase.content = base.content  // Preserve existing content
         return AnyNode(newBase)
     }
     
-    // Fixed: Use 'base' instead of 'box'; delegate and handle content mutation for usability
     public func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> AnyNode {
         var newBase = base
         newBase.position = position
         newBase.velocity = velocity
         if let content = content {
-            newBase.content = content  // Mutate content if provided (makes updates easy)
+            newBase.content = content
         }
-        return AnyNode(newBase)  // Re-wrap for polymorphism
+        return AnyNode(newBase)
     }
     
     public func handlingTap() -> Self {
@@ -274,7 +251,6 @@ public struct AnyNode: NodeProtocol, Equatable {
         base.shouldHideChildren()
     }
     
-    // Rendering methods: Forward to base
     @available(iOS 15.0, *)
     @available(watchOS 9.0, *)
     public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
@@ -284,23 +260,23 @@ public struct AnyNode: NodeProtocol, Equatable {
     @available(iOS 15.0, *)
     @available(watchOS 9.0, *)
     public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        print("Drawing ToggleNode \(label) at \(position), isSelected: \(isSelected), zoom: \(zoomScale)")  // Add this
-                base.draw(in: context, at: position, zoomScale: zoomScale, isSelected: isSelected)
+        #if DEBUG
+        print("Drawing node \(label) at \(position), isSelected: \(isSelected), zoom: \(zoomScale)")
+        #endif
+        base.draw(in: context, at: position, zoomScale: zoomScale, isSelected: isSelected)
     }
     
-    // Equatable: Compare via id (adjust if your protocol uses different equality)
     public static func == (lhs: AnyNode, rhs: AnyNode) -> Bool {
-        lhs.id == rhs.id
+        lhs.id == rhs.id && lhs.position == rhs.position && lhs.velocity == rhs.velocity &&
+        lhs.isExpanded == rhs.isExpanded && lhs.content == rhs.content
     }
     
-    // Codable: Forward to NodeWrapper for polymorphic handling
     public init(from decoder: Decoder) throws {
         let wrapper = try NodeWrapper(from: decoder)
         self.base = wrapper.value
     }
     
     public func encode(to encoder: Encoder) throws {
-        // Wrap base in NodeWrapper and encode that
         let wrapper: NodeWrapper
         if let node = base as? Node {
             wrapper = .node(node)
@@ -959,6 +935,115 @@ public class Quadtree {  // Public for consistency and test access
         let dist = sqrt(distSquared)
         let forceMagnitude = Constants.Physics.repulsion * mass / distSquared
         return CGPoint(x: (deltaX / dist) * forceMagnitude, y: (deltaY / dist) * forceMagnitude)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: RepulsionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+Last modified: 2025-08-25 11:30:35
+
+Contents:
+//
+//  RepulsionCalculator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct RepulsionCalculator {
+    private let maxNodesForQuadtree: Int
+    private let simulationBounds: CGSize
+
+    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
+        self.maxNodesForQuadtree = maxNodesForQuadtree
+        self.simulationBounds = simulationBounds
+    }
+
+    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
+        var forces: [NodeID: CGPoint] = [:]
+        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
+        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
+
+        for node in nodes {
+            var repulsion: CGPoint = .zero
+            if let quadtree = quadtree {
+                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
+                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
+            } else {
+                for otherNode in nodes where otherNode.id != node.id {
+                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
+                }
+            }
+            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
+        }
+        return (forces, quadtree)  // New: Return tuple
+    }
+
+    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
+        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
+        let quadtree = Quadtree(bounds: boundingBox)
+        for node in nodes {
+            quadtree.insert(node)
+        }
+        return quadtree
+    }
+
+    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
+        let dx = queryPosition.x - repellerPosition.x
+        let dy = queryPosition.y - repellerPosition.y
+        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
+        let distance = sqrt(distanceSquared)
+        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
+        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
+    }
+    
+    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
+        var force = CGPoint.zero
+        func calculateRepulsion(qt: Quadtree) {
+            if qt.children == nil {
+                for other in qt.nodes where other.id != node.id {
+                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
+                }
+                return
+            }
+
+            let dx = qt.centerOfMass.x - node.position.x
+            let dy = qt.centerOfMass.y - node.position.y
+            let distance = hypot(dx, dy)
+            let width = qt.bounds.width
+
+            if width / distance < theta && distance > 0 {  // Use theta
+                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
+                force += approxForce
+            } else {
+                if let children = qt.children {
+                    calculateRepulsion(qt: children[0])
+                    calculateRepulsion(qt: children[1])
+                    calculateRepulsion(qt: children[2])
+                    calculateRepulsion(qt: children[3])
+                }
+            }
+        }
+
+        calculateRepulsion(qt: quadtree)
+        return force
+    }
+
+    // Added missing boundingBox func
+    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
+        guard !nodes.isEmpty else { return .zero }
+        var minX = nodes[0].position.x, minY = nodes[0].position.y
+        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
+        for node in nodes {
+            minX = min(minX, node.position.x - node.radius)
+            minY = min(minY, node.position.y - node.radius)
+            maxX = max(maxX, node.position.x + node.radius)
+            maxY = max(maxY, node.position.y + node.radius)
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }
 --------------------------------------------------

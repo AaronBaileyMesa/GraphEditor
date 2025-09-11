@@ -353,8 +353,7 @@ struct InnerView: View {
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
-                .focusable()  // Add this to ensure view property for crown
-        //        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: true)  // Ensure sensitivity isn't too high to reduce jitter
+                .focusable()
         
         if config.showMenu.wrappedValue {
             MenuView(

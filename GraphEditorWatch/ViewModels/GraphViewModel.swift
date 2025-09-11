@@ -247,7 +247,7 @@ import WatchKit  // For WKApplication
         print("Handling tap at model pos: \(modelPos)")  // For testing
         
         // Efficient hit test with queryNearby
-        let hitRadius: CGFloat = 30.0  // Increased for watchOS touch accuracy; test and adjust
+        let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
         print("Nearby nodes found: \(nearbyNodes.count)")  // For testing
         
@@ -257,41 +257,23 @@ import WatchKit  // For WKApplication
         }
         
         if let tappedNode = sortedNearby.first {
-            if let toggleNode = tappedNode as? ToggleNode {
-                let updated = toggleNode.handlingTap()
-                print("Toggled ToggleNode \(toggleNode.label) to \(updated.isExpanded ? "expanded" : "collapsed")")
-                
-                // Persist the update in model.nodes (fixes toggle not applying)
-                if let index = model.nodes.firstIndex(where: { $0.id == toggleNode.id }) {
-                    model.nodes[index] = AnyNode(updated)
-                    model.objectWillChange.send()  // Trigger UI refresh
+            // Unified selection logic for all nodes (including ToggleNode): Tap to select/deselect, no auto-toggle
+            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+            selectedEdgeID = nil
+            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")  // Debug: Log node type for verification
+            
+            // Reduce potential bouncing: Zero velocities for all visible nodes
+            model.nodes = model.nodes.map { node in
+                let zeroedVelocity = node.with(position: node.position, velocity: .zero)
+                return AnyNode(zeroedVelocity)
+            }
+            model.objectWillChange.send()  // Trigger UI refresh
+            
+            // Delay simulation restart slightly to let changes settle
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                Task {
+                    await self.model.startSimulation()
                 }
-                
-                // Reduce bouncing: Zero velocities for all visible nodes
-                let visible = model.visibleNodes()
-                model.nodes = model.nodes.map { node in
-                    let zeroedVelocity = node.with(position: node.position, velocity: .zero)
-                    return AnyNode(zeroedVelocity)
-                }
-                
-                // Optional: Allow selection (uncomment to enable)
-                selectedNodeID = toggleNode.id
-                selectedEdgeID = nil
-                
-                // Delay simulation restart slightly to let changes settle
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                    Task {
-                        await self.model.startSimulation()
-                    }
-                }
-                
-                selectedNodeID = nil  // Keep this if you want no selection for ToggleNodes
-                selectedEdgeID = nil
-            } else {
-                // Existing code for regular nodes remains unchanged
-                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-                selectedEdgeID = nil
-                print("Selected regular Node \(tappedNode.label)")
             }
         } else {
             // Miss: Clear selections
