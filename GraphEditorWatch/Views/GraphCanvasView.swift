@@ -45,7 +45,7 @@ struct GraphCanvasView: View {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     @State private var previousZoomScale: CGFloat = 1.0
-    @State private var zoomTimer: Timer? = nil
+    @State private var zoomTimer: Timer?
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     @Binding var isAddingEdge: Bool
@@ -63,7 +63,7 @@ struct GraphCanvasView: View {
         showMenu: Binding<Bool>,
         maxZoom: CGFloat,
         crownPosition: Binding<Double>,
-        onUpdateZoomRanges: @escaping() -> Void,
+        onUpdateZoomRanges: @escaping () -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
         isAddingEdge: Binding<Bool>
@@ -287,20 +287,20 @@ struct GraphCanvasView: View {
 
 struct Line: Shape, Animatable {
     var from: CGPoint
-    var to: CGPoint
+    var end: CGPoint
     
     var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
-        get { AnimatablePair(from.animatableData, to.animatableData) }
+        get { AnimatablePair(from.animatableData, end.animatableData) }
         set {
             from.animatableData = newValue.first
-            to.animatableData = newValue.second
+            end.animatableData = newValue.second
         }
     }
     
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: from)
-        path.addLine(to: to)
+        path.addLine(to: end)
         return path
     }
 }
