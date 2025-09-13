@@ -241,6 +241,7 @@
 			buildConfigurationList = 4E3A08CF2E3DC9B1008CC9C7 /* Build configuration list for PBXNativeTarget "GraphEditorWatch" */;
 			buildPhases = (
 				4E3A08C02E3DC9B0008CC9C7 /* Sources */,
+				4E1938BA2E74AA9D001C5EB0 /* ShellScript */,
 				4E3A08C12E3DC9B0008CC9C7 /* Frameworks */,
 				4E3A08C22E3DC9B0008CC9C7 /* Resources */,
 			);
@@ -353,6 +354,27 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		4E1938BA2E74AA9D001C5EB0 /* ShellScript */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "if [ -f \"/opt/homebrew/bin/swiftlint\" ]; then\n    /opt/homebrew/bin/swiftlint lint --config \"/Users/handcart/Development/GraphEditor/GraphEditorWatch/.swiftlint.yml\"\nelse\n    echo \"warning: SwiftLint not installed at /opt/homebrew/bin/swiftlint, download from https://github.com/realm/SwiftLint\"\nfi\ntouch \"${DERIVED_FILE_DIR}/swiftlint.output\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		4E2830742E416F83005CF8A3 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -440,6 +462,7 @@
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTING_SEARCH_PATHS = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
@@ -472,6 +495,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_TESTING_SEARCH_PATHS = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";

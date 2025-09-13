@@ -1,0 +1,9 @@
+disabled_rules: # Disable unwanted default rules
+  - trailing_whitespace
+  - line_length
+opt_in_rules: # Enable optional rules
+  - empty_count
+excluded: # Skip directories
+  - Pods
+  - Carthage
+reporter: "xcode" # Output format for Xcode integration

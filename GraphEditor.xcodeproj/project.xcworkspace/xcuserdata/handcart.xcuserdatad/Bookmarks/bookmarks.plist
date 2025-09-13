@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>433</string>
+					<string>335</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>433</string>
+					<string>334</string>
 					<key>Timestamp</key>
-					<string>779227756.787299</string>
+					<string>779390661.532817</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -34,13 +34,17 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>        
+</string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
+        )
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>        let canvasView = GraphCanvasView(
+            viewModel: config.viewModel,
+            zoomScale: config.zoomScale,
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -55,13 +59,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>433</string>
+					<string>335</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>433</string>
+					<string>334</string>
 					<key>Timestamp</key>
-					<string>779227756.787322</string>
+					<string>779390661.53284</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -77,13 +81,17 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>        
+</string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
+        )
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>        let canvasView = GraphCanvasView(
+            viewModel: config.viewModel,
+            zoomScale: config.zoomScale,
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>
