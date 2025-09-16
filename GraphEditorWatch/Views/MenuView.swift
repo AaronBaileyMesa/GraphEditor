@@ -139,7 +139,7 @@ struct EditSection: View {
                             isProcessing = true
                             await viewModel.snapshot()
                             viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                            viewModel.model.edges.append(GraphEdge(from: toID, to: fromID, type: .hierarchy))  // Reversed, preserve type
+                            viewModel.model.edges.append(GraphEdge(from: toID, target: fromID, type: .hierarchy))
                             await viewModel.model.startSimulation()
                             clearSelections()  // NEW: Clear after reverse
                             isProcessing = false

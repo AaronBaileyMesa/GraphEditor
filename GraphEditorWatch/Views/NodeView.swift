@@ -8,7 +8,6 @@
 import SwiftUI
 import GraphEditorShared
 
-
 struct NodeView: View {
     let node: any NodeProtocol
     let isSelected: Bool

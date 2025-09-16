@@ -112,7 +112,6 @@ struct GraphModelTests {
         #expect(await newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include added one")
         #expect(await newModel.edges == originalEdges, "Edges unchanged")
     }
-      
     
     
     /*
@@ -207,7 +206,6 @@ struct CoordinateTransformerTests {
     }
 }
 
-    
 struct GestureTests {
     @Test func testDragCreatesEdge() async throws {
         let storage = MockGraphStorage()
@@ -249,7 +247,7 @@ struct GestureTests {
                         }
                     }
                     if !edgeExists {
-                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, to: toID)) }
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
                         await viewModel.model.startSimulation()
                     } else {
                         // Move logic (skipped, but update to use vars)
@@ -284,7 +282,7 @@ struct AccessibilityTests {
                 await model.addNode(at: .zero)
                 await model.addNode(at: CGPoint(x: 10, y: 10))
         
-                await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, to: model.nodes[1].id)) }  // Or await model.addEdge(...) if added
+                await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }  // Or await model.addEdge(...) if added
         
                 let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
         #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")

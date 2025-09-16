@@ -294,7 +294,7 @@ struct GraphGesturesModifier: ViewModifier {
                     let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
                     viewModel.pendingEdgeType = type  // Update for UI
                     Task {
-                        await viewModel.addEdge(from: dragged.id, to: target.id, type: type)  // Async call
+                        await viewModel.addEdge(from: dragged.id, target: target.id, type: type)  // Async call
                     }
                     print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
                     isAddingEdge = false

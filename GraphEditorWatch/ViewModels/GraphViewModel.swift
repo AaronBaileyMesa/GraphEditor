@@ -206,8 +206,8 @@ import WatchKit  // For WKApplication
     }
     
     // NEW: Add this method for edge creation (used in gestures/menu)
-    public func addEdge(from: NodeID, to: NodeID, type: EdgeType) async {
-        model.edges.append(GraphEdge(from: from, to: to, type: type))
+    public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
+        model.edges.append(GraphEdge(from: from, target: target, type: type))
         await model.startSimulation()
         await model.save()  // Persist if needed
             objectWillChange.send()

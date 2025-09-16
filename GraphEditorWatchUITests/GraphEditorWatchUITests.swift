@@ -111,7 +111,6 @@ final class GraphEditorWatchUITests: XCTestCase {
         XCTAssertTrue(zoomedLabel.waitForExistence(timeout: 2), "Zoom updates view")
     }
     
-    
     @MainActor
     func testExample() throws {
         // UI tests must launch the application that they test.
