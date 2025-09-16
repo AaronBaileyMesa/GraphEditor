@@ -43,7 +43,7 @@ struct GraphModelTests {
         
         // Specify node to delete (e.g., first in cycle removes 2 edges)
         let nodeToDelete = await MainActor.run { model.nodes[0].id }
-        let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.to == nodeToDelete }.count }
+        let connectedEdges = await MainActor.run { model.edges.filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count }
         await model.deleteNode(withID: nodeToDelete) // Now 2n, 1e
         
         await model.addNode(at: CGPoint.zero) // Now 3n, 1e — no *manual* snapshot (internal one handles)
@@ -263,7 +263,7 @@ struct GestureTests {
         #expect(newEdge != nil, "New edge exists")
         if let newEdge = newEdge {
             #expect(newEdge.from == draggedNode?.id, "Edge from correct node")
-            #expect(newEdge.to == potentialEdgeTarget?.id, "Edge to correct node")
+            #expect(newEdge.target == potentialEdgeTarget?.id, "Edge to correct node")
         }
     }
 }
