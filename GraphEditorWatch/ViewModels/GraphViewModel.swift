@@ -34,7 +34,7 @@ import WatchKit  // For WKApplication
             return node.position
         } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
                   let from = visibleNodes.first(where: { $0.id == edge.from }),
-                  let to = visibleNodes.first(where: { $0.id == edge.to }) {
+                  let to = visibleNodes.first(where: { $0.id == edge.target }) {
             return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
         }
         return centroid(of: visibleNodes) ?? .zero
@@ -266,7 +266,7 @@ import WatchKit  // For WKApplication
                             await model.handleTap(on: toggled.id)  // Reposition
                             // Immediate offset if expanded
                             if toggled.isExpanded {
-                                let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.to }
+                                let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
                                 for (idx, childID) in children.enumerated() {
                                     if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
                                         var child = model.nodes[childIdx]

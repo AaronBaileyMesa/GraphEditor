@@ -104,7 +104,7 @@ struct EditSection: View {
             if let selectedEdgeID = selectedEdgeID,
                let selectedEdge = findSelectedEdge() {
                 let fromID = selectedEdge.from
-                let toID = selectedEdge.to
+                let toID = selectedEdge.target
                 let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
                 let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
                 let toLabel = viewModel.model.nodes.first(where: { $0.id == toID })?.label ?? 0

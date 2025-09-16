@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>335</string>
+					<string>0</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>334</string>
+					<string>0</string>
 					<key>Timestamp</key>
-					<string>779390661.532817</string>
+					<string>779739218.012925</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -34,16 +34,13 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        
-</string>
+				<string></string>
 				<key>leading</key>
-				<string>            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
-        )
-</string>
+				<string></string>
 				<key>trailing</key>
-				<string>        let canvasView = GraphCanvasView(
-            viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
+				<string>// ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
+
+import SwiftUI
 </string>
 			</dict>
 			<key>title</key>
@@ -59,13 +56,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>335</string>
+					<string>0</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>334</string>
+					<string>0</string>
 					<key>Timestamp</key>
-					<string>779390661.53284</string>
+					<string>779739218.0128599</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -81,16 +78,13 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>        
-</string>
+				<string></string>
 				<key>leading</key>
-				<string>            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
-        )
-</string>
+				<string></string>
 				<key>trailing</key>
-				<string>        let canvasView = GraphCanvasView(
-            viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
+				<string>// ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
+
+import SwiftUI
 </string>
 			</dict>
 			<key>title</key>

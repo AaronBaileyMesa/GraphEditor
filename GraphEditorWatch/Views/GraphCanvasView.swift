@@ -131,7 +131,7 @@ struct GraphCanvasView: View {
                 // Pass 1: Draw edges (lines only)
                 for edge in visibleEdges {
                     guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                          let toNode = visibleNodes.first(where: { $0.id == edge.to }) else { continue }
+                          let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
                     
                     let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
                     let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
@@ -167,7 +167,7 @@ struct GraphCanvasView: View {
                 // Pass 2: Draw arrows (over lines)
                 for edge in visibleEdges {
                     guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                          let toNode = visibleNodes.first(where: { $0.id == edge.to }) else { continue }
+                          let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
                     
                     let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
                     let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected

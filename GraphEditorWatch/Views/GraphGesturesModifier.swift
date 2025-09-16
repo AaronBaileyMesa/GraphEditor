@@ -127,7 +127,7 @@ struct GraphGesturesModifier: ViewModifier {
         
         for edge in visibleEdges {
             guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                  let toNode = visibleNodes.first(where: { $0.id == edge.to }) else { continue }
+                  let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
             
             let fromScreen = modelToScreen(fromNode.position, context: context)
             let toScreen = modelToScreen(toNode.position, context: context)
@@ -286,7 +286,7 @@ struct GraphGesturesModifier: ViewModifier {
             if let target = potentialEdgeTarget, target.id != dragged.id, isAddingEdge {
                 // Duplicate check with logging
                 let exists = viewModel.model.edges.contains { edge in
-                    (edge.from == dragged.id && edge.to == target.id) || (edge.from == target.id && edge.to == dragged.id)
+                    (edge.from == dragged.id && edge.target == target.id) || (edge.from == target.id && edge.target == dragged.id)
                 }
                 if !exists {
                     print("No duplicate; adding edge")
