@@ -9,25 +9,6 @@ import WatchKit
 import GraphEditorShared
 import os.log  // Added for optimized logging
 
-// Extensions for CGPoint vector math (resolves operator ambiguities)
-extension CGPoint {
-    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        .init(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
-    }
-    
-    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
-        .init(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
-    }
-    
-    static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        .init(x: lhs.x * rhs, y: lhs.y * rhs)
-    }
-    
-    static func / (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
-        .init(x: lhs.x / rhs, y: lhs.y / rhs)
-    }
-}
-
 enum HitType {
     case node
     case edge
@@ -85,8 +66,9 @@ struct GraphGesturesModifier: ViewModifier {
 #endif
         
         for node in visibleNodes {
-            let nodeScreenPos = modelToScreen(node.position, context: context)
-            let dist = distance(pointA: screenPos, pointB: nodeScreenPos)
+            let safeZoom = max(context.zoomScale, 0.1)
+            let nodeScreenPos = CoordinateTransformer.modelToScreen(node.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
+            let dist = distance(screenPos, nodeScreenPos)
             
 #if DEBUG
             nodeDistances.append(NodeDistanceInfo(label: node.label, screenPos: nodeScreenPos, dist: dist))
@@ -129,8 +111,9 @@ struct GraphGesturesModifier: ViewModifier {
             guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
                   let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
             
-            let fromScreen = modelToScreen(fromNode.position, context: context)
-            let toScreen = modelToScreen(toNode.position, context: context)
+            let safeZoom = max(context.zoomScale, 0.1)
+            let fromScreen = CoordinateTransformer.modelToScreen(fromNode.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
+            let toScreen = CoordinateTransformer.modelToScreen(toNode.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
             let dist = pointToLineDistance(point: screenPos, from: fromScreen, endPoint: toScreen)
             
 #if DEBUG
@@ -227,7 +210,7 @@ struct GraphGesturesModifier: ViewModifier {
     private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
         let location = value.location
         let translation = value.translation
-        let dragMagnitude = distance(pointA: .zero, pointB: CGPoint(x: translation.width, y: translation.height))
+        let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
         
         // Initial hit if no dragStartNode (start of drag)
         if dragStartNode == nil {
@@ -265,13 +248,13 @@ struct GraphGesturesModifier: ViewModifier {
     private func handleDragEnded(value: DragGesture.Value, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
         let location = value.location
         let translation = value.translation
-        let dragMagnitude = distance(pointA: .zero, pointB: CGPoint(x: translation.width, y: translation.height))
+        let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
         
         // Defer cleanup (ensures reset even on errors/taps)
         defer { resetGestureState() }
         
         // Early exit for taps (short drag) - enhanced for node/edge selection
-        if let start = startLocation, dragMagnitude < dragStartThreshold, distance(pointA: start, pointB: location) < dragStartThreshold {
+        if let start = startLocation, dragMagnitude < dragStartThreshold, distance(start, location) < dragStartThreshold {
             handleTap(at: location, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             return  // Exit early
         }
@@ -359,32 +342,6 @@ struct GraphGesturesModifier: ViewModifier {
 }
 
 extension GraphGesturesModifier {
-    // Model to screen conversion (inverse of screenToModel; use your existing if available)
-    private func modelToScreen(_ modelPos: CGPoint, context: GestureContext) -> CGPoint {
-        let safeZoom = max(context.zoomScale, 0.1)
-        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
-        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
-        let relative = modelPos - context.effectiveCentroid
-        let scaled = relative * safeZoom
-        let screenPos = scaled + viewCenter + panOffset
-        return screenPos
-    }
-    
-    private func screenToModel(_ screenPos: CGPoint, context: GestureContext) -> CGPoint {
-        let safeZoom = max(context.zoomScale, 0.1)
-        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
-        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
-        let translated = screenPos - viewCenter - panOffset
-        let unscaled = translated / safeZoom
-        return unscaled + context.effectiveCentroid
-    }
-    
-    private func distance(pointA: CGPoint, pointB: CGPoint) -> CGFloat {
-        let deltaX = Double(pointA.x - pointB.x)
-        let deltaY = Double(pointA.y - pointB.y)
-        return CGFloat(hypot(deltaX, deltaY))
-    }
-    
     private func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
         let startX = Double(startPoint.x), startY = Double(startPoint.y)
@@ -395,7 +352,7 @@ extension GraphGesturesModifier {
         let lineLen = hypot(lineVecX, lineVecY)
         
         if lineLen == 0 {
-            return distance(pointA: point, pointB: startPoint)
+            return distance(point, startPoint)
         }
         
         let pointVecX = pointX - startX
@@ -409,7 +366,6 @@ extension GraphGesturesModifier {
         let projY = startY + lineVecY * clampedParam
         
         let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
-        return distance(pointA: point, pointB: proj)
+        return distance(point, proj)
     }
-
 }
