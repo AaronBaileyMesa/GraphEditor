@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>0</string>
+					<string>252</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>0</string>
+					<string>252</string>
 					<key>Timestamp</key>
-					<string>779739218.012925</string>
+					<string>780011323.3095371</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,12 +36,11 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string></string>
-				<key>trailing</key>
-				<string>// ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
-
-import SwiftUI
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
+				<key>trailing</key>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -56,13 +55,13 @@ import SwiftUI
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>0</string>
+					<string>252</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>0</string>
+					<string>252</string>
 					<key>Timestamp</key>
-					<string>779739218.0128599</string>
+					<string>780011323.3095551</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -80,12 +79,11 @@ import SwiftUI
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string></string>
-				<key>trailing</key>
-				<string>// ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
-
-import SwiftUI
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
+				<key>trailing</key>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>

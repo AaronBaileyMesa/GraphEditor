@@ -1,95 +1,10 @@
-// ContentView.swift (Fixed version: Removed .hidden() from mainContent to ensure rendering; preserved other improvements)
+// ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
 
 import SwiftUI
 import WatchKit
 import GraphEditorShared
 import Foundation
 import CoreGraphics
-
-struct ViewSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-struct NodeWrapper: Equatable, Identifiable {
-    let id: UUID?
-    let node: (any NodeProtocol)?
-    
-    init(node: (any NodeProtocol)?) {
-        self.node = node
-        self.id = node?.id
-    }
-    
-    static func == (lhs: NodeWrapper, rhs: NodeWrapper) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct InnerViewConfig {
-    let geo: GeometryProxy
-    let viewModel: GraphViewModel
-    let zoomScale: Binding<CGFloat>
-    let offset: Binding<CGSize>
-    let draggedNode: Binding<NodeWrapper>
-    let dragOffset: Binding<CGPoint>
-    let potentialEdgeTarget: Binding<NodeWrapper>
-    let panStartOffset: Binding<CGSize?>
-    let showMenu: Binding<Bool>
-    let showOverlays: Binding<Bool>
-    let maxZoom: CGFloat
-    let crownPosition: Binding<Double>
-    let updateZoomRangesHandler: (CGSize) -> Void
-    let selectedNodeID: Binding<NodeID?>
-    let selectedEdgeID: Binding<UUID?>
-    let canvasFocus: FocusState<Bool>
-    let onCenterGraph: () -> Void
-    let isAddingEdge: Binding<Bool>
-    let isSimulatingBinding: Binding<Bool>
-    
-    init(
-        geo: GeometryProxy,
-        viewModel: GraphViewModel,
-        zoomScale: Binding<CGFloat>,
-        offset: Binding<CGSize>,
-        draggedNode: Binding<NodeWrapper>,
-        dragOffset: Binding<CGPoint>,
-        potentialEdgeTarget: Binding<NodeWrapper>,
-        panStartOffset: Binding<CGSize?>,
-        showMenu: Binding<Bool>,
-        showOverlays: Binding<Bool>,
-        maxZoom: CGFloat,
-        crownPosition: Binding<Double>,
-        updateZoomRangesHandler: @escaping (CGSize) -> Void,
-        selectedNodeID: Binding<NodeID?>,
-        selectedEdgeID: Binding<UUID?>,
-        canvasFocus: FocusState<Bool>,
-        onCenterGraph: @escaping () -> Void,
-        isAddingEdge: Binding<Bool>,
-        isSimulatingBinding: Binding<Bool>  // NEW: Add this param
-    ) {
-        self.geo = geo
-        self.viewModel = viewModel
-        self.zoomScale = zoomScale
-        self.offset = offset
-        self.draggedNode = draggedNode
-        self.dragOffset = dragOffset
-        self.potentialEdgeTarget = potentialEdgeTarget
-        self.panStartOffset = panStartOffset
-        self.showMenu = showMenu
-        self.showOverlays = showOverlays
-        self.maxZoom = maxZoom
-        self.crownPosition = crownPosition
-        self.updateZoomRangesHandler = updateZoomRangesHandler
-        self.selectedNodeID = selectedNodeID
-        self.selectedEdgeID = selectedEdgeID
-        self.canvasFocus = canvasFocus
-        self.onCenterGraph = onCenterGraph
-        self.isAddingEdge = isAddingEdge
-        self.isSimulatingBinding = isSimulatingBinding  // NEW: Assign it
-    }
-}
 
 struct ContentView: View {
     @ObservedObject var viewModel: GraphViewModel
@@ -245,7 +160,7 @@ struct ContentView: View {
                 canvasFocus: _canvasFocus,
                 onCenterGraph: centerGraph,
                 isAddingEdge: $isAddingEdge,
-                isSimulatingBinding: $isSimulating,  // FIXED: Pass actual binding instance from @State
+                isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
             
             addNodeButton(in: geo)
@@ -325,58 +240,6 @@ struct ContentView: View {
     }
 }
 
-struct InnerView: View {
-    let config: InnerViewConfig
-    
-    var body: some View {
-        let draggedNodeBinding = Binding<(any NodeProtocol)?>(
-            get: { config.draggedNode.wrappedValue.node },
-            set: { config.draggedNode.wrappedValue = NodeWrapper(node: $0) }
-        )
-        let potentialEdgeTargetBinding = Binding<(any NodeProtocol)?>(
-            get: { config.potentialEdgeTarget.wrappedValue.node },
-            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
-        )
-        
-        let canvasView = GraphCanvasView(
-            viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
-            offset: config.offset,
-            draggedNode: draggedNodeBinding,
-            dragOffset: config.dragOffset,
-            potentialEdgeTarget: potentialEdgeTargetBinding,
-            selectedNodeID: config.selectedNodeID,
-            viewSize: config.geo.size,
-            panStartOffset: config.panStartOffset,
-            showMenu: config.showMenu,
-            maxZoom: config.maxZoom,
-            crownPosition: config.crownPosition,
-            onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
-            selectedEdgeID: config.selectedEdgeID,
-            showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge
-        )
-            .accessibilityIdentifier("GraphCanvas")
-            .focused(config.canvasFocus.projectedValue)
-                .focusable()
-        
-        if config.showMenu.wrappedValue {
-            MenuView(
-                viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulatingBinding,
-                onCenterGraph: config.onCenterGraph,
-                showMenu: config.showMenu,
-                showOverlays: config.showOverlays,
-                selectedNodeID: config.selectedNodeID,    // NEW: Pass binding
-                selectedEdgeID: config.selectedEdgeID     // NEW: Pass binding
-            )
-            .navigationTitle("Menu")
-        } else {
-            canvasView
-        }
-    }
-}
-
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
@@ -386,53 +249,4 @@ extension CGFloat {
 #Preview {
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
     ContentView(viewModel: mockViewModel)
-}
-
-struct EditContentSheet: View {
-    let selectedID: NodeID
-    let viewModel: GraphViewModel
-    let onSave: (NodeContent?) -> Void
-    @State private var selectedType: String = "String"
-    @State private var stringValue: String = ""
-    @State private var dateValue: Date = Date()
-    @State private var numberValue: Double = 0.0
-    
-    var body: some View {
-        VStack {
-            Picker("Type", selection: $selectedType) {
-                Text("String").tag("String")
-                Text("Date").tag("Date")
-                Text("Number").tag("Number")
-                Text("None").tag("None")
-            }
-            if selectedType == "String" {
-                TextField("Enter text", text: $stringValue).frame(maxWidth: .infinity)
-            } else if selectedType == "Date" {
-                DatePicker("Select date", selection: $dateValue, displayedComponents: .date)
-            } else if selectedType == "Number" {
-                TextField("Enter number", value: $numberValue, format: .number)
-            }
-            Button("Save") {
-                let newContent: NodeContent? = {
-                    switch selectedType {
-                    case "String": return stringValue.isEmpty ? nil : .string(stringValue)
-                    case "Date": return .date(dateValue)
-                    case "Number": return .number(numberValue)
-                    default: return nil
-                    }
-                }()
-                onSave(newContent)
-            }
-        }
-        .onAppear {
-            if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }),
-               let content = node.content {
-                switch content {
-                case .string(let str): selectedType = "String"; stringValue = str
-                case .date(let date): selectedType = "Date"; dateValue = date
-                case .number(let num): selectedType = "Number"; numberValue = num
-                }
-            }
-        }
-    }
 }
