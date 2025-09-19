@@ -114,25 +114,25 @@ struct ContentView: View {
     @State private var isSimulating: Bool = false
     
     // NEW: Custom Bindings to sync @State with ViewModel (two-way)
-        private var selectedNodeIDBinding: Binding<NodeID?> {
-            Binding(
-                get: { selectedNodeID },
-                set: { newValue in
-                    selectedNodeID = newValue
-                    viewModel.setSelectedNode(newValue)  // Sync to ViewModel
-                }
-            )
-        }
-
-        private var selectedEdgeIDBinding: Binding<UUID?> {
-            Binding(
-                get: { selectedEdgeID },
-                set: { newValue in
-                    selectedEdgeID = newValue
-                    viewModel.setSelectedEdge(newValue)  // Sync to ViewModel
-                }
-            )
-        }
+    private var selectedNodeIDBinding: Binding<NodeID?> {
+        Binding(
+            get: { selectedNodeID },
+            set: { newValue in
+                selectedNodeID = newValue
+                viewModel.setSelectedNode(newValue)  // Sync to ViewModel
+            }
+        )
+    }
+    
+    private var selectedEdgeIDBinding: Binding<UUID?> {
+        Binding(
+            get: { selectedEdgeID },
+            set: { newValue in
+                selectedEdgeID = newValue
+                viewModel.setSelectedEdge(newValue)  // Sync to ViewModel
+            }
+        )
+    }
     
     var body: some View {
         let geoView = GeometryReader { geo in
@@ -146,9 +146,9 @@ struct ContentView: View {
                     
                     let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
                     zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
-                    #if DEBUG
+#if DEBUG
                     print("Initial sync: crownPosition \(crownPosition) -> zoomScale \(zoomScale)")
-                    #endif
+#endif
                     
                     viewSize = geo.size  // New: Set viewSize here
                 }
@@ -166,16 +166,16 @@ struct ContentView: View {
                     print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
                     if !newValue { canvasFocus = true }
                 }
-
+            
             let intermediateView = baseView
                 .onChange(of: zoomScale) { oldValue, newValue in
                     let normalized = (newValue - minZoom) / (maxZoom - minZoom)
                     let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
                     if abs(targetCrown - crownPosition) > 0.01 {
                         crownPosition = targetCrown
-                        #if DEBUG
+#if DEBUG
                         print("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(crownPosition)")
-                        #endif
+#endif
                     }
                 }
                 .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
@@ -206,10 +206,10 @@ struct ContentView: View {
                         })
                     }
                 }
-
+            
             intermediateView
         }
-
+        
         let finalView = geoView
             .ignoresSafeArea()
             .focusable(true)  // Make the whole view focusable for crown
@@ -220,7 +220,7 @@ struct ContentView: View {
                 through: Double(AppConstants.crownZoomSteps),
                 sensitivity: .medium
             )
-
+        
         finalView
     }
     
@@ -253,11 +253,11 @@ struct ContentView: View {
         }
         // Removed .hidden() to ensure the content renders
     }
-
+    
     private func handleCrownRotation(newValue: Double) {
-        #if DEBUG
+#if DEBUG
         print("handleCrownRotation triggered with newValue: \(newValue)")
-        #endif
+#endif
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
         let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
         
@@ -266,11 +266,11 @@ struct ContentView: View {
             zoomScale = targetZoom
         }
         viewModel.centerGraph()  // Direct call
-        #if DEBUG
+#if DEBUG
         print("Updated zoomScale to: \(zoomScale)")
-        #endif
+#endif
     }
-
+    
     private func updateZoomRanges(for viewSize: CGSize) {
         let ranges = viewModel.calculateZoomRanges(for: viewSize)
         minZoom = ranges.min
@@ -293,21 +293,21 @@ struct ContentView: View {
         }
         print("Centering graph: Old centroid \(oldCentroid), Shift \(centroidShift), New target \(newCentroid)")
     }
-
+    
     // Existing add node button (unchanged, but renamed for clarity)
     private func addNodeButton(in geo: GeometryProxy) -> some View {
         Button(action: {
             let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))  // Random spread
             Task { await viewModel.addNode(at: randomPos) }  // Changed to addNode for regular nodes; use addToggleNode if desired
-        }) {
+        }, label: {
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 30))
                 .foregroundColor(.green)
-        }
+        })
         .buttonStyle(.plain)
         .position(x: wristSide == .left ? 20 : geo.size.width - 20, y: geo.size.height - 20)
     }
-
+    
     private func menuButton(in geo: GeometryProxy) -> some View {
         Button(action: {
             if showMenu {
@@ -315,11 +315,11 @@ struct ContentView: View {
             } else {
                 showMenu = true   // Open menu
             }
-        }) {
+        }, label: {
             Image(systemName: showMenu ? "chart.xyaxis.line" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
                 .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
-        }
+        })
         .buttonStyle(.plain)
         .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Preserve adjacent positioning
     }

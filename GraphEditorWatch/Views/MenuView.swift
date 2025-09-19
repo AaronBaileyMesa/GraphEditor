@@ -178,7 +178,7 @@ struct ViewSection: View {
                 .onSubmit { /* No-op for toggle */ }
             
             Toggle("Run Simulation", isOn: isSimulating)
-                .onChange(of: isSimulating.wrappedValue) { oldValue, newValue in
+                .onChange(of: isSimulating.wrappedValue) { _, newValue in
                     onSimulationChange(newValue)
                 }
                 .onSubmit { /* No-op for toggle */ }
@@ -285,7 +285,7 @@ struct MenuView: View {
             // NEW: Debug log for selections
             print("Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
         }
-        .onChange(of: isMenuFocused) { oldValue, newValue in
+        .onChange(of: isMenuFocused) { _, newValue in
             print("Menu focus: \(newValue)") // Debug (fixed typo)
             if !newValue {
                 isMenuFocused = true // Auto-recover
@@ -309,7 +309,7 @@ struct MenuView: View {
 }
 
 #Preview {
-    @Previewable @State var mockSelectedNodeID: NodeID? = nil
+    @Previewable @State var mockSelectedNodeID: NodeID?
     @Previewable @State var mockSelectedEdgeID: UUID? = UUID()  // Simulate
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
     // UPDATED: Pass new bindings for preview (use placeholders); simulate selection for testing
