@@ -300,7 +300,7 @@ struct MenuView: View {
                 })
             }
         }
-        .onChange(of: isAddingEdge) { oldValue, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+        .onChange(of: isAddingEdge) { _, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
             if newValue {
                 // Optionally notify viewModel or handle here
             }
