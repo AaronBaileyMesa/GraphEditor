@@ -56,9 +56,11 @@ import WatchKit  // For WKApplication
     
     public init(model: GraphModel) {
         self.model = model
-        cancellable = model.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
+        cancellable = model.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
         
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in  // Ensure main for publishes
