@@ -82,9 +82,20 @@ struct EditSection: View {
                 Button("Edit Node") {  // New
                     onEditNode()
                     onDismiss()
+                    
                 }
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
+
+                if viewModel.isSelectedToggleNode {
+                                Button("Toggle Expand/Collapse") {
+                                    Task { await viewModel.toggleSelectedNode() }
+                                    onDismiss()
+                                }
+                                .onSubmit { /* Same as above */ }
+                            }
+                        
+                    
                 
                 Button("Delete Node", role: .destructive) {
                     Task {
@@ -117,7 +128,7 @@ struct EditSection: View {
                 Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
                     Task {
                         isProcessing = true
-                        await viewModel.snapshot()
+                        await viewModel.model.snapshot()
                         if isBi {
                             let pair = viewModel.model.edgesBetween(fromID, toID)
                             viewModel.model.edges.removeAll { pair.contains($0) }
@@ -137,7 +148,7 @@ struct EditSection: View {
                     Button("Reverse Edge") {
                         Task {
                             isProcessing = true
-                            await viewModel.snapshot()
+                            await viewModel.model.snapshot()
                             viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                             viewModel.model.edges.append(GraphEdge(from: toID, target: fromID, type: .hierarchy))
                             await viewModel.model.startSimulation()
@@ -191,7 +202,7 @@ struct GraphSection: View {
     var body: some View {
         Section(header: Text("Graph")) {
             Button("Reset Graph", role: .destructive) {
-                Task { await viewModel.resetGraph() }
+                Task { await viewModel.clearGraph() }
                 onDismiss()
             }
             .onSubmit { /* Same as above */ }
@@ -286,7 +297,7 @@ struct MenuView: View {
         .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
             if let selectedID = viewModel.selectedNodeID {
                 EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                    Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
+                    Task { await viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent) }
                     showEditSheet = false
                 })
             }

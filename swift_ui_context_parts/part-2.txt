@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-10 19:58:17
+Current date: 2025-09-16 11:40:21
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
@@ -291,7 +291,7 @@ public struct AnyNode: NodeProtocol {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-09-08 22:16:47
+Last modified: 2025-09-15 10:04:18
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -301,7 +301,7 @@ import os  // For Logger
 
 private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
-@available(iOS 13.0, watchOS 6.0, *)
+@available(iOS 14.0, watchOS 6.0, *)
 /// Error types for graph storage operations.
 public enum GraphStorageError: Error {
     case encodingFailed(Error)
@@ -312,7 +312,7 @@ public enum GraphStorageError: Error {
 }
 
 /// File-based JSON persistence conforming to GraphStorage.
-@available(iOS 13.0, watchOS 6.0, *)
+@available(iOS 14.0, watchOS 6.0, *)
 public class PersistenceManager: GraphStorage {
     private let fileName = "graphState.json"
     private let fileURL: URL
@@ -329,12 +329,9 @@ public class PersistenceManager: GraphStorage {
         let viewState: ViewState?  // Embed view state (optional)
     }
     
-    // UPDATED: Made async (wrap sync ops in Task for non-blocking I/O)
     public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
         let wrapped = nodes.compactMap { node -> NodeWrapper? in
-            if let n = node as? Node { return .node(n) }
-            else if let tn = node as? ToggleNode { return .toggleNode(tn) }
-            else {
+            if let plainNode = node as? Node { return .node(plainNode) } else if let toggleNode = node as? ToggleNode { return .toggleNode(toggleNode) } else {
                 logger.error("Unsupported node type: \(String(describing: type(of: node))); skipping.")
                 return nil  // Skip instead of fatalError
             }
@@ -353,10 +350,9 @@ public class PersistenceManager: GraphStorage {
         }
     }
     
-    // UPDATED: Made async
     public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
-        let fm = FileManager.default
-        guard fm.fileExists(atPath: fileURL.path) else {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: fileURL.path) else {
             logger.debug("No saved file; returning empty")
             return ([], [])
         }
@@ -379,44 +375,28 @@ public class PersistenceManager: GraphStorage {
     }
 
     public func clear() async throws {
-        let fm = FileManager.default
-        if fm.fileExists(atPath: fileURL.path) {
-            try fm.removeItem(at: fileURL)
+        let fileManager = FileManager.default
+        if fileManager.fileExists(atPath: fileURL.path) {
+            try fileManager.removeItem(at: fileURL)
             logger.debug("Cleared saved graph")
         }
     }
     
-    // Updated helper struct (unchanged)
-    struct ViewState: Codable {
-        let offset: CGPoint
-        let zoomScale: CGFloat
-        let selectedNodeID: UUID?  // NodeID is UUID from GraphTypes.swift
-        let selectedEdgeID: UUID?  // Matches @Published in GraphViewModel
+    public func saveViewState(_ viewState: ViewState) async throws {
+        let data = try JSONEncoder().encode(viewState)
+        UserDefaults.standard.set(data, forKey: "graphViewState")
+        UserDefaults.standard.synchronize()  // Ensure immediate write
     }
 
-    // UPDATED: Made async for consistency (though UserDefaults is sync)
-    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
-        try await Task {
-            let state = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
-            let data = try JSONEncoder().encode(state)
-            UserDefaults.standard.set(data, forKey: "graphViewState")
-            UserDefaults.standard.synchronize()  // Ensure immediate write
-        }.value
-    }
-
-    // UPDATED: Made async
-    public func loadViewState() async throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
-        try await Task {
-            guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
-            let state = try JSONDecoder().decode(ViewState.self, from: data)
-            return (offset: state.offset, zoomScale: state.zoomScale, selectedNodeID: state.selectedNodeID, selectedEdgeID: state.selectedEdgeID)
-        }.value
+    public func loadViewState() async throws -> ViewState? {
+        guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
+        return try JSONDecoder().decode(ViewState.self, from: data)
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-09-09 11:56:39
+Last modified: 2025-09-16 11:16:15
 
 Contents:
 //
@@ -477,9 +457,17 @@ public class PhysicsEngine {
         updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
         
         let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
+        var updatedNodes = tempNodes.map { node in
+            var clamped = node
+            if hypot(clamped.velocity.x, clamped.velocity.y) < 0.001 {
+                clamped.velocity = .zero
+            }
+            return clamped
+        }
+
         // New: Reset velocities if stable
         let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: CGPoint.zero) }         // NEW: Apply boosted damping if active
-        var updatedNodes = resetNodes
+//        var updatedNodes = resetNodes
         if dampingBoostSteps > 0 {
             let extraDamping = Constants.Physics.damping * 1.2  // 20% boost; adjust as needed
             updatedNodes = updatedNodes.map { node in
@@ -495,6 +483,17 @@ public class PhysicsEngine {
         }
         
         return (resetNodes, isActive)
+    }
+    
+    // Add to PhysicsEngine class
+    public func runSimulation(steps: Int, nodes: [any NodeProtocol], edges: [GraphEdge]) -> [any NodeProtocol] {
+        var currentNodes = nodes
+        for _ in 0..<steps {
+            let (updatedNodes, isActive) = simulationStep(nodes: currentNodes, edges: edges)
+            currentNodes = updatedNodes
+            if !isActive { break }  // Early exit if stable
+        }
+        return currentNodes
     }
     
     public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
@@ -537,7 +536,7 @@ public class PhysicsEngine {
 ----------------------------------------------------------------------------------------------------
 File: PositionUpdater.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-Last modified: 2025-08-19 11:36:48
+Last modified: 2025-09-16 11:17:51
 
 Contents:
 //
@@ -552,11 +551,74 @@ import CoreGraphics
 
 struct PositionUpdater {
     let simulationBounds: CGSize
-    
-    init(simulationBounds: CGSize) {
-        self.simulationBounds = simulationBounds
+
+    private func clampedPositionAndBouncedVelocity(for tentativePosition: CGPoint, with tentativeVelocity: CGPoint) -> (CGPoint, CGPoint) {
+        let oldPosition = tentativePosition
+        var newPosition = tentativePosition
+        newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
+        newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
+        var newVelocity = tentativeVelocity
+        if newPosition.x != oldPosition.x {
+            newVelocity.x = -newVelocity.x * 0.8
+        }
+        if newPosition.y != oldPosition.y {
+            newVelocity.y = -newVelocity.y * 0.8
+        }
+        return (newPosition, newVelocity)
     }
-    
+
+    private func adjustPositionForCollisions(_ position: CGPoint, excluding nodeID: NodeID, using quadtree: Quadtree?, allNodes nodes: [any NodeProtocol]) -> CGPoint {
+        let minDist: CGFloat = 35.0
+        var newPosition = position
+        if let quadTree = quadtree {
+            let nearby = quadTree.queryNearby(position: newPosition, radius: minDist)
+            for other in nearby where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        } else {
+            for other in nodes where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        }
+        return newPosition
+    }
+
+    private func buildParentMap(from edges: [GraphEdge]) -> [NodeID: [NodeID]] {
+        var parentMap = [NodeID: [NodeID]]()
+        for edge in edges {
+            parentMap[edge.target, default: []].append(edge.from)
+        }
+        return parentMap
+    }
+
+    private func finalPositionAndVelocity(for nodeID: NodeID, tentative: (position: CGPoint, velocity: CGPoint), parentMap: [NodeID: [NodeID]], isExpandedMap: [NodeID: Bool], tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)]) -> (CGPoint, CGPoint) {
+        var newPosition = tentative.position
+        var newVelocity = tentative.velocity
+        if let parents = parentMap[nodeID], !parents.isEmpty {
+            let collapsedParents = parents.filter { parentID in
+                isExpandedMap[parentID] == false
+            }
+            if !collapsedParents.isEmpty {
+                var avgPos = CGPoint.zero
+                for parentID in collapsedParents {
+                    avgPos += tentativeUpdates[parentID]!.position
+                }
+                avgPos /= CGFloat(collapsedParents.count)
+                newPosition = avgPos
+                newVelocity = .zero
+            }
+        }
+        return (newPosition, newVelocity)
+    }
+
     func updatePositionsAndVelocities(nodes: [any NodeProtocol], forces: [NodeID: CGPoint], edges: [GraphEdge], quadtree: Quadtree?) -> ([any NodeProtocol], Bool) {
         var tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)] = [:]
         for node in nodes {
@@ -564,88 +626,33 @@ struct PositionUpdater {
             var newVelocity = CGPoint(x: node.velocity.x + force.x * Constants.Physics.timeStep, y: node.velocity.y + force.y * Constants.Physics.timeStep)
             newVelocity = CGPoint(x: newVelocity.x * Constants.Physics.damping, y: newVelocity.y * Constants.Physics.damping)
             var newPosition = CGPoint(x: node.position.x + newVelocity.x * Constants.Physics.timeStep, y: node.position.y + newVelocity.y * Constants.Physics.timeStep)
-            
-            // Tentative bounds clamp and softer bounce
-            let oldPosition = newPosition
-            newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
-            newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
-            if newPosition.x != oldPosition.x {
-                newVelocity.x = -newVelocity.x * 0.8
-            }
-            if newPosition.y != oldPosition.y {
-                newVelocity.y = -newVelocity.y * 0.8
-            }
-            
-            // Insert anti-collision separation here
-            let minDist: CGFloat = 35.0  // Or Constants.Physics.minCollisionDist if defined
-            if let qt = quadtree {
-                let nearby = qt.queryNearby(position: newPosition, radius: minDist)
-                for other in nearby where other.id != node.id {
-                    let delta = newPosition - other.position
-                    let d = hypot(delta.x, delta.y)
-                    if d < minDist && d > 0 {
-                        newPosition += (delta / d) * (minDist - d) / 2
-                    }
-                }
-            } else {
-                // Fallback to original O(n^2) for small graphs
-                for other in nodes where other.id != node.id {
-                    let delta = newPosition - other.position
-                    let d = hypot(delta.x, delta.y)
-                    if d < minDist && d > 0 {
-                        newPosition += (delta / d) * (minDist - d) / 2
-                    }
-                }
-            }
-            
-            // FIXED: Store the computed values (this was missing, causing nil in second loop)
-            tentativeUpdates[node.id] = (position: newPosition, velocity: newVelocity)
+            (newPosition, newVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
+            newPosition = adjustPositionForCollisions(newPosition, excluding: node.id, using: quadtree, allNodes: nodes)
+            tentativeUpdates[node.id] = (newPosition, newVelocity)
         }
-        
-        // Build multi-parent map: child -> [parents]
-        var parentMap = [NodeID: [NodeID]]()
-        for edge in edges {
-            parentMap[edge.to, default: []].append(edge.from)
-        }
-        
-        // Second pass: Apply clamping using tentative parent updates and create final updated nodes
+
+        let parentMap = buildParentMap(from: edges)
+        let isExpandedMap: [NodeID: Bool] = nodes.reduce(into: [:]) { $0[$1.id] = $1.isExpanded }
+
         var updatedNodes: [any NodeProtocol] = []
         var totalVelocity: CGFloat = 0.0
         for node in nodes {
-            var newPosition = tentativeUpdates[node.id]!.position
-            var newVelocity = tentativeUpdates[node.id]!.velocity
-            
-            if let parents = parentMap[node.id], !parents.isEmpty {
-                let collapsedParents = parents.filter { parentID in
-                    nodes.first(where: { $0.id == parentID })?.isExpanded == false
-                }
-                if !collapsedParents.isEmpty {
-                    // Average tentative positions of collapsed parents
-                    var avgPos = CGPoint.zero
-                    for parentID in collapsedParents {
-                        avgPos = avgPos + tentativeUpdates[parentID]!.position
-                    }
-                    avgPos = avgPos / CGFloat(collapsedParents.count)
-                    newPosition = avgPos
-                    newVelocity = .zero
-                }
-            }
-            
+            let tentative = tentativeUpdates[node.id]!
+            let (newPosition, newVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
             let updatedNode = node.with(position: newPosition, velocity: newVelocity)
             updatedNodes.append(updatedNode)
             totalVelocity += hypot(newVelocity.x, newVelocity.y)
         }
-        
-        // Check if stable based on total velocity
+
         let isActive = totalVelocity >= Constants.Physics.velocityThreshold * CGFloat(nodes.count)
-        
+
         return (updatedNodes, isActive)
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: Protocols.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-Last modified: 2025-08-28 13:46:35
+Last modified: 2025-09-15 10:16:15
 
 Contents:
 //
@@ -655,8 +662,17 @@ Contents:
 //  Created by handcart on 8/1/25.
 //
 
-import SwiftUI
 // Sources/GraphEditorShared/Protocols.swift
+
+import SwiftUI
+
+@available(iOS 13.0, watchOS 6.0, *)
+public struct ViewState: Codable {
+    public var offset: CGPoint
+    public var zoomScale: CGFloat
+    public var selectedNodeID: UUID?
+    public var selectedEdgeID: UUID?
+}
 
 @available(iOS 13.0, watchOS 6.0, *)
 public protocol GraphStorage {
@@ -665,28 +681,23 @@ public protocol GraphStorage {
     /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
     func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
     func clear() async throws  // Unchanged
-    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws
-    func loadViewState() async throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)?
+    func saveViewState(_ viewState: ViewState) async throws
+    func loadViewState() async throws -> ViewState?
 }
 
-// In GraphEditorShared/Sources/GraphEditorShared/Protocols.swift (add inside protocol GraphStorage)
-
-
-
-// Add a protocol extension for defaults (at bottom of file)
 extension GraphStorage {
-    func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
+    func saveViewState(_ viewState: ViewState) throws {
         // Default: Do nothing (for storages that don't support view state)
     }
     
-    func loadViewState() throws -> (offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?)? {
+    func loadViewState() throws -> ViewState? {
         return nil  // Default: No state
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: Quadtree.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-Last modified: 2025-09-10 08:33:29
+Last modified: 2025-09-16 11:39:37
 
 Contents:
 //
@@ -705,7 +716,7 @@ public class Quadtree {  // Public for consistency and test access
     let bounds: CGRect
     public var centerOfMass: CGPoint = .zero
     public var totalMass: CGFloat = 0
-    public var children: [Quadtree]? = nil
+    public var children: [Quadtree]?
     var nodes: [any NodeProtocol] = []  // Existential array for protocol conformance
     
     public init(bounds: CGRect) {
@@ -754,66 +765,51 @@ public class Quadtree {  // Public for consistency and test access
     }
     
     public func batchInsert(_ batchNodes: [any NodeProtocol], depth: Int = 0) {
-        // Guard against invalid bounds or excessive depth
         guard depth <= Constants.Physics.maxQuadtreeDepth,
               bounds.width >= Constants.Physics.minQuadSize,
               bounds.height >= Constants.Physics.minQuadSize else {
-            nodes.append(contentsOf: batchNodes)
-            for node in batchNodes {
-                updateCenterOfMass(with: node)  // Incremental updates
-            }
+            appendBatchAndUpdateCOM(batchNodes)
             return
         }
-        
-        if let children = children {
-            // Existing subdivided quad: Distribute batch to children, defer aggregation
-            var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
-            for node in batchNodes {
-                let quadrant = getQuadrant(for: node.position)
-                childBatches[quadrant].append(node)
-            }
-            for i in 0..<4 {
-                if !childBatches[i].isEmpty {
-                    children[i].batchInsert(childBatches[i], depth: depth + 1)
-                }
-            }
-            aggregateFromChildren()  // Aggregate once after all inserts
-        } else if !nodes.isEmpty || !batchNodes.isEmpty {
-            // Leaf: Check if subdivision is needed
+
+        if let children {
+            distribute(batchNodes, to: children, depth: depth + 1)
+            aggregateFromChildren()
+        } else {
             let allNodes = nodes + batchNodes
-            if allNodes.count > 1 {  // Subdivide threshold (tunable)
-                subdivide()
-                guard let children = children else {
-                    // Failed to subdivide: Append batch to leaf
-                    nodes.append(contentsOf: batchNodes)
-                    for node in batchNodes {
-                        updateCenterOfMass(with: node)
-                    }
-                    return
-                }
-                // Redistribute all nodes (existing + batch)
-                var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
-                for node in allNodes {
-                    let quadrant = getQuadrant(for: node.position)
-                    childBatches[quadrant].append(node)
-                }
-                nodes = []  // Clear leaf
-                for i in 0..<4 {
-                    if !childBatches[i].isEmpty {
-                        children[i].batchInsert(childBatches[i], depth: depth + 1)
-                    }
-                }
-                aggregateFromChildren()  // Aggregate once
+            if allNodes.isEmpty { return }
+            if allNodes.count <= 1 {
+                appendBatchAndUpdateCOM(batchNodes)
             } else {
-                // No subdivision needed: Append batch
-                nodes.append(contentsOf: batchNodes)
-                for node in batchNodes {
-                    updateCenterOfMass(with: node)
+                subdivide()
+                if let children {
+                    nodes = []
+                    distribute(allNodes, to: children, depth: depth + 1)
+                    aggregateFromChildren()
+                } else {
+                    appendBatchAndUpdateCOM(batchNodes)
                 }
             }
         }
     }
 
+    private func appendBatchAndUpdateCOM(_ batch: [any NodeProtocol]) {
+        nodes.append(contentsOf: batch)
+        for node in batch {
+            updateCenterOfMass(with: node)
+        }
+    }
+
+    private func distribute(_ nodesToDistribute: [any NodeProtocol], to children: [Quadtree], depth: Int) {
+        var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
+        for node in nodesToDistribute {
+            let quadrant = getQuadrant(for: node.position)
+            childBatches[quadrant].append(node)
+        }
+        for index in 0..<4 where !childBatches[index].isEmpty {
+            children[index].batchInsert(childBatches[index], depth: depth)
+        }
+    }
     private func aggregateFromChildren() {
         // Recompute totalMass and centerOfMass from children (bottom-up weighted average)
         centerOfMass = .zero
@@ -870,7 +866,7 @@ public class Quadtree {  // Public for consistency and test access
             // Leaf: Compute exact repulsion from each node
             var force: CGPoint = .zero
             for leafNode in nodes where leafNode.id != queryNode.id {
-                force += repulsionForce(from: leafNode.position, to: queryNode.position)
+                force += repulsionForce(from: leafNode.position, target: queryNode.position)
             }
             return force
         }
@@ -879,7 +875,7 @@ public class Quadtree {  // Public for consistency and test access
         let delta = centerOfMass - queryNode.position
         let dist = max(hypot(delta.x, delta.y), Constants.Physics.distanceEpsilon)  // Fixed: Use hypot instead of .magnitude
         if (bounds.width / dist) < theta || children == nil {
-            return repulsionForce(from: centerOfMass, to: queryNode.position, mass: totalMass)
+            return repulsionForce(from: centerOfMass, target: queryNode.position, mass: totalMass)
         } else {
             var force: CGPoint = .zero
             if let children = children {
@@ -893,22 +889,22 @@ public class Quadtree {  // Public for consistency and test access
     
     public func queryNearby(position: CGPoint, radius: CGFloat) -> [any NodeProtocol] {
         var results: [any NodeProtocol] = []
-        func traverse(qt: Quadtree) {
+        func traverse(quadTree: Quadtree) {
             // Quick reject: Check if quad intersects query circle
-            let closestX = max(qt.bounds.minX, min(position.x, qt.bounds.maxX))
-            let closestY = max(qt.bounds.minY, min(position.y, qt.bounds.maxY))
+            let closestX = max(quadTree.bounds.minX, min(position.x, quadTree.bounds.maxX))
+            let closestY = max(quadTree.bounds.minY, min(position.y, quadTree.bounds.maxY))
             let distToQuad = hypot(closestX - position.x, closestY - position.y)
-            let quadDiagonalHalf = hypot(qt.bounds.width / 2, qt.bounds.height / 2)
+            let quadDiagonalHalf = hypot(quadTree.bounds.width / 2, quadTree.bounds.height / 2)
             if distToQuad > radius + quadDiagonalHalf { return }  // No intersection
             
-            if let children = qt.children {
+            if let children = quadTree.children {
                 // Traverse children
                 for child in children {
-                    traverse(qt: child)
+                    traverse(quadTree: child)
                 }
             } else {
                 // Leaf: Check individual nodes
-                for node in qt.nodes {
+                for node in quadTree.nodes {
                     let delta = node.position - position
                     if hypot(delta.x, delta.y) < radius {
                         results.append(node)
@@ -916,13 +912,13 @@ public class Quadtree {  // Public for consistency and test access
                 }
             }
         }
-        traverse(qt: self)
+        traverse(quadTree: self)
         return results
     }
     
-    private func repulsionForce(from: CGPoint, to: CGPoint, mass: CGFloat = 1) -> CGPoint {
-        let deltaX = to.x - from.x
-        let deltaY = to.y - from.y
+    private func repulsionForce(from: CGPoint, target: CGPoint, mass: CGFloat = 1) -> CGPoint {
+        let deltaX = target.x - from.x
+        let deltaY = target.y - from.y
         let distSquared = deltaX * deltaX + deltaY * deltaY
         let epsilonSquared = Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon
         if distSquared < epsilonSquared {
@@ -940,7 +936,7 @@ public class Quadtree {  // Public for consistency and test access
 ----------------------------------------------------------------------------------------------------
 File: RepulsionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-Last modified: 2025-08-25 11:30:35
+Last modified: 2025-09-15 10:22:34
 
 Contents:
 //
@@ -992,43 +988,43 @@ struct RepulsionCalculator {
     }
 
     private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
-        let dx = queryPosition.x - repellerPosition.x
-        let dy = queryPosition.y - repellerPosition.y
-        let distanceSquared = max(dx * dx + dy * dy, Constants.Physics.distanceEpsilon)
+        let deltaX = queryPosition.x - repellerPosition.x
+        let deltaY = queryPosition.y - repellerPosition.y
+        let distanceSquared = max(deltaX * deltaX + deltaY * deltaY, Constants.Physics.distanceEpsilon)
         let distance = sqrt(distanceSquared)
         let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
-        return CGPoint(x: (dx / distance) * forceMagnitude, y: (dy / distance) * forceMagnitude)
+        return CGPoint(x: (deltaX / distance) * forceMagnitude, y: (deltaY / distance) * forceMagnitude)
     }
     
     private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
         var force = CGPoint.zero
-        func calculateRepulsion(qt: Quadtree) {
-            if qt.children == nil {
-                for other in qt.nodes where other.id != node.id {
+        func calculateRepulsion(quadTree: Quadtree) {
+            if quadTree.children == nil {
+                for other in quadTree.nodes where other.id != node.id {
                     force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
                 }
                 return
             }
 
-            let dx = qt.centerOfMass.x - node.position.x
-            let dy = qt.centerOfMass.y - node.position.y
-            let distance = hypot(dx, dy)
-            let width = qt.bounds.width
+            let deltaX = quadTree.centerOfMass.x - node.position.x
+            let deltaY = quadTree.centerOfMass.y - node.position.y
+            let distance = hypot(deltaX, deltaY)
+            let width = quadTree.bounds.width
 
             if width / distance < theta && distance > 0 {  // Use theta
-                let approxForce = repulsionForce(repellerPosition: qt.centerOfMass, queryPosition: node.position, mass: qt.totalMass)
+                let approxForce = repulsionForce(repellerPosition: quadTree.centerOfMass, queryPosition: node.position, mass: quadTree.totalMass)
                 force += approxForce
             } else {
-                if let children = qt.children {
-                    calculateRepulsion(qt: children[0])
-                    calculateRepulsion(qt: children[1])
-                    calculateRepulsion(qt: children[2])
-                    calculateRepulsion(qt: children[3])
+                if let children = quadTree.children {
+                    calculateRepulsion(quadTree: children[0])
+                    calculateRepulsion(quadTree: children[1])
+                    calculateRepulsion(quadTree: children[2])
+                    calculateRepulsion(quadTree: children[3])
                 }
             }
         }
 
-        calculateRepulsion(qt: quadtree)
+        calculateRepulsion(quadTree: quadtree)
         return force
     }
 

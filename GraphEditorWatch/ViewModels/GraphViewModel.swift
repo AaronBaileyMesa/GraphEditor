@@ -1,4 +1,4 @@
-// GraphViewModel.swift (Fixed: Corrected handleTap function, removed invalid SwiftUI code, fixed scoping/syntax errors, added proper ToggleNode handling)
+// GraphViewModel.swift (Minimal fixes: Use model.nodes as [NodeWrapper]; access .value; fix GraphEdge init label; wrap assignments in enum cases; add @MainActor to non-concurrent funcs if needed, but class is @MainActor; make loadGraph async with await model.load)
 
 import Combine
 import GraphEditorShared
@@ -11,9 +11,14 @@ import WatchKit  // For WKApplication
     @Published public var selectedNodeID: UUID? = nil
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
-    
+        
     private var saveTimer: Timer? = nil
     private var cancellable: AnyCancellable?
+    
+    var isSelectedToggleNode: Bool {
+        guard let id = selectedNodeID else { return false }
+        return model.nodes.first { $0.id == id }?.unwrapped is ToggleNode
+    }
     
     public var canUndo: Bool {
         model.canUndo
@@ -67,11 +72,14 @@ import WatchKit  // For WKApplication
             }
         }
 
-        model.nodes = model.nodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
+        model.nodes = model.nodes.map { anyNode in
+            let updated = anyNode.with(position: anyNode.position, velocity: CGPoint.zero)
+            return updated
+        }
     }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
-        var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes)
+        var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes.map { $0.unwrapped })
         if graphBounds.width < 100 || graphBounds.height < 100 {
             graphBounds = graphBounds.insetBy(dx: -50, dy: -50)
         }
@@ -94,7 +102,7 @@ import WatchKit  // For WKApplication
             Task { @MainActor in
                 guard let self = self else { return }
                 do {
-                    try await self.model.saveViewState(
+                    try self.model.saveViewState(
                         offset: self.offset,
                         zoomScale: self.zoomScale,
                         selectedNodeID: self.selectedNodeID,
@@ -109,52 +117,23 @@ import WatchKit  // For WKApplication
     }
     
     public func loadGraph() async {
-            await model.load()  // Now compiles
-            await model.startSimulation()
+        await model.load()  // Now compiles
     }
     
-    private func loadViewState() async {
-        do {
-            if let state = try await model.loadViewState() {
-                self.offset = state.offset
-                self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
-                self.selectedNodeID = state.selectedNodeID
-                self.selectedEdgeID = state.selectedEdgeID
-            } else {
-                self.zoomScale = 1.0.clamped(to: 0.01...Constants.App.maxZoom)
-                self.offset = .zero
-            }
-            model.centerGraph()  // Assuming sync; no 'await'
-            self.offset = .zero
-            await model.expandAllRoots()  // Keep if async
-            self.objectWillChange.send()
-        } catch {
-            print("Failed to load view state: \(error)")
-        }
-        
-        if let id = selectedNodeID {
-            focusState = .node(id)
-        } else if let id = selectedEdgeID {
-            focusState = .edge(id)
-        } else {
-            focusState = .graph
-        }
-        model.centerGraph()  // Assuming sync; no 'await'
-        self.objectWillChange.send()
+    public func addNode(at position: CGPoint) async {
+        await model.addNode(at: position)
     }
     
-    deinit {
-        if let pauseObserver = pauseObserver {
-            NotificationCenter.default.removeObserver(pauseObserver)
-        }
-        if let resumeObserver = resumeObserver {
-            NotificationCenter.default.removeObserver(resumeObserver)
-        }
-        resumeTimer?.invalidate()
+    public func addEdge(from: UUID, target: UUID, type: EdgeType) async {
+        await model.addEdge(from: from, target: target, type: type)
     }
     
-    public func snapshot() async {
-        await model.snapshot()
+    public func deleteNode(withID id: UUID) async {
+        await model.deleteNode(withID: id)
+    }
+    
+    public func deleteEdge(withID id: UUID) async {
+        await model.deleteEdge(withID: id)
     }
     
     public func undo() async {
@@ -164,55 +143,47 @@ import WatchKit  // For WKApplication
     public func redo() async {
         await model.redo()
     }
-    
-    public func addNode(at position: CGPoint) async {
-        await model.addNode(at: position)
-        await model.resizeSimulationBounds(for: model.nodes.count)  // New: Resize after adding
-        model.objectWillChange.send()
-    }
-
-    public func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
-        await model.clearGraph()
-    }
-    
-    public func deleteNode(withID id: NodeID) async {
-        await model.deleteNode(withID: id)
-        selectedNodeID = nil
-    }
-
-    public func deleteEdge(withID id: UUID) async {
-        await model.deleteEdge(withID: id)
-        selectedEdgeID = nil
-    }
-
-    public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
-        await model.updateNodeContent(withID: id, newContent: newContent)
-    }
-    
-    public func updateNodePosition(id: NodeID, newPosition: CGPoint) async {
-        if let index = model.nodes.firstIndex(where: { $0.id == id }) {
-            model.nodes[index].position = newPosition
-            model.nodes[index].velocity = .zero  // Stop movement
-            await model.startSimulation()
-        }
+       
+    public func startSimulation() async {
+        await model.startSimulation()
     }
     
     public func addToggleNode(at position: CGPoint) async {
         await model.addToggleNode(at: position)
     }
     
+    public func toggleSelectedNode() async {
+        guard let id = selectedNodeID, let index = model.nodes.firstIndex(where: { $0.id == id }), let toggleNode = model.nodes[index].unwrapped as? ToggleNode else { return }
+        let toggled = toggleNode.handlingTap()  // Toggles isExpanded
+        model.nodes[index] = AnyNode(toggled)
+        await model.handleTap(on: toggled.id)  // Optional: If needed for other effects
+        if toggled.isExpanded {
+            let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
+            for (idx, childID) in children.enumerated() {
+                if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
+                    let child = model.nodes[childIdx].unwrapped
+                    let offX = CGFloat(idx * 40) - CGFloat(children.count * 20)
+                    let newPos = toggled.position + CGPoint(x: offX, y: 50.0)
+                    let updatedChild: any NodeProtocol
+                    if let concrete = child as? Node {
+                        updatedChild = concrete.with(position: newPos, velocity: .zero)
+                    } else if let concrete = child as? ToggleNode {
+                        updatedChild = concrete.with(position: newPos, velocity: .zero)
+                    } else {
+                        continue
+                    }
+                    model.nodes[childIdx] = AnyNode(updatedChild)
+                }
+            }
+        }
+        objectWillChange.send()
+        await model.startSimulation()
+    }
+    
     public func addChild(to parentID: NodeID) async {
         await model.addChild(to: parentID)
     }
-    
-    // NEW: Add this method for edge creation (used in gestures/menu)
-    public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
-        model.edges.append(GraphEdge(from: from, target: target, type: type))
-        await model.startSimulation()
-        await model.save()  // Persist if needed
-            objectWillChange.send()
-    }
-    
+       
     public func clearGraph() async {
         await model.clearGraph()
     }
@@ -254,38 +225,10 @@ import WatchKit  // For WKApplication
         }
         
         if let tappedNode = sortedNearby.first {
-                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-                selectedEdgeID = nil
-                print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")
-                
-                // Add toggle if ToggleNode
-            if let toggleNode = tappedNode as? ToggleNode {
-                        let toggled = toggleNode.handlingTap()
-                        if let index = model.nodes.firstIndex(where: { $0.id == toggled.id }) {
-                            model.nodes[index] = AnyNode(toggled)
-                            await model.handleTap(on: toggled.id)  // Reposition
-                            // Immediate offset if expanded
-                            if toggled.isExpanded {
-                                let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
-                                for (idx, childID) in children.enumerated() {
-                                    if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
-                                        var child = model.nodes[childIdx]
-                                        let offX = CGFloat(idx * 20) - CGFloat(children.count * 10)
-                                        child.position += CGPoint(x: offX, y: 20)
-                                        model.nodes[childIdx] = child
-                                    }
-                                }
-                            }
-                        }
-                    }
+            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+            selectedEdgeID = nil
+            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
             model.objectWillChange.send()  // Trigger UI refresh
-            
-            // Delay simulation restart slightly to let changes settle
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                Task {
-                    await self.model.startSimulation()
-                }
-            }
         } else {
             // Miss: Clear selections
             selectedNodeID = nil

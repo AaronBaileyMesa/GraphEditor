@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-10 19:58:17
+Current date: 2025-09-16 11:40:21
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
@@ -10,7 +10,7 @@ Table of Contents:
 5. GraphEditorWatch/ViewModels/GraphViewModel.swift--------------------------------------------------
 File: ToggleNode.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-09-10 19:21:05
+Last modified: 2025-09-12 11:54:22
 
 Contents:
 //
@@ -154,7 +154,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-09-09 14:21:18
+Last modified: 2025-09-16 11:36:49
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)
@@ -223,6 +223,11 @@ public extension CGPoint {
         lhs = lhs + rhs
     }
     
+    static func /= (lhs: inout CGPoint, rhs: CGFloat) {
+            lhs.x /= rhs
+            lhs.y /= rhs
+        }
+    
     var magnitude: CGFloat {
         hypot(x, y)
     }
@@ -243,8 +248,8 @@ public extension CGSize {
 }
 
 // Shared utility functions
-public func distance(_ a: CGPoint, _ b: CGPoint) -> CGFloat {
-    hypot(a.x - b.x, a.y - b.y)
+public func distance(_ fromPoint: CGPoint, _ targetPoint: CGPoint) -> CGFloat {
+    hypot(fromPoint.x - targetPoint.x, fromPoint.y - targetPoint.y)
 }
 
 public extension Array where Element: NodeProtocol {
@@ -265,7 +270,6 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
     return CGPoint(x: totals.x / CGFloat(nodes.count), y: totals.y / CGFloat(nodes.count))
 }
 
-import CoreGraphics
 import SwiftUI  // For GeometryProxy if needed
 
 public struct CoordinateTransformer {
@@ -389,7 +393,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-10 12:31:44
+Last modified: 2025-09-16 11:25:41
 
 Contents:
 // GraphViewModel.swift (Fixed: Corrected handleTap function, removed invalid SwiftUI code, fixed scoping/syntax errors, added proper ToggleNode handling)
@@ -398,22 +402,22 @@ import Combine
 import GraphEditorShared
 import WatchKit  // For WKApplication
 
-@MainActor class GraphViewModel: ObservableObject {
-    @Published var model: GraphModel
-    @Published var selectedEdgeID: UUID? = nil
-    @Published var pendingEdgeType: EdgeType = .association
-    @Published var selectedNodeID: UUID? = nil
-    @Published var offset: CGPoint = .zero
-    @Published var zoomScale: CGFloat = 1.0
+@MainActor public class GraphViewModel: ObservableObject {
+    @Published public var model: GraphModel
+    @Published public var selectedEdgeID: UUID? = nil
+    @Published public var pendingEdgeType: EdgeType = .association
+    @Published public var selectedNodeID: UUID? = nil
+    @Published public var offset: CGPoint = .zero
+    @Published public var zoomScale: CGFloat = 1.0
     
     private var saveTimer: Timer? = nil
     private var cancellable: AnyCancellable?
     
-    var canUndo: Bool {
+    public var canUndo: Bool {
         model.canUndo
     }
     
-    var canRedo: Bool {
+    public var canRedo: Bool {
         model.canRedo
     }
     
@@ -422,28 +426,28 @@ import WatchKit  // For WKApplication
     
     private var resumeTimer: Timer?
     
-    var effectiveCentroid: CGPoint {
+    public var effectiveCentroid: CGPoint {
         let visibleNodes = model.visibleNodes()
         if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
             return node.position
         } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
                   let from = visibleNodes.first(where: { $0.id == edge.from }),
-                  let to = visibleNodes.first(where: { $0.id == edge.to }) {
+                  let to = visibleNodes.first(where: { $0.id == edge.target }) {
             return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
         }
         return centroid(of: visibleNodes) ?? .zero
     }
     
-    enum AppFocusState: Equatable {
+    public enum AppFocusState: Equatable {
         case graph
         case node(UUID)
         case edge(UUID)
         case menu
     }
 
-    @Published var focusState: AppFocusState = .graph
+    @Published public var focusState: AppFocusState = .graph
     
-    init(model: GraphModel) {
+    public init(model: GraphModel) {
         self.model = model
         cancellable = model.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
@@ -464,7 +468,7 @@ import WatchKit  // For WKApplication
         model.nodes = model.nodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
     }
     
-    func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
+    public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
         var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes)
         if graphBounds.width < 100 || graphBounds.height < 100 {
             graphBounds = graphBounds.insetBy(dx: -50, dy: -50)
@@ -481,38 +485,35 @@ import WatchKit  // For WKApplication
         return (min: minZoom, max: maxZoom)
     }
     
-    func saveViewState() {  // Made non-@MainActor since callsites treat as sync; internal hops handle isolation
+    // Updated saveViewState in GraphViewModel.swift to handle throwing call with do-try-catch
+    public func saveViewState() {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in  // Hop to main for safe publishes/model access
+            Task { @MainActor in
                 guard let self = self else { return }
-                self.centerGraph()  // Safe on main
                 do {
-                    try self.model.saveViewState(  // Assuming sync; no 'await'
+                    try await self.model.saveViewState(
                         offset: self.offset,
                         zoomScale: self.zoomScale,
                         selectedNodeID: self.selectedNodeID,
                         selectedEdgeID: self.selectedEdgeID
                     )
                 } catch {
-                    print("Failed to save view state: \(error)")
+                    print("Error saving view state: \(error)")
+                    // Optionally, add user-facing error handling, e.g., set a @Published error property
                 }
             }
         }
     }
     
-    func loadGraph() async {
-        do {
-            try await model.load()  // Now compiles
+    public func loadGraph() async {
+            await model.load()  // Now compiles
             await model.startSimulation()
-        } catch {
-            print("Failed to load graph: \(error)")
-        }
     }
     
     private func loadViewState() async {
         do {
-            if let state = try model.loadViewState() {  // Assuming sync; no 'await'
+            if let state = try await model.loadViewState() {
                 self.offset = state.offset
                 self.zoomScale = state.zoomScale.clamped(to: 0.01...Constants.App.maxZoom)
                 self.selectedNodeID = state.selectedNodeID
@@ -550,25 +551,25 @@ import WatchKit  // For WKApplication
         resumeTimer?.invalidate()
     }
     
-    func snapshot() async {
+    public func snapshot() async {
         await model.snapshot()
     }
     
-    func undo() async {
+    public func undo() async {
         await model.undo()
     }
     
-    func redo() async {
+    public func redo() async {
         await model.redo()
     }
     
-    func addNode(at position: CGPoint) async {
+    public func addNode(at position: CGPoint) async {
         await model.addNode(at: position)
         await model.resizeSimulationBounds(for: model.nodes.count)  // New: Resize after adding
         model.objectWillChange.send()
     }
 
-    func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
+    public func resetGraph() async {  // Or rename clearGraph to resetGraph if preferred
         await model.clearGraph()
     }
     
@@ -586,7 +587,7 @@ import WatchKit  // For WKApplication
         await model.updateNodeContent(withID: id, newContent: newContent)
     }
     
-    func updateNodePosition(id: NodeID, newPosition: CGPoint) async {
+    public func updateNodePosition(id: NodeID, newPosition: CGPoint) async {
         if let index = model.nodes.firstIndex(where: { $0.id == id }) {
             model.nodes[index].position = newPosition
             model.nodes[index].velocity = .zero  // Stop movement
@@ -594,35 +595,35 @@ import WatchKit  // For WKApplication
         }
     }
     
-    func addToggleNode(at position: CGPoint) async {
+    public func addToggleNode(at position: CGPoint) async {
         await model.addToggleNode(at: position)
     }
     
-    func addChild(to parentID: NodeID) async {
+    public func addChild(to parentID: NodeID) async {
         await model.addChild(to: parentID)
     }
     
     // NEW: Add this method for edge creation (used in gestures/menu)
-    func addEdge(from: NodeID, to: NodeID, type: EdgeType) async {
-        model.edges.append(GraphEdge(from: from, to: to, type: type))
+    public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
+        model.edges.append(GraphEdge(from: from, target: target, type: type))
         await model.startSimulation()
         await model.save()  // Persist if needed
             objectWillChange.send()
     }
     
-    func clearGraph() async {
+    public func clearGraph() async {
         await model.clearGraph()
     }
     
-    func pauseSimulation() async {
+    public func pauseSimulation() async {
         await model.pauseSimulation()
     }
     
-    func resumeSimulation() async {
+    public func resumeSimulation() async {
         await model.resumeSimulation()
     }
     
-    func resumeSimulationAfterDelay() async {
+    public func resumeSimulationAfterDelay() async {
         resumeTimer?.invalidate()
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
             Task { @MainActor in  // Hop to main for safe access
@@ -635,7 +636,7 @@ import WatchKit  // For WKApplication
     }
     
     // Fixed: handleTap with proper scoping, removed invalid SwiftUI Text, added ToggleNode update logic (assumes model.updateNode method; adjust if needed)
-    func handleTap(at modelPos: CGPoint) async {
+    public func handleTap(at modelPos: CGPoint) async {
         await model.pauseSimulation()
         
         print("Handling tap at model pos: \(modelPos)")  // For testing
@@ -651,16 +652,30 @@ import WatchKit  // For WKApplication
         }
         
         if let tappedNode = sortedNearby.first {
-            // Unified selection logic for all nodes (including ToggleNode): Tap to select/deselect, no auto-toggle
-            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-            selectedEdgeID = nil
-            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")  // Debug: Log node type for verification
-            
-            // Reduce potential bouncing: Zero velocities for all visible nodes
-            model.nodes = model.nodes.map { node in
-                let zeroedVelocity = node.with(position: node.position, velocity: .zero)
-                return AnyNode(zeroedVelocity)
-            }
+                selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+                selectedEdgeID = nil
+                print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode))")
+                
+                // Add toggle if ToggleNode
+            if let toggleNode = tappedNode as? ToggleNode {
+                        let toggled = toggleNode.handlingTap()
+                        if let index = model.nodes.firstIndex(where: { $0.id == toggled.id }) {
+                            model.nodes[index] = AnyNode(toggled)
+                            await model.handleTap(on: toggled.id)  // Reposition
+                            // Immediate offset if expanded
+                            if toggled.isExpanded {
+                                let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
+                                for (idx, childID) in children.enumerated() {
+                                    if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
+                                        var child = model.nodes[childIdx]
+                                        let offX = CGFloat(idx * 20) - CGFloat(children.count * 10)
+                                        child.position += CGPoint(x: offX, y: 20)
+                                        model.nodes[childIdx] = child
+                                    }
+                                }
+                            }
+                        }
+                    }
             model.objectWillChange.send()  // Trigger UI refresh
             
             // Delay simulation restart slightly to let changes settle
@@ -681,19 +696,19 @@ import WatchKit  // For WKApplication
         await resumeSimulationAfterDelay()
     }
     
-    func setSelectedNode(_ id: UUID?) {
+    public func setSelectedNode(_ id: UUID?) {
         selectedNodeID = id
         focusState = id.map { .node($0) } ?? .graph
         objectWillChange.send()
     }
 
-    func setSelectedEdge(_ id: UUID?) {
+    public func setSelectedEdge(_ id: UUID?) {
         selectedEdgeID = id
         focusState = id.map { .edge($0) } ?? .graph
         objectWillChange.send()
     }
     
-    func centerGraph() {
+    public func centerGraph() {
         // UPDATED: Enhanced to recalculate based on bounds
         let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
         let (minZoom, _) = calculateZoomRanges(for: viewSize)
@@ -702,12 +717,5 @@ import WatchKit  // For WKApplication
         objectWillChange.send()
     }
     
-    // NEW: Helper for centroid (assuming it's defined elsewhere; add if missing)
-    private func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
-        guard !nodes.isEmpty else { return nil }
-        let sumX = nodes.reduce(0.0) { $0 + $1.position.x }
-        let sumY = nodes.reduce(0.0) { $0 + $1.position.y }
-        return CGPoint(x: sumX / CGFloat(nodes.count), y: sumY / CGFloat(nodes.count))
-    }
 }
 --------------------------------------------------

@@ -135,8 +135,8 @@ struct ContentView: View {
         }
     
     var body: some View {
-        GeometryReader { geo in
-            mainContent(in: geo)
+        let geoView = GeometryReader { geo in
+            let baseView = mainContent(in: geo)
                 .onAppear {
                     Task { await viewModel.resumeSimulation() }
                     updateZoomRanges(for: geo.size)
@@ -166,7 +166,8 @@ struct ContentView: View {
                     print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
                     if !newValue { canvasFocus = true }
                 }
-                // New: Bi-directional sync with threshold to avoid loops
+
+            let intermediateView = baseView
                 .onChange(of: zoomScale) { oldValue, newValue in
                     let normalized = (newValue - minZoom) / (maxZoom - minZoom)
                     let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
@@ -187,14 +188,12 @@ struct ContentView: View {
                     selectedEdgeID = newValue
                     viewModel.objectWillChange.send()
                 }
-                // New: Center on stable simulation
                 .onReceive(viewModel.model.$isStable) { isStable in
                     if isStable {
                         print("Simulation stable: Centering nodes")
                         centerGraph()
                     }
                 }
-                // New: Log simulation errors
                 .onReceive(viewModel.model.$simulationError) { error in
                     if let error = error {
                         print("Simulation error: \(error.localizedDescription)")
@@ -203,20 +202,26 @@ struct ContentView: View {
                 .sheet(isPresented: $showEditSheet) {
                     if let selectedID = selectedNodeID {
                         EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                            Task { await viewModel.updateNodeContent(withID: selectedID, newContent: newContent) }
+                            Task { await viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent) }
                         })
                     }
                 }
+
+            intermediateView
         }
-        .ignoresSafeArea()
-        .focusable(true)  // Make the whole view focusable for crown
-        .focused($canvasFocus)  // Bind focus state
-        .digitalCrownRotation(  // Restored: Put back here for root-level handling
-            $crownPosition,
-            from: 0,
-            through: Double(AppConstants.crownZoomSteps),
-            sensitivity: .medium
-        )
+
+        let finalView = geoView
+            .ignoresSafeArea()
+            .focusable(true)  // Make the whole view focusable for crown
+            .focused($canvasFocus)  // Bind focus state
+            .digitalCrownRotation(  // Restored: Put back here for root-level handling
+                $crownPosition,
+                from: 0,
+                through: Double(AppConstants.crownZoomSteps),
+                sensitivity: .medium
+            )
+
+        finalView
     }
     
     private func mainContent(in geo: GeometryProxy) -> some View {
