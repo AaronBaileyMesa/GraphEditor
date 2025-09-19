@@ -54,7 +54,28 @@ struct GraphGesturesModifier: ViewModifier {
     // Optimized logger
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
-     // Screen-space hit test for nodes (consistent usability)
+    func body(content: Content) -> some View {
+        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
+            .onChanged { value in
+                let visibleNodes = viewModel.model.visibleNodes()  // Or viewModel.model.nodes if no visibleNodes()
+                let effectiveCentroid = viewModel.effectiveCentroid  // From ViewModel
+                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                handleDragChanged(value: value, visibleNodes: visibleNodes, context: context)
+            }
+            .onEnded { value in
+                let visibleNodes = viewModel.model.visibleNodes()
+                let visibleEdges = viewModel.model.visibleEdges()  // NEW: Get visible edges (assume method exists; use model.edges if not)
+                let effectiveCentroid = viewModel.effectiveCentroid
+                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
+                handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
+            }
+        content
+            .highPriorityGesture(dragGesture)
+    }
+}
+
+extension GraphGesturesModifier {
+    // Screen-space hit test for nodes (consistent usability)
     private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
@@ -93,7 +114,6 @@ struct GraphGesturesModifier: ViewModifier {
             logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
         }
 #endif
-        
         return closestNode
     }
     
@@ -139,7 +159,6 @@ struct GraphGesturesModifier: ViewModifier {
             logger.debug("Miss: Closest dist \(edgeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
         }
 #endif
-        
         return closestEdge
     }
     
@@ -276,7 +295,7 @@ struct GraphGesturesModifier: ViewModifier {
             onUpdateZoomRanges()
         }
     }
-
+    
     private func handleEdgeCreation(from dragged: any NodeProtocol, to target: any NodeProtocol, translation: CGSize) {
         // Duplicate check with logging
         let exists = viewModel.model.edges.contains { edge in
@@ -296,7 +315,7 @@ struct GraphGesturesModifier: ViewModifier {
             print("Duplicate edge ignored between \(dragged.label) and \(target.label)")
         }
     }
-
+    
     private func handleNodeMovement(for dragged: any NodeProtocol, with modelDragOffset: CGPoint) {
         // No target: Move the node (with casts for .with, as it's not on protocol)
         if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
@@ -319,28 +338,7 @@ struct GraphGesturesModifier: ViewModifier {
             Task { await viewModel.model.startSimulation() }
         }
     }
-    
-    func body(content: Content) -> some View {
-        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
-            .onChanged { value in
-                let visibleNodes = viewModel.model.visibleNodes()  // Or viewModel.model.nodes if no visibleNodes()
-                let effectiveCentroid = viewModel.effectiveCentroid  // From ViewModel
-                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                handleDragChanged(value: value, visibleNodes: visibleNodes, context: context)
-            }
-            .onEnded { value in
-                let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.visibleEdges()  // NEW: Get visible edges (assume method exists; use model.edges if not)
-                let effectiveCentroid = viewModel.effectiveCentroid
-                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
-            }
-        content
-            .highPriorityGesture(dragGesture)
-    }
-  
 }
-
 extension GraphGesturesModifier {
     private func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
