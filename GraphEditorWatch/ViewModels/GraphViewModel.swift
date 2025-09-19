@@ -6,13 +6,13 @@ import WatchKit  // For WKApplication
 
 @MainActor public class GraphViewModel: ObservableObject {
     @Published public var model: GraphModel
-    @Published public var selectedEdgeID: UUID? = nil
+    @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
-    @Published public var selectedNodeID: UUID? = nil
+    @Published public var selectedNodeID: UUID?
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
         
-    private var saveTimer: Timer? = nil
+    private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
     
     var isSelectedToggleNode: Bool {
@@ -39,8 +39,8 @@ import WatchKit  // For WKApplication
             return node.position
         } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
                   let from = visibleNodes.first(where: { $0.id == edge.from }),
-                  let to = visibleNodes.first(where: { $0.id == edge.target }) {
-            return CGPoint(x: (from.position.x + to.position.x) / 2, y: (from.position.y + to.position.y) / 2)
+                  let target = visibleNodes.first(where: { $0.id == edge.target }) {
+            return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
         }
         return centroid(of: visibleNodes) ?? .zero
     }

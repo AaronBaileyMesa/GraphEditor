@@ -5,7 +5,6 @@
 //  Created by handcart on 8/3/25.
 //
 
-
 import CoreGraphics
 
 struct AppConstants {

@@ -98,9 +98,9 @@ struct ContentView: View {
     @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
     @State private var dragOffset: CGPoint = .zero
     @State private var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
-    @State private var selectedNodeID: NodeID? = nil
-    @State private var selectedEdgeID: UUID? = nil
-    @State private var panStartOffset: CGSize? = nil
+    @State private var selectedNodeID: NodeID?
+    @State private var selectedEdgeID: UUID?
+    @State private var panStartOffset: CGSize?
     @State private var showMenu: Bool = false
     @State private var showOverlays: Bool = false
     @FocusState private var canvasFocus: Bool

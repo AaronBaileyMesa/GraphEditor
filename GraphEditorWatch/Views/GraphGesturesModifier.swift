@@ -95,7 +95,7 @@ struct GraphGesturesModifier: ViewModifier {
     
     // Screen-space hit test for nodes (consistent usability)
     private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
-        var closestNode: (any NodeProtocol)? = nil
+        var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
         
@@ -137,7 +137,7 @@ struct GraphGesturesModifier: ViewModifier {
     
     // Screen-space hit test for edges (for consistency with nodes)
     private func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
-        var closestEdge: GraphEdge? = nil
+        var closestEdge: GraphEdge?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius / 2  // Smaller for edges to avoid overlapping node taps
         
@@ -369,33 +369,33 @@ struct GraphGesturesModifier: ViewModifier {
     }
     
     private func distance(pointA: CGPoint, pointB: CGPoint) -> CGFloat {
-        let dx = Double(pointA.x - pointB.x)
-        let dy = Double(pointA.y - pointB.y)
-        return CGFloat(hypot(dx, dy))
+        let deltaX = Double(pointA.x - pointB.x)
+        let deltaY = Double(pointA.y - pointB.y)
+        return CGFloat(hypot(deltaX, deltaY))
     }
     
-    private func pointToLineDistance(point: CGPoint, from: CGPoint, endPoint: CGPoint) -> CGFloat {
-        let px = Double(point.x), py = Double(point.y)
-        let fx = Double(from.x), fy = Double(from.y)
-        let ex = Double(endPoint.x), ey = Double(endPoint.y)
+    private func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+        let pointX = Double(point.x), pointY = Double(point.y)
+        let startX = Double(startPoint.x), startY = Double(startPoint.y)
+        let endX = Double(endPoint.x), endY = Double(endPoint.y)
         
-        let lineVecX = ex - fx
-        let lineVecY = ey - fy
+        let lineVecX = endX - startX
+        let lineVecY = endY - startY
         let lineLen = hypot(lineVecX, lineVecY)
         
         if lineLen == 0 {
-            return distance(pointA: point, pointB: from)
+            return distance(pointA: point, pointB: startPoint)
         }
         
-        let pointVecX = px - fx
-        let pointVecY = py - fy
+        let pointVecX = pointX - startX
+        let pointVecY = pointY - startY
         let dot = pointVecX * lineVecX + pointVecY * lineVecY
         let denom = lineLen * lineLen
-        let t = dot / denom
-        let projectionParam = max(0.0, min(1.0, t))
+        let projectionParam = dot / denom
+        let clampedParam = max(0.0, min(1.0, projectionParam))
         
-        let projX = fx + lineVecX * projectionParam
-        let projY = fy + lineVecY * projectionParam
+        let projX = startX + lineVecX * clampedParam
+        let projY = startY + lineVecY * clampedParam
         
         let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
         return distance(pointA: point, pointB: proj)
