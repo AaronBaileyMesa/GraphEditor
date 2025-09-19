@@ -73,27 +73,7 @@ struct GraphGesturesModifier: ViewModifier {
     // Optimized logger
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
-    // Model to screen conversion (inverse of screenToModel; use your existing if available)
-    private func modelToScreen(_ modelPos: CGPoint, context: GestureContext) -> CGPoint {
-        let safeZoom = max(context.zoomScale, 0.1)
-        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
-        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
-        let relative = modelPos - context.effectiveCentroid
-        let scaled = relative * safeZoom
-        let screenPos = scaled + viewCenter + panOffset
-        return screenPos
-    }
-    
-    private func screenToModel(_ screenPos: CGPoint, context: GestureContext) -> CGPoint {
-        let safeZoom = max(context.zoomScale, 0.1)
-        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
-        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
-        let translated = screenPos - viewCenter - panOffset
-        let unscaled = translated / safeZoom
-        return unscaled + context.effectiveCentroid
-    }
-    
-    // Screen-space hit test for nodes (consistent usability)
+     // Screen-space hit test for nodes (consistent usability)
     private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
@@ -304,48 +284,56 @@ struct GraphGesturesModifier: ViewModifier {
             print("Drag offset in model: \(modelDragOffset)")
             
             if let target = potentialEdgeTarget, target.id != dragged.id, isAddingEdge {
-                // Duplicate check with logging
-                let exists = viewModel.model.edges.contains { edge in
-                    (edge.from == dragged.id && edge.target == target.id) || (edge.from == target.id && edge.target == dragged.id)
-                }
-                if !exists {
-                    print("No duplicate; adding edge")
-                    // Heuristic: Downward = hierarchy
-                    let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
-                    viewModel.pendingEdgeType = type  // Update for UI
-                    Task {
-                        await viewModel.addEdge(from: dragged.id, target: target.id, type: type)  // Async call
-                    }
-                    print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
-                    isAddingEdge = false
-                } else {
-                    print("Duplicate edge ignored between \(dragged.label) and \(target.label)")
-                }
+                handleEdgeCreation(from: dragged, to: target, translation: translation)
             } else {
-                // No target: Move the node (with casts for .with, as it's not on protocol)
-                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
-                    let oldNode = viewModel.model.nodes[index]
-                    let unwrapped = oldNode.unwrapped
-                    let newPos = unwrapped.position + modelDragOffset
-                    let updatedNode: AnyNode
-                    if let concrete = unwrapped as? Node {
-                        let concreteUpdated = concrete.with(position: newPos, velocity: .zero)
-                        updatedNode = AnyNode(concreteUpdated)
-                    } else if let concrete = unwrapped as? ToggleNode {
-                        let concreteUpdated = concrete.with(position: newPos, velocity: .zero)
-                        updatedNode = AnyNode(concreteUpdated)
-                    } else {
-                        logger.error("Unsupported node type for move: \(type(of: unwrapped))")
-                        return
-                    }
-                    viewModel.model.nodes[index] = updatedNode
-                    print("Moved node \(unwrapped.label) to new position \(newPos)")
-                    Task { await viewModel.model.startSimulation() }
-                }
+                handleNodeMovement(for: dragged, with: modelDragOffset)
             }
         }
         withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
             onUpdateZoomRanges()
+        }
+    }
+
+    private func handleEdgeCreation(from dragged: any NodeProtocol, to target: any NodeProtocol, translation: CGSize) {
+        // Duplicate check with logging
+        let exists = viewModel.model.edges.contains { edge in
+            (edge.from == dragged.id && edge.target == target.id) || (edge.from == target.id && edge.target == dragged.id)
+        }
+        if !exists {
+            print("No duplicate; adding edge")
+            // Heuristic: Downward = hierarchy
+            let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
+            viewModel.pendingEdgeType = type  // Update for UI
+            Task {
+                await viewModel.addEdge(from: dragged.id, target: target.id, type: type)  // Async call
+            }
+            print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
+            isAddingEdge = false
+        } else {
+            print("Duplicate edge ignored between \(dragged.label) and \(target.label)")
+        }
+    }
+
+    private func handleNodeMovement(for dragged: any NodeProtocol, with modelDragOffset: CGPoint) {
+        // No target: Move the node (with casts for .with, as it's not on protocol)
+        if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
+            let oldNode = viewModel.model.nodes[index]
+            let unwrapped = oldNode.unwrapped
+            let newPos = unwrapped.position + modelDragOffset
+            let updatedNode: AnyNode
+            if let concrete = unwrapped as? Node {
+                let concreteUpdated = concrete.with(position: newPos, velocity: .zero)
+                updatedNode = AnyNode(concreteUpdated)
+            } else if let concrete = unwrapped as? ToggleNode {
+                let concreteUpdated = concrete.with(position: newPos, velocity: .zero)
+                updatedNode = AnyNode(concreteUpdated)
+            } else {
+                logger.error("Unsupported node type for move: \(type(of: unwrapped))")
+                return
+            }
+            viewModel.model.nodes[index] = updatedNode
+            print("Moved node \(unwrapped.label) to new position \(newPos)")
+            Task { await viewModel.model.startSimulation() }
         }
     }
     
@@ -366,6 +354,29 @@ struct GraphGesturesModifier: ViewModifier {
             }
         content
             .highPriorityGesture(dragGesture)
+    }
+  
+}
+
+extension GraphGesturesModifier {
+    // Model to screen conversion (inverse of screenToModel; use your existing if available)
+    private func modelToScreen(_ modelPos: CGPoint, context: GestureContext) -> CGPoint {
+        let safeZoom = max(context.zoomScale, 0.1)
+        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
+        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
+        let relative = modelPos - context.effectiveCentroid
+        let scaled = relative * safeZoom
+        let screenPos = scaled + viewCenter + panOffset
+        return screenPos
+    }
+    
+    private func screenToModel(_ screenPos: CGPoint, context: GestureContext) -> CGPoint {
+        let safeZoom = max(context.zoomScale, 0.1)
+        let viewCenter = CGPoint(x: context.viewSize.width / 2, y: context.viewSize.height / 2)
+        let panOffset = CGPoint(x: context.offset.width, y: context.offset.height)
+        let translated = screenPos - viewCenter - panOffset
+        let unscaled = translated / safeZoom
+        return unscaled + context.effectiveCentroid
     }
     
     private func distance(pointA: CGPoint, pointB: CGPoint) -> CGFloat {
@@ -400,4 +411,5 @@ struct GraphGesturesModifier: ViewModifier {
         let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
         return distance(pointA: point, pointB: proj)
     }
+
 }

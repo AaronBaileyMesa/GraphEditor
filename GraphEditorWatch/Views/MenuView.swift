@@ -94,9 +94,7 @@ struct EditSection: View {
                                 }
                                 .onSubmit { /* Same as above */ }
                             }
-                        
                     
-                
                 Button("Delete Node", role: .destructive) {
                     Task {
                         isProcessing = true

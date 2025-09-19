@@ -113,7 +113,6 @@ struct GraphModelTests {
         #expect(await newModel.edges == originalEdges, "Edges unchanged")
     }
     
-    
     /*
     // New: Basic convergence test with tightened threshold
     // New: Basic convergence test with tightened threshold
