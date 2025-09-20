@@ -276,12 +276,18 @@ struct GraphCanvasView: View {
             ))
         }
         .onChange(of: selectedNodeID) {
-            viewModel.saveViewState()
-        }
-        .onChange(of: selectedEdgeID) {
-            viewModel.saveViewState()
-        }
-        .ignoresSafeArea()
+                    viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+                }
+                .onChange(of: selectedEdgeID) {
+                    viewModel.saveViewState()  // Existing
+                }
+                .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
+                    viewModel.saveViewState()
+                }
+                .onChange(of: zoomScale) {
+                    viewModel.saveViewState()
+                }
+                .ignoresSafeArea()
     }
 }
 

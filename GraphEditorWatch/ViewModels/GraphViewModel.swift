@@ -97,30 +97,31 @@ import WatchKit  // For WKApplication
         return (min: minZoom, max: maxZoom)
     }
     
-    // Updated saveViewState in GraphViewModel.swift to handle throwing call with do-try-catch
     public func saveViewState() {
-        saveTimer?.invalidate()
-        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
+            print("GraphViewModel.saveViewState called")  // NEW for debugging
+            Task {
                 do {
-                    try self.model.saveViewState(
-                        offset: self.offset,
-                        zoomScale: self.zoomScale,
-                        selectedNodeID: self.selectedNodeID,
-                        selectedEdgeID: self.selectedEdgeID
-                    )
+                    try await model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+                    await model.save()  // NEW: Optionally save graph data here if selections imply state change; remove if too frequent
+                    print("GraphViewModel.saveViewState succeeded")
                 } catch {
-                    print("Error saving view state: \(error)")
-                    // Optionally, add user-facing error handling, e.g., set a @Published error property
+                    print("GraphViewModel.saveViewState failed: \(error.localizedDescription)")
                 }
             }
         }
-    }
-    
-    public func loadGraph() async {
-        await model.load()  // Now compiles
-    }
+
+        public func loadGraph() async {
+            print("GraphViewModel.loadGraph called")  // NEW for debugging
+            await model.load()
+            if let viewState = try? await model.loadViewState() {
+                self.offset = viewState.offset
+                self.zoomScale = viewState.zoomScale
+                self.selectedNodeID = viewState.selectedNodeID
+                self.selectedEdgeID = viewState.selectedEdgeID
+                print("Applied loaded view state")
+            }
+            objectWillChange.send()
+        }
     
     public func addNode(at position: CGPoint) async {
         await model.addNode(at: position)

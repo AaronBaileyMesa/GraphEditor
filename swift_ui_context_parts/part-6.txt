@@ -1,14 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-16 11:40:21
+Current date: 2025-09-20 07:49:21
 Table of Contents:
 1. GraphEditorWatchTests/GraphEditorWatchTests.swift
 2. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
 3. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
 File: GraphEditorWatchTests.swift
 Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-09-16 11:32:51
+Last modified: 2025-09-19 11:09:40
 
 Contents:
 import Testing
@@ -125,7 +125,6 @@ struct GraphModelTests {
         #expect(await newModel.nodes.count == originalNodeCount + 1, "Loaded nodes include added one")
         #expect(await newModel.edges == originalEdges, "Edges unchanged")
     }
-    
     
     /*
     // New: Basic convergence test with tightened threshold
@@ -443,7 +442,7 @@ final class GraphEditorWatchUITests: XCTestCase {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITestsLaunchTests.swift
 Path: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
-Last modified: 2025-08-04 15:45:24
+Last modified: 2025-09-19 13:15:40
 
 Contents:
 //
@@ -457,7 +456,7 @@ import XCTest
 
 final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
 
-    override class var runsForEachTargetApplicationUIConfiguration: Bool {
+    override static var runsForEachTargetApplicationUIConfiguration: Bool {
         true
     }
 
