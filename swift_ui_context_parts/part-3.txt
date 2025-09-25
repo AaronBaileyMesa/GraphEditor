@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-20 07:49:21
+Current date: 2025-09-22 11:48:27
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
@@ -739,7 +739,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-19 14:18:05
+Last modified: 2025-09-20 10:09:45
 
 Contents:
 // GraphViewModel.swift (Minimal fixes: Use model.nodes as [NodeWrapper]; access .value; fix GraphEdge init label; wrap assignments in enum cases; add @MainActor to non-concurrent funcs if needed, but class is @MainActor; make loadGraph async with await model.load)
@@ -841,30 +841,31 @@ import WatchKit  // For WKApplication
         return (min: minZoom, max: maxZoom)
     }
     
-    // Updated saveViewState in GraphViewModel.swift to handle throwing call with do-try-catch
     public func saveViewState() {
-        saveTimer?.invalidate()
-        saveTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self = self else { return }
+            print("GraphViewModel.saveViewState called")  // NEW for debugging
+            Task {
                 do {
-                    try self.model.saveViewState(
-                        offset: self.offset,
-                        zoomScale: self.zoomScale,
-                        selectedNodeID: self.selectedNodeID,
-                        selectedEdgeID: self.selectedEdgeID
-                    )
+                    try await model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+                    await model.save()  // NEW: Optionally save graph data here if selections imply state change; remove if too frequent
+                    print("GraphViewModel.saveViewState succeeded")
                 } catch {
-                    print("Error saving view state: \(error)")
-                    // Optionally, add user-facing error handling, e.g., set a @Published error property
+                    print("GraphViewModel.saveViewState failed: \(error.localizedDescription)")
                 }
             }
         }
-    }
-    
-    public func loadGraph() async {
-        await model.load()  // Now compiles
-    }
+
+        public func loadGraph() async {
+            print("GraphViewModel.loadGraph called")  // NEW for debugging
+            await model.load()
+            if let viewState = try? await model.loadViewState() {
+                self.offset = viewState.offset
+                self.zoomScale = viewState.zoomScale
+                self.selectedNodeID = viewState.selectedNodeID
+                self.selectedEdgeID = viewState.selectedEdgeID
+                print("Applied loaded view state")
+            }
+            objectWillChange.send()
+        }
     
     public func addNode(at position: CGPoint) async {
         await model.addNode(at: position)

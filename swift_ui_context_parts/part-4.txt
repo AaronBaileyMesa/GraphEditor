@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-20 07:49:21
+Current date: 2025-09-22 11:48:27
 Table of Contents:
 1. GraphEditorWatch/Views/ContentView.swift
 2. GraphEditorWatch/Views/EditContentSheet.swift
@@ -332,7 +332,7 @@ struct EditContentSheet: View {
 ----------------------------------------------------------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-09-16 11:19:17
+Last modified: 2025-09-20 10:09:45
 
 Contents:
 import SwiftUI
@@ -613,12 +613,18 @@ struct GraphCanvasView: View {
             ))
         }
         .onChange(of: selectedNodeID) {
-            viewModel.saveViewState()
-        }
-        .onChange(of: selectedEdgeID) {
-            viewModel.saveViewState()
-        }
-        .ignoresSafeArea()
+                    viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+                }
+                .onChange(of: selectedEdgeID) {
+                    viewModel.saveViewState()  // Existing
+                }
+                .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
+                    viewModel.saveViewState()
+                }
+                .onChange(of: zoomScale) {
+                    viewModel.saveViewState()
+                }
+                .ignoresSafeArea()
     }
 }
 

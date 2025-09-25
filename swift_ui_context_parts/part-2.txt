@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-20 07:49:20
+Current date: 2025-09-22 11:48:27
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
 2. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
@@ -521,7 +521,7 @@ public struct AnyNode: NodeProtocol {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-09-15 10:04:18
+Last modified: 2025-09-20 10:11:48
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -529,9 +529,9 @@ Contents:
 import Foundation
 import os  // For Logger
 
+@available(iOS 16.0, watchOS 6.0, *)
 private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
 
-@available(iOS 14.0, watchOS 6.0, *)
 /// Error types for graph storage operations.
 public enum GraphStorageError: Error {
     case encodingFailed(Error)
@@ -542,7 +542,7 @@ public enum GraphStorageError: Error {
 }
 
 /// File-based JSON persistence conforming to GraphStorage.
-@available(iOS 14.0, watchOS 6.0, *)
+@available(iOS 16.0, watchOS 6.0, *)
 public class PersistenceManager: GraphStorage {
     private let fileName = "graphState.json"
     private let fileURL: URL

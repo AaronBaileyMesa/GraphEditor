@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-20 07:49:20
+Current date: 2025-09-22 11:48:26
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -166,7 +166,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-09-19 14:05:16
+Last modified: 2025-09-20 10:00:33
 
 Contents:
 import os.log
@@ -188,17 +188,18 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     @Published public var isStable: Bool = false
     @Published public var simulationError: Error?
 
-    var simulationTimer: Timer? // Removed 'private'
-    var undoStack: [GraphState] = [] // Removed 'private'
-    var redoStack: [GraphState] = [] // Removed 'private'
-    let maxUndo = 10 // Removed 'private'
+    var simulationTimer: Timer?
+    var undoStack: [GraphState] = []
+    var redoStack: [GraphState] = []
+    let maxUndo = 10
 
     public var nextNodeLabel = 1
 
-    let storage: GraphStorage // Removed 'private'
+    let storage: GraphStorage
     public var physicsEngine: PhysicsEngine
 
     public var hiddenNodeIDs: Set<NodeID> {
+        print("Computing hiddenNodeIDs; nodes count: \(nodes.count)")  // NEW: Optional, for debug
         var hidden = Set<NodeID>()
         var toHide: [NodeID] = []
 
@@ -207,7 +208,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
             toHide.append(contentsOf: children)
         }
 
-        let adj = buildAdjacencyList(for: EdgeType.hierarchy) // Changed to EdgeType.hierarchy
+        let adj = buildAdjacencyList(for: EdgeType.hierarchy)
         while !toHide.isEmpty {
             let current = toHide.removeLast()
             if hidden.insert(current).inserted {
@@ -219,7 +220,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         return hidden
     }
 
-    lazy var simulator: GraphSimulator = { // Removed 'private'
+    lazy var simulator: GraphSimulator = {
         GraphSimulator(
             getNodes: { [weak self] in self?.nodes.map { $0.unwrapped } ?? [] },
             setNodes: { [weak self] newNodes in
@@ -259,6 +260,8 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     public init(storage: GraphStorage, physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
+        print("GraphModel initialized with storage: \(type(of: storage))")  // NEW: Log init
+        
     }
 }
 
@@ -561,7 +564,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Storage.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-09-20 10:09:45
 
 Contents:
 //
@@ -575,29 +578,39 @@ import Foundation
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
     private func loadFromStorage() async throws {
+        print("loadFromStorage started")  // Existing
         let (loadedNodes, loadedEdges) = try await storage.load()
+        print("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges")  // NEW for consistency
         self.nodes = loadedNodes.map { AnyNode($0) }
         self.edges = loadedEdges
         self.nextNodeLabel = (nodes.map { $0.unwrapped.label }.max() ?? 0) + 1
     }
-
+    
     public func load() async {
+        print("GraphModel.load() called")  // Existing
         do {
             try await loadFromStorage()
             syncCollapsedPositions()
+            if let viewState = try await loadViewState() {  // NEW: Load view state during graph load
+                // Apply view state if needed (e.g., publish or set properties)
+                print("Loaded view state: offset \(viewState.offset), zoom \(viewState.zoomScale)")
+            }
+            print("GraphModel.load() succeeded; nodes: \(nodes.count), edges: \(edges.count)")  // NEW
         } catch {
-            print("Failed to load graph: \(error)")
+            print("GraphModel.load() failed: \(error.localizedDescription)")  // Enhanced
         }
     }
-
+    
     public func save() async {
+        print("GraphModel.save() called; nodes: \(nodes.count), edges: \(edges.count)")  // Existing
         do {
             try await storage.save(nodes: nodes.map { $0.unwrapped }, edges: edges)
+            print("GraphModel.save() succeeded")  // Existing
         } catch {
-            print("Failed to save graph: \(error)")
+            print("GraphModel.save() failed: \(error.localizedDescription)")  // Existing
         }
     }
-
+    
     private func syncCollapsedPositions() {
         for parentIndex in 0..<nodes.count {
             if let toggle = nodes[parentIndex].unwrapped as? ToggleNode, !toggle.isExpanded {
@@ -616,19 +629,26 @@ extension GraphModel {
         }
         objectWillChange.send()
     }
-
+    
     public func clearGraph() async {
-        nodes = []
-        edges = []
-        nextNodeLabel = 1
-        try? await storage.clear()
-        objectWillChange.send()
+            print("clearGraph called")  // NEW
+            nodes = []
+            edges = []
+            nextNodeLabel = 1
+            do {
+                try await storage.clear()
+                try await storage.saveViewState(ViewState(offset: .zero, zoomScale: 1.0, selectedNodeID: nil, selectedEdgeID: nil))  // NEW: Clear view state too
+                print("clearGraph succeeded")  // Existing
+            } catch {
+                print("clearGraph failed: \(error.localizedDescription)")  // Existing
+            }
+            objectWillChange.send()
+        }
     }
-}
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-09-20 10:14:52
 
 Contents:
 //
@@ -642,35 +662,46 @@ import Foundation
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
     public func snapshot() async {
+        print("snapshot() called from: \(#function), nodes: \(nodes.count), edges: \(edges.count)")  // Add for debugging
         let state = GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges)
         undoStack.append(state)
         if undoStack.count > maxUndo { undoStack.removeFirst() }
         redoStack.removeAll()
+        await save()  // NEW: Auto-save graph data on snapshot (triggered by mutations)
+        print("snapshot() completed; undoStack size: \(undoStack.count)")  // Add for debugging
     }
 
     public func undo() async {
+        print("undo() called; undoStack size: \(undoStack.count)")  // Add for debugging
         guard let state = undoStack.popLast() else { return }
         redoStack.append(GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges))
         nodes = state.nodes.map { AnyNode($0) }
         edges = state.edges
         objectWillChange.send()
+        await save()  // NEW: Optional auto-save after undo
+        print("undo() completed; nodes: \(nodes.count)")  // Add for debugging
     }
 
     public func redo() async {
+        print("redo() called; redoStack size: \(redoStack.count)")  // Add for debugging
         guard let state = redoStack.popLast() else { return }
         undoStack.append(GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges))
         nodes = state.nodes.map { AnyNode($0) }
         edges = state.edges
         objectWillChange.send()
+        await save()  // NEW: Optional auto-save after redo
+        print("redo() completed; nodes: \(nodes.count)")  // Add for debugging
     }
 
-    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) throws {
-        // Implement saving logic here
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
+        print("GraphModel.saveViewState called with offset: \(offset), zoom: \(zoomScale)")  // Add for debugging
+        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        try await storage.saveViewState(viewState)  // Delegate to storage (e.g., UserDefaults)
     }
 
-    public func loadViewState() throws -> GraphViewState? {
-        // Implement loading logic here
-        return nil
+    public func loadViewState() async throws -> ViewState? {
+        print("GraphModel.loadViewState called")  // Add for debugging
+        return try await storage.loadViewState()  // Delegate to storage
     }
 }
 ----------------------------------------------------------------------------------------------------

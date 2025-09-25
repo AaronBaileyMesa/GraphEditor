@@ -9,6 +9,7 @@ import SwiftUI
 class MockGraphStorage: GraphStorage {
     var nodes: [any NodeProtocol] = []
     var edges: [GraphEdge] = []
+    var savedViewState: ViewState? 
     
     func save(nodes: [any NodeProtocol], edges: [GraphEdge]) throws {
         self.nodes = nodes
@@ -23,6 +24,14 @@ class MockGraphStorage: GraphStorage {
         nodes = []
         edges = []
     }
+    
+    func saveViewState(_ viewState: ViewState) async throws {
+            savedViewState = viewState
+        }
+        
+        func loadViewState() async throws -> ViewState? {
+            savedViewState
+        }
 }
 
 func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {

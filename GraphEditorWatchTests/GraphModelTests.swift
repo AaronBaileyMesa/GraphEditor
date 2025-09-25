@@ -133,6 +133,7 @@ struct GraphModelTests {
         await model.snapshot()
         await model.addNode(at: CGPoint.zero)
         await runSimulation(on: model)
+        await model.snapshot()  // FIX: Commit post-add state
         #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "After add: count back to initial")
         #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges reduced by connected count")
         await model.undo() // To post-delete

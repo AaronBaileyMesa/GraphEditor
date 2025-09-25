@@ -231,7 +231,7 @@ struct ContentView: View {
                 showMenu = true   // Open menu
             }
         }, label: {
-            Image(systemName: showMenu ? "chart.xyaxis.line" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
+            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
                 .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
         })
