@@ -76,7 +76,7 @@ struct GraphGesturesModifier: ViewModifier {
 
 extension GraphGesturesModifier {
     // Screen-space hit test for nodes (consistent usability)
-    private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
+    func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
@@ -118,7 +118,7 @@ extension GraphGesturesModifier {
     }
     
     // Screen-space hit test for edges (for consistency with nodes)
-    private func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
+    func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
         var closestEdge: GraphEdge?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius / 2  // Smaller for edges to avoid overlapping node taps
@@ -175,7 +175,7 @@ extension GraphGesturesModifier {
         gestureStartCentroid = .zero
     }
     
-    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
+    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
 #if DEBUG
         logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: location))")
         logger.debug("Visible Nodes Count: \(visibleNodes.count)")
@@ -340,7 +340,7 @@ extension GraphGesturesModifier {
     }
 }
 extension GraphGesturesModifier {
-    private func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+    func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
         let startX = Double(startPoint.x), startY = Double(startPoint.y)
         let endX = Double(endPoint.x), endY = Double(endPoint.y)
