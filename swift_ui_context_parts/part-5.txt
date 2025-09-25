@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-22 11:48:28
+Current date: 2025-09-25 14:38:07
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphUtilities.swift
@@ -9,10 +9,11 @@ Table of Contents:
 4. GraphEditorWatch/Views/MenuView.swift
 5. GraphEditorWatch/Views/NodeView.swift
 6. GraphEditorWatchTests/AccessibilityTests.swift
-7. GraphEditorWatchTests/CoordinateTransformerTests.swift--------------------------------------------------
+7. GraphEditorWatchTests/CoordinateTransformerTests.swift
+8. GraphEditorWatchTests/EditContentSheetTests.swift--------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-09-19 14:38:39
+Last modified: 2025-09-25 14:25:58
 
 Contents:
 //
@@ -93,7 +94,7 @@ struct GraphGesturesModifier: ViewModifier {
 
 extension GraphGesturesModifier {
     // Screen-space hit test for nodes (consistent usability)
-    private func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
+    func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
@@ -135,7 +136,7 @@ extension GraphGesturesModifier {
     }
     
     // Screen-space hit test for edges (for consistency with nodes)
-    private func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
+    func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
         var closestEdge: GraphEdge?
         var minScreenDist: CGFloat = .infinity
         let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius / 2  // Smaller for edges to avoid overlapping node taps
@@ -192,7 +193,7 @@ extension GraphGesturesModifier {
         gestureStartCentroid = .zero
     }
     
-    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
+    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
 #if DEBUG
         logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: location))")
         logger.debug("Visible Nodes Count: \(visibleNodes.count)")
@@ -357,7 +358,7 @@ extension GraphGesturesModifier {
     }
 }
 extension GraphGesturesModifier {
-    private func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+    func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
         let startX = Double(startPoint.x), startY = Double(startPoint.y)
         let endX = Double(endPoint.x), endY = Double(endPoint.y)
@@ -1017,6 +1018,45 @@ struct CoordinateTransformerTests {
         let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
         
         #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: EditContentSheetTests.swift
+Path: GraphEditorWatchTests/EditContentSheetTests.swift
+Last modified: 2025-09-25 14:25:51
+
+Contents:
+//
+//  EditContentSheetTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/25/25.
+//
+import Testing
+import SwiftUI
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+
+struct EditContentSheetTests {
+    private func setupViewModel() async -> GraphViewModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
+        return await GraphViewModel(model: model)
+    }
+    
+    @Test func testSaveStringContent() async {
+        let viewModel = await setupViewModel()
+        let nodeID = NodeID()
+        var savedContent: NodeContent?
+        let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
+            savedContent = content
+        }
+        // Simulate input: Since @State is private, this is placeholder; use XCUITest for full simulation or expose states for testing
+        // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
+        // Placeholder assertion (adapt based on actual simulation logic)
+        _ = sheet  // Use to silence warning
+        #expect(savedContent == nil, "Initially nil; add simulation to set .string(\"test\")")
     }
 }
 --------------------------------------------------

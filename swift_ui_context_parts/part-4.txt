@@ -1,14 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-22 11:48:27
+Current date: 2025-09-25 14:38:07
 Table of Contents:
 1. GraphEditorWatch/Views/ContentView.swift
 2. GraphEditorWatch/Views/EditContentSheet.swift
 3. GraphEditorWatch/Views/GraphCanvasView.swift--------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-09-19 14:46:52
+Last modified: 2025-09-25 07:47:35
 
 Contents:
 // ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
@@ -244,7 +244,7 @@ struct ContentView: View {
                 showMenu = true   // Open menu
             }
         }, label: {
-            Image(systemName: showMenu ? "chart.xyaxis.line" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
+            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
                 .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
         })

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-22 11:48:26
+Current date: 2025-09-25 14:38:06
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -166,7 +166,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-09-20 10:00:33
+Last modified: 2025-09-24 11:08:58
 
 Contents:
 import os.log
@@ -191,7 +191,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     var simulationTimer: Timer?
     var undoStack: [GraphState] = []
     var redoStack: [GraphState] = []
-    let maxUndo = 10
+    public var maxUndo: Int = 10
 
     public var nextNodeLabel = 1
 
@@ -199,7 +199,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     public var physicsEngine: PhysicsEngine
 
     public var hiddenNodeIDs: Set<NodeID> {
-        print("Computing hiddenNodeIDs; nodes count: \(nodes.count)")  // NEW: Optional, for debug
+        // Removed debug print to avoid side effects; add os_log if needed for production logging.
         var hidden = Set<NodeID>()
         var toHide: [NodeID] = []
 
@@ -648,7 +648,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-09-20 10:14:52
+Last modified: 2025-09-25 10:28:00
 
 Contents:
 //
@@ -672,25 +672,32 @@ extension GraphModel {
     }
 
     public func undo() async {
-        print("undo() called; undoStack size: \(undoStack.count)")  // Add for debugging
-        guard let state = undoStack.popLast() else { return }
-        redoStack.append(GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges))
-        nodes = state.nodes.map { AnyNode($0) }
-        edges = state.edges
-        objectWillChange.send()
-        await save()  // NEW: Optional auto-save after undo
-        print("undo() completed; nodes: \(nodes.count)")  // Add for debugging
+        print("undo() called; undoStack size: \(undoStack.count)")  // Debugging
+        guard undoStack.count > 1 else {
+            print("undo() early return: cannot undo further")
+            return
+        }
+        if let popped = undoStack.popLast() {
+            redoStack.append(popped)
+            if let previous = undoStack.last {
+                nodes = previous.nodes.map { AnyNode($0) }
+                edges = previous.edges
+                objectWillChange.send()
+                await save()  // Auto-save
+                print("undo() completed; nodes: \(nodes.count), undoStack size: \(undoStack.count), redoStack size: \(redoStack.count)")  // Debugging
+            }
+        }
     }
-
+    
     public func redo() async {
-        print("redo() called; redoStack size: \(redoStack.count)")  // Add for debugging
+        print("redo() called; redoStack size: \(redoStack.count)")  // Debugging
         guard let state = redoStack.popLast() else { return }
-        undoStack.append(GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges))
         nodes = state.nodes.map { AnyNode($0) }
         edges = state.edges
+        undoStack.append(state)
         objectWillChange.send()
-        await save()  // NEW: Optional auto-save after redo
-        print("redo() completed; nodes: \(nodes.count)")  // Add for debugging
+        await save()  // Auto-save
+        print("redo() completed; nodes: \(nodes.count), undoStack size: \(undoStack.count), redoStack size: \(redoStack.count)")  // Debugging (updated to include stacks)
     }
 
     public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
@@ -761,7 +768,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-19 13:25:29
+Last modified: 2025-09-24 11:08:58
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -776,10 +783,12 @@ import WatchKit  // Only if using haptics; otherwise remove
 @available(iOS 16.0, watchOS 6.0, *)
 /// Manages physics simulation loops for graph updates.
 class GraphSimulator {
-    private var simulationTask: Task<Void, Never>?
-    private var recentVelocities: [CGFloat] = []
-    private let velocityChangeThreshold: CGFloat = 0.01
-    private let velocityHistoryCount = 5
+    private(set) var simulationTask: Task<Void, Never>?  // Exposed for testing
+    private(set) var recentVelocities: [CGFloat] = []  // Exposed for testing
+    
+    let velocityChangeThreshold: CGFloat
+    let velocityHistoryCount: Int
+    let baseInterval: TimeInterval  // Now configurable
     
     let physicsEngine: PhysicsEngine
     private let getVisibleNodes: () -> [any NodeProtocol]
@@ -796,7 +805,10 @@ class GraphSimulator {
          getVisibleNodes: @escaping () -> [any NodeProtocol],
          getVisibleEdges: @escaping () -> [GraphEdge],
          physicsEngine: PhysicsEngine,
-         onStable: (() -> Void)? = nil) {  // New parameter
+         onStable: (() -> Void)? = nil,
+         baseInterval: TimeInterval = 1.0 / 30.0,  // Default value
+         velocityChangeThreshold: CGFloat = 0.01,
+         velocityHistoryCount: Int = 5) {
         self.getNodes = getNodes
         self.setNodes = setNodes
         self.getEdges = getEdges
@@ -805,6 +817,10 @@ class GraphSimulator {
         
         self.getVisibleNodes = getVisibleNodes
         self.getVisibleEdges = getVisibleEdges
+        
+        self.baseInterval = baseInterval
+        self.velocityChangeThreshold = velocityChangeThreshold
+        self.velocityHistoryCount = velocityHistoryCount
     }
     
     struct SimulationStepResult {
@@ -824,36 +840,47 @@ class GraphSimulator {
         let nodeCount = getNodes().count
         if nodeCount < 5 { return }
         
-        var baseInterval: TimeInterval = nodeCount < 20 ? 1.0 / 30.0 : (nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0)
+        var adjustedInterval = baseInterval
+        if nodeCount >= 20 {
+            adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
+        }
         if ProcessInfo.processInfo.isLowPowerModeEnabled {
-            baseInterval *= 2.0
+            adjustedInterval *= 2.0
         }
         
         simulationTask = Task {
-            await self.runSimulationLoop(baseInterval: baseInterval, nodeCount: nodeCount)
+            await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
         }
         await simulationTask?.value
     }
     
     private func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
         while !Task.isCancelled {
-            #if os(watchOS)
-            if await WKApplication.shared().applicationState != .active { break }
-            #endif
-            
-            let result: SimulationStepResult = await Task.detached {
-                return self.computeSimulationStep()
-            }.value
-            
-            self.setNodes(result.updatedNodes)
-            
-            if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
+            let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
+            if !shouldContinue {
                 break
             }
-            
-            try? await Task.sleep(for: .seconds(baseInterval))
         }
         self.onStable?()
+    }
+    
+    private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
+        #if os(watchOS)
+        if await WKApplication.shared().applicationState != .active { return false }
+        #endif
+        
+        let result: SimulationStepResult = await Task.detached {
+            return self.computeSimulationStep()
+        }.value
+        
+        self.setNodes(result.updatedNodes)
+        
+        if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
+            return false
+        }
+        
+        try? await Task.sleep(for: .seconds(baseInterval))
+        return true
     }
     
     private nonisolated func computeSimulationStep() -> SimulationStepResult {

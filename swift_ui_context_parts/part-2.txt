@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-22 11:48:27
+Current date: 2025-09-25 14:38:06
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
 2. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
@@ -244,7 +244,7 @@ public enum NodeWrapper: Codable {
 ----------------------------------------------------------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-09-19 13:45:29
+Last modified: 2025-09-25 11:53:46
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -331,7 +331,13 @@ public enum NodeContent: Codable, Equatable {
     public var displayText: String {
         switch self {
         case .string(let str): return str.prefix(10) + (str.count > 10 ? "…" : "")
-        case .date(let date): return DateFormatter.localizedString(from: date, dateStyle: .short, timeStyle: .none)
+        case .date(let date):
+            let formatter = DateFormatter()
+            formatter.dateStyle = .short
+            formatter.timeStyle = .none
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)  // Use UTC for consistency
+            formatter.locale = Locale(identifier: "en_US")  // Set locale for consistent output
+            return formatter.string(from: date)
         case .number(let num): return String(format: "%.1f", num)
         }
     }
@@ -521,7 +527,7 @@ public struct AnyNode: NodeProtocol {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-09-20 10:11:48
+Last modified: 2025-09-24 08:49:32
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -544,10 +550,9 @@ public enum GraphStorageError: Error {
 /// File-based JSON persistence conforming to GraphStorage.
 @available(iOS 16.0, watchOS 6.0, *)
 public class PersistenceManager: GraphStorage {
-    private let fileName = "graphState.json"
-    private let fileURL: URL
+    public let fileURL: URL
     
-    public init() {
+    public init(fileName: String = "graphState.json") {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         fileURL = documents.appendingPathComponent(fileName)
     }
@@ -568,8 +573,12 @@ public class PersistenceManager: GraphStorage {
         }
         let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Add viewState if passed
         do {
+            // Ensure directory exists
+            let directory = fileURL.deletingLastPathComponent()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            
             let data = try JSONEncoder().encode(state)
-            try data.write(to: fileURL)
+            try data.write(to: fileURL, options: .atomic)  // Ensures full overwrite
             logger.debug("Saved \(wrapped.count) nodes and \(edges.count) edges")
         } catch let error as EncodingError {
             logger.error("Encoding failed: \(error.localizedDescription)")

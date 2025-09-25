@@ -79,29 +79,35 @@ extension GraphGesturesModifier {
     func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
         var minScreenDist: CGFloat = .infinity
-        let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius  // Fixed screen size (e.g., 50pt)
-        
-#if DEBUG
+        let minHitRadius: CGFloat = 10.0  // Minimum tappable radius in screen points for small zooms
+        let padding: CGFloat = 5.0  // Extra padding in screen points for forgiveness
+
+    #if DEBUG
         var nodeDistances: [NodeDistanceInfo] = []  // For logging
         logger.debug("Using centroid: \(String(describing: context.effectiveCentroid)) for this gesture")
-#endif
-        
+    #endif
+
         for node in visibleNodes {
             let safeZoom = max(context.zoomScale, 0.1)
             let nodeScreenPos = CoordinateTransformer.modelToScreen(node.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
             let dist = distance(screenPos, nodeScreenPos)
-            
-#if DEBUG
+
+            let visibleRadius = node.radius * safeZoom
+            let nodeHitRadius = max(minHitRadius, visibleRadius) + padding  // Matches visible size, with min and padding
+
+    #if DEBUG
             nodeDistances.append(NodeDistanceInfo(label: node.label, screenPos: nodeScreenPos, dist: dist))
-#endif
-            
-            if dist < minScreenDist && dist <= hitScreenRadius {
+            // Optional: Log per-node hit radius for debugging
+            logger.debug("Node \(node.label): visibleRadius \(visibleRadius), nodeHitRadius \(nodeHitRadius)")
+    #endif
+
+            if dist <= nodeHitRadius && dist < minScreenDist {
                 minScreenDist = dist
                 closestNode = node
             }
         }
-        
-#if DEBUG
+
+    #if DEBUG
         // Log sorted by distance for verification
         nodeDistances.sort { $0.dist < $1.dist }
         logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: screenPos))")
@@ -109,11 +115,11 @@ extension GraphGesturesModifier {
             logger.debug("Node \(info.label): screen pos \(String(describing: info.screenPos)), dist \(info.dist)")
         }
         if let closest = closestNode {
-            logger.debug("Hit: Node \(closest.label) (dist \(minScreenDist) <= \(hitScreenRadius))")
+            logger.debug("Hit: Node \(closest.label) (dist \(minScreenDist))")
         } else {
-            logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
+            logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity)")
         }
-#endif
+    #endif
         return closestNode
     }
     
