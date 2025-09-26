@@ -1,14 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-25 17:12:51
+Current date: 2025-09-26 07:28:35
 Table of Contents:
 1. GraphEditorWatch/Views/ContentView.swift
 2. GraphEditorWatch/Views/EditContentSheet.swift
 3. GraphEditorWatch/Views/GraphCanvasView.swift--------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-09-25 07:47:35
+Last modified: 2025-09-25 17:40:05
 
 Contents:
 // ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
@@ -176,8 +176,13 @@ struct ContentView: View {
                 isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
             
-            addNodeButton(in: geo)
-            menuButton(in: geo)
+            Color.clear
+                .safeAreaInset(edge: .bottom, spacing: -2) {
+                    addNodeButton(in: geo)
+                    menuButton(in: geo)
+                }
+                .transition(.move(edge: .bottom))
+                .padding(.horizontal, 15)  // Extra side padding to avoid left/right clipping
         }
         // Removed .hidden() to ensure the content renders
     }

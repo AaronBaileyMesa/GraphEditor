@@ -88,12 +88,21 @@ struct GraphCanvasView: View {
     
     private var boundingBoxOverlay: some View {
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let scaledBounds = CGRect(
-            x: (graphBounds.minX - viewModel.effectiveCentroid.x) * zoomScale + viewSize.width / 2 + offset.width,
-            y: (graphBounds.minY - viewModel.effectiveCentroid.y) * zoomScale + viewSize.height / 2 + offset.height,
-            width: graphBounds.width * zoomScale,
-            height: graphBounds.height * zoomScale
+        let minScreen = CoordinateTransformer.modelToScreen(
+            CGPoint(x: graphBounds.minX, y: graphBounds.minY),
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize
         )
+        let maxScreen = CoordinateTransformer.modelToScreen(
+            CGPoint(x: graphBounds.maxX, y: graphBounds.maxY),
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize
+        )
+        let scaledBounds = CGRect(x: minScreen.x, y: minScreen.y, width: maxScreen.x - minScreen.x, height: maxScreen.y - minScreen.y)
         return Rectangle()
             .stroke(Color.blue, lineWidth: 2)
             .frame(width: scaledBounds.width, height: scaledBounds.height)
@@ -120,109 +129,11 @@ struct GraphCanvasView: View {
                 
                 print("Drawing: \(visibleNodes.count) nodes, \(visibleEdges.count) edges | Centroid: \(effectiveCentroid) | Zoom: \(zoomScale) | Offset: \(offset)")  // Debug
                 
-                // Pass 0: Draw nodes FIRST (under edges/arrows)
-                for node in visibleNodes {
-                    let screenPos = modelToScreen(node.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected call
-                    let isSelected = (node.id == selectedNodeID)
-                    print("Drawing node \(node.label) at screen \(screenPos), selected: \(isSelected)")  // Debug
-                    node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: isSelected)
-                }
-                
-                // Pass 1: Draw edges (lines only)
-                for edge in visibleEdges {
-                    guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                          let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-                    
-                    let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                    let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                    
-                    let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
-                    let length = hypot(direction.dx, direction.dy)
-                    if length <= 0 { continue }
-                    
-                    let unitDx = direction.dx / length
-                    let unitDy = direction.dy / length
-                    let fromRadiusScreen = fromNode.radius * zoomScale
-                    let toRadiusScreen = toNode.radius * zoomScale
-                    let margin: CGFloat = 3.0
-                    
-                    let isSelected = edge.id == selectedEdgeID
-                    let lineColor: Color = isSelected ? .red : .gray
-                    let lineWidth: CGFloat = 3.0
-                    
-                    let startPoint = CGPoint(x: fromScreen.x + unitDx * (fromRadiusScreen + margin),
-                                             y: fromScreen.y + unitDy * (fromRadiusScreen + margin))
-                    let endPoint = CGPoint(x: toScreen.x - unitDx * (toRadiusScreen + margin),
-                                           y: toScreen.y - unitDy * (toRadiusScreen + margin))
-                    
-                    let linePath = Path { path in
-                        path.move(to: startPoint)
-                        path.addLine(to: endPoint)
-                    }
-                    
-                    context.stroke(linePath, with: .color(lineColor), lineWidth: lineWidth)
-                    print("Drawing line for edge \(edge.id.uuidString.prefix(8)) from \(startPoint) to \(endPoint)")  // Debug
-                }
-                
-                // Pass 2: Draw arrows (over lines)
-                for edge in visibleEdges {
-                    guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                          let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-                    
-                    let fromScreen = modelToScreen(fromNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                    let toScreen = modelToScreen(toNode.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                    
-                    let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
-                    let length = hypot(direction.dx, direction.dy)
-                    if length <= 0 { continue }
-                    
-                    let unitDx = direction.dx / length
-                    let unitDy = direction.dy / length
-                    let toRadiusScreen = toNode.radius * zoomScale
-                    let boundaryPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
-                                                y: toScreen.y - unitDy * toRadiusScreen)
-                    
-                    let lineAngle = atan2(unitDy, unitDx)
-                    let arrowLength: CGFloat = 10.0
-                    let arrowAngle: CGFloat = .pi / 6
-                    let arrowPoint1 = CGPoint(
-                        x: boundaryPoint.x - arrowLength * cos(lineAngle - arrowAngle),
-                        y: boundaryPoint.y - arrowLength * sin(lineAngle - arrowAngle)
-                    )
-                    let arrowPoint2 = CGPoint(
-                        x: boundaryPoint.x - arrowLength * cos(lineAngle + arrowAngle),
-                        y: boundaryPoint.y - arrowLength * sin(lineAngle + arrowAngle)
-                    )
-                    
-                    let arrowPath = Path { path in
-                        path.move(to: boundaryPoint)
-                        path.addLine(to: arrowPoint1)
-                        path.move(to: boundaryPoint)
-                        path.addLine(to: arrowPoint2)
-                    }
-                    
-                    let isSelected = edge.id == selectedEdgeID
-                    let arrowColor: Color = isSelected ? .red : .gray
-                    let arrowLineWidth: CGFloat = 3.0
-                    
-                    context.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
-                    print("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary \(boundaryPoint)")  // Debug
-                }
-                
-                // Draw dragged node and potential edge
-                if let dragged = draggedNode {
-                    let draggedScreen = modelToScreen(dragged.position + dragOffset, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                    context.fill(Circle().path(in: CGRect(center: draggedScreen, size: CGSize(width: Constants.App.nodeModelRadius * 2 * zoomScale, height: Constants.App.nodeModelRadius * 2 * zoomScale))), with: .color(.green))
-                    
-                    if let target = potentialEdgeTarget {
-                        let targetScreen = modelToScreen(target.position, effectiveCentroid: effectiveCentroid, size: size)  // Corrected
-                        let tempLinePath = Path { path in
-                            path.move(to: draggedScreen)
-                            path.addLine(to: targetScreen)
-                        }
-                        context.stroke(tempLinePath, with: .color(.green), lineWidth: 2.0)
-                    }
-                }
+                // Draw elements using helpers
+                drawNodes(in: context, size: size, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                drawEdgeLines(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                drawEdgeArrows(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
             }
             .frame(width: viewSize.width, height: viewSize.height)
             
@@ -236,13 +147,6 @@ struct GraphCanvasView: View {
                     .foregroundColor(.yellow)
             }
         }
-    }
-    
-    private func modelToScreen(_ modelPos: CGPoint, effectiveCentroid: CGPoint, size: CGSize) -> CGPoint {
-        let viewCenter = CGPoint(x: size.width / 2, y: size.height / 2)
-        let relativePos = modelPos - effectiveCentroid
-        let scaledPos = relativePos * zoomScale  // Uses outer @State zoomScale
-        return viewCenter + scaledPos + CGPoint(x: offset.width, y: offset.height)  // Uses outer @State offset
     }
     
     private func centroid(of nodes: [any NodeProtocol]) -> CGPoint {
@@ -276,18 +180,174 @@ struct GraphCanvasView: View {
             ))
         }
         .onChange(of: selectedNodeID) {
-                    viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+            viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+        }
+        .onChange(of: selectedEdgeID) {
+            viewModel.saveViewState()  // Existing
+        }
+        .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
+            viewModel.saveViewState()
+        }
+        .onChange(of: zoomScale) {
+            viewModel.saveViewState()
+        }
+        .ignoresSafeArea()
+    }
+}
+
+extension GraphCanvasView {
+    func drawNodes(in context: GraphicsContext, size: CGSize, visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
+        // Pass 0: Draw nodes FIRST (under edges/arrows)
+        for node in visibleNodes {
+            let screenPos = CoordinateTransformer.modelToScreen(
+                node.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            let isSelected = (node.id == selectedNodeID)
+            print("Drawing node \(node.label) at screen \(screenPos), selected: \(isSelected)")  // Debug
+            node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: isSelected)
+        }
+    }
+    
+    func drawEdgeLines(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
+        // Pass 1: Draw edges (lines only)
+        for edge in visibleEdges {
+            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                  let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
+            
+            let fromScreen = CoordinateTransformer.modelToScreen(
+                fromNode.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            let toScreen = CoordinateTransformer.modelToScreen(
+                toNode.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            
+            let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+            let length = hypot(direction.dx, direction.dy)
+            if length <= 0 { continue }
+            
+            let unitDx = direction.dx / length
+            let unitDy = direction.dy / length
+            let fromRadiusScreen = fromNode.radius * zoomScale
+            let toRadiusScreen = toNode.radius * zoomScale
+            let margin: CGFloat = 3.0
+            
+            let isSelected = edge.id == selectedEdgeID
+            let lineColor: Color = isSelected ? .red : .gray
+            let lineWidth: CGFloat = 3.0
+            
+            let startPoint = CGPoint(x: fromScreen.x + unitDx * (fromRadiusScreen + margin),
+                                     y: fromScreen.y + unitDy * (fromRadiusScreen + margin))
+            let endPoint = CGPoint(x: toScreen.x - unitDx * (toRadiusScreen + margin),
+                                   y: toScreen.y - unitDy * (toRadiusScreen + margin))
+            
+            let linePath = Path { path in
+                path.move(to: startPoint)
+                path.addLine(to: endPoint)
+            }
+            
+            context.stroke(linePath, with: .color(lineColor), lineWidth: lineWidth)
+            print("Drawing line for edge \(edge.id.uuidString.prefix(8)) from \(startPoint) to \(endPoint)")  // Debug
+        }
+    }
+    
+    func drawEdgeArrows(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
+        // Pass 2: Draw arrows (over lines)
+        for edge in visibleEdges {
+            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                  let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
+            
+            let fromScreen = CoordinateTransformer.modelToScreen(
+                fromNode.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            let toScreen = CoordinateTransformer.modelToScreen(
+                toNode.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            
+            let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+            let length = hypot(direction.dx, direction.dy)
+            if length <= 0 { continue }
+            
+            let unitDx = direction.dx / length
+            let unitDy = direction.dy / length
+            let toRadiusScreen = toNode.radius * zoomScale
+            let boundaryPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
+                                        y: toScreen.y - unitDy * toRadiusScreen)
+            
+            let lineAngle = atan2(unitDy, unitDx)
+            let arrowLength: CGFloat = 10.0
+            let arrowAngle: CGFloat = .pi / 6
+            let arrowPoint1 = CGPoint(
+                x: boundaryPoint.x - arrowLength * cos(lineAngle - arrowAngle),
+                y: boundaryPoint.y - arrowLength * sin(lineAngle - arrowAngle)
+            )
+            let arrowPoint2 = CGPoint(
+                x: boundaryPoint.x - arrowLength * cos(lineAngle + arrowAngle),
+                y: boundaryPoint.y - arrowLength * sin(lineAngle + arrowAngle)
+            )
+            
+            let arrowPath = Path { path in
+                path.move(to: boundaryPoint)
+                path.addLine(to: arrowPoint1)
+                path.move(to: boundaryPoint)
+                path.addLine(to: arrowPoint2)
+            }
+            
+            let isSelected = edge.id == selectedEdgeID
+            let arrowColor: Color = isSelected ? .red : .gray
+            let arrowLineWidth: CGFloat = 3.0
+            
+            context.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
+            print("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary \(boundaryPoint)")  // Debug
+        }
+    }
+    
+    func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, size: CGSize, effectiveCentroid: CGPoint) {
+        // Draw dragged node and potential edge
+        if let dragged = draggedNode {
+            let draggedScreen = CoordinateTransformer.modelToScreen(
+                dragged.position + dragOffset,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            context.fill(Circle().path(in: CGRect(center: draggedScreen, size: CGSize(width: Constants.App.nodeModelRadius * 2 * zoomScale, height: Constants.App.nodeModelRadius * 2 * zoomScale))), with: .color(.green))
+            
+            if let target = potentialEdgeTarget {
+                let targetScreen = CoordinateTransformer.modelToScreen(
+                    target.position,
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: size
+                )
+                let tempLinePath = Path { path in
+                    path.move(to: draggedScreen)
+                    path.addLine(to: targetScreen)
                 }
-                .onChange(of: selectedEdgeID) {
-                    viewModel.saveViewState()  // Existing
-                }
-                .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
-                    viewModel.saveViewState()
-                }
-                .onChange(of: zoomScale) {
-                    viewModel.saveViewState()
-                }
-                .ignoresSafeArea()
+                context.stroke(tempLinePath, with: .color(.green), lineWidth: 2.0)
+            }
+        }
     }
 }
 
