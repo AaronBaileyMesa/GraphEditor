@@ -181,12 +181,12 @@ extension GraphGesturesModifier {
         gestureStartCentroid = .zero
     }
     
-    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
-#if DEBUG
+    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
+    #if DEBUG
         logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: location))")
         logger.debug("Visible Nodes Count: \(visibleNodes.count)")
         logger.debug("--------------------------------")
-#endif
+    #endif
         
         // Pause simulation first (mimics handleTap)
         Task { await viewModel.model.pauseSimulation() }
@@ -209,6 +209,12 @@ extension GraphGesturesModifier {
                 selectedEdgeID = nil
                 logger.debug("Selected regular Node \(node.label)")
             }
+            // Sync with ViewModel (triggers onChange in ContentView)
+            viewModel.objectWillChange.send()
+            
+            // Resume simulation after delay (mimics handleTap)
+            Task { await viewModel.resumeSimulationAfterDelay() }
+            return true  // Hit occurred
         } else {
             // No node: Check edges
             let hitEdge = hitTestEdgesInScreenSpace(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: context)
@@ -217,19 +223,27 @@ extension GraphGesturesModifier {
                 selectedEdgeID = edge.id
                 selectedNodeID = nil
                 logger.debug("Tap selected Edge \(edge.id.uuidString.prefix(8))")
+                
+                // Sync with ViewModel (triggers onChange in ContentView)
+                viewModel.objectWillChange.send()
+                
+                // Resume simulation after delay (mimics handleTap)
+                Task { await viewModel.resumeSimulationAfterDelay() }
+                return true  // Hit occurred
             } else {
                 // Miss: Clear all
                 selectedNodeID = nil
                 selectedEdgeID = nil
                 logger.debug("Tap missed; cleared selections")
+                
+                // Sync with ViewModel (triggers onChange in ContentView)
+                viewModel.objectWillChange.send()
+                
+                // Resume simulation after delay (mimics handleTap)
+                Task { await viewModel.resumeSimulationAfterDelay() }
+                return false  // No hit
             }
         }
-        
-        // Sync with ViewModel (triggers onChange in ContentView)
-        viewModel.objectWillChange.send()
-        
-        // Resume simulation after delay (mimics handleTap)
-        Task { await viewModel.resumeSimulationAfterDelay() }
     }
     
     private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
@@ -280,7 +294,10 @@ extension GraphGesturesModifier {
         
         // Early exit for taps (short drag) - enhanced for node/edge selection
         if let start = startLocation, dragMagnitude < dragStartThreshold, distance(start, location) < dragStartThreshold {
-            handleTap(at: location, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
+            let wasHit = handleTap(at: location, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
+            if wasHit {
+                WKInterfaceDevice.current().play(.click)  // Subtler haptic feedback (short tick/tap) on successful hit
+            }
             return  // Exit early
         }
         
