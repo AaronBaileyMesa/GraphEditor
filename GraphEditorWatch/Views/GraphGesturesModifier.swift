@@ -75,6 +75,8 @@ struct GraphGesturesModifier: ViewModifier {
 }
 
 extension GraphGesturesModifier {
+    
+    /*
     // Screen-space hit test for nodes (consistent usability)
     func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
@@ -167,7 +169,8 @@ extension GraphGesturesModifier {
 #endif
         return closestEdge
     }
-    
+    */
+     
     private func resetGestureState() {
         dragStartNode = nil
         isMovingSelectedNode = false
@@ -187,11 +190,12 @@ extension GraphGesturesModifier {
         logger.debug("Visible Nodes Count: \(visibleNodes.count)")
         logger.debug("--------------------------------")
     #endif
-        
+      
         // Pause simulation first (mimics handleTap)
         Task { await viewModel.model.pauseSimulation() }
-        
-        let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+      
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
         if let node = hitNode {
             // Node hit: Handle toggle or selection (replicates viewModel.handleTap logic)
             if let toggleNode = node as? ToggleNode {
@@ -211,22 +215,22 @@ extension GraphGesturesModifier {
             }
             // Sync with ViewModel (triggers onChange in ContentView)
             viewModel.objectWillChange.send()
-            
+          
             // Resume simulation after delay (mimics handleTap)
             Task { await viewModel.resumeSimulationAfterDelay() }
             return true  // Hit occurred
         } else {
             // No node: Check edges
-            let hitEdge = hitTestEdgesInScreenSpace(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: context)
+            let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext)
             if let edge = hitEdge {
                 // Select edge, clear node
                 selectedEdgeID = edge.id
                 selectedNodeID = nil
                 logger.debug("Tap selected Edge \(edge.id.uuidString.prefix(8))")
-                
+              
                 // Sync with ViewModel (triggers onChange in ContentView)
                 viewModel.objectWillChange.send()
-                
+              
                 // Resume simulation after delay (mimics handleTap)
                 Task { await viewModel.resumeSimulationAfterDelay() }
                 return true  // Hit occurred
@@ -235,25 +239,26 @@ extension GraphGesturesModifier {
                 selectedNodeID = nil
                 selectedEdgeID = nil
                 logger.debug("Tap missed; cleared selections")
-                
+              
                 // Sync with ViewModel (triggers onChange in ContentView)
                 viewModel.objectWillChange.send()
-                
+              
                 // Resume simulation after delay (mimics handleTap)
                 Task { await viewModel.resumeSimulationAfterDelay() }
                 return false  // No hit
             }
         }
     }
-    
+  
     private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
         let location = value.location
         let translation = value.translation
         let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
-        
+      
         // Initial hit if no dragStartNode (start of drag)
         if dragStartNode == nil {
-            let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+            let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             if let node = hitNode {
                 dragStartNode = node
                 draggedNode = node
@@ -272,11 +277,12 @@ extension GraphGesturesModifier {
             gestureStartCentroid = context.effectiveCentroid
             return
         }
-        
+      
         // Ongoing drag: Update drag offset and check for potential target
         if let node = draggedNode {
             dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-            let potential = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+            let potential = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             potentialEdgeTarget = (potential?.id != node.id) ? potential : nil  // Avoid self-edges
             if let target = potentialEdgeTarget {
                 logger.debug("Potential edge target: Node \(target.label)")
