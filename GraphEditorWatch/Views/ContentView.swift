@@ -163,8 +163,13 @@ struct ContentView: View {
                 isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
             
-            addNodeButton(in: geo)
-            menuButton(in: geo)
+            Color.clear
+                .safeAreaInset(edge: .bottom, spacing: -2) {
+                    addNodeButton(in: geo)
+                    menuButton(in: geo)
+                }
+                .transition(.move(edge: .bottom))
+                .padding(.horizontal, 15)  // Extra side padding to avoid left/right clipping
         }
         // Removed .hidden() to ensure the content renders
     }
