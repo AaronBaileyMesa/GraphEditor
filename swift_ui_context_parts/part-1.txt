@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-26 08:21:14
+Current date: 2025-09-27 08:58:31
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -606,7 +606,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-09-26 19:23:58
 
 Contents:
 //
@@ -643,6 +643,7 @@ extension GraphModel {
     }
 
     public func startSimulation() async {
+        
         isStable = false
         simulationError = nil
         isSimulating = true
@@ -871,7 +872,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-24 11:08:58
+Last modified: 2025-09-26 14:22:38
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -886,9 +887,8 @@ import WatchKit  // Only if using haptics; otherwise remove
 @available(iOS 16.0, watchOS 6.0, *)
 /// Manages physics simulation loops for graph updates.
 class GraphSimulator {
-    private(set) var simulationTask: Task<Void, Never>?  // Exposed for testing
-    private(set) var recentVelocities: [CGFloat] = []  // Exposed for testing
-    
+    var simulationTask: Task<Void, Never>?  // Exposed for testing
+    internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access    
     let velocityChangeThreshold: CGFloat
     let velocityHistoryCount: Int
     let baseInterval: TimeInterval  // Now configurable
@@ -897,7 +897,7 @@ class GraphSimulator {
     private let getVisibleNodes: () -> [any NodeProtocol]
     private let getVisibleEdges: () -> [GraphEdge]
     
-    private let getNodes: () -> [any NodeProtocol]  // Updated: Polymorphic
+    internal let getNodes: () -> [any NodeProtocol]  // Changed from private to internal
     private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
     private let getEdges: () -> [GraphEdge]
     private let onStable: (() -> Void)?  // New: Optional callback
@@ -933,39 +933,39 @@ class GraphSimulator {
     }
     
     @MainActor
-    func startSimulation() async {
-        #if os(watchOS)
-        guard WKApplication.shared().applicationState == .active else { return }
-        #endif
-        physicsEngine.resetSimulation()
-        recentVelocities.removeAll()
-        
-        let nodeCount = getNodes().count
-        if nodeCount < 5 { return }
-        
-        var adjustedInterval = baseInterval
-        if nodeCount >= 20 {
-            adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
-        }
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
-            adjustedInterval *= 2.0
-        }
-        
-        simulationTask = Task {
-            await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
-        }
-        await simulationTask?.value
-    }
-    
-    private func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
-        while !Task.isCancelled {
-            let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
-            if !shouldContinue {
-                break
+        func startSimulation() async {
+            #if os(watchOS)
+            guard WKApplication.shared().applicationState == .active else { return }
+            #endif
+            physicsEngine.resetSimulation()
+            recentVelocities.removeAll()
+            
+            let nodeCount = getNodes().count
+            if nodeCount < 5 { return }
+            
+            var adjustedInterval = baseInterval
+            if nodeCount >= 20 {
+                adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
             }
+            if ProcessInfo.processInfo.isLowPowerModeEnabled {
+                adjustedInterval *= 2.0
+            }
+            
+            simulationTask = Task {
+                await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
+            }
+            await simulationTask?.value
         }
-        self.onStable?()
-    }
+        
+        internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {  // Changed from private to internal
+            while !Task.isCancelled {
+                let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
+                if !shouldContinue {
+                    break
+                }
+            }
+            self.onStable?()
+        }
     
     private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
         #if os(watchOS)
@@ -986,7 +986,7 @@ class GraphSimulator {
         return true
     }
     
-    private nonisolated func computeSimulationStep() -> SimulationStepResult {
+    nonisolated func computeSimulationStep() -> SimulationStepResult {
         let nodes = self.getNodes()
         let visibleNodes = self.getVisibleNodes()
         let visibleEdges = self.getVisibleEdges()
@@ -1008,7 +1008,7 @@ class GraphSimulator {
         return SimulationStepResult(updatedNodes: tempNodes, shouldContinue: stepActive, totalVelocity: totalVel)
     }
     
-    private func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
+    func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
         if !result.shouldContinue || result.totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
             return true
         }

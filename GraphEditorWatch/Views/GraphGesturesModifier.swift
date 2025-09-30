@@ -369,7 +369,7 @@ extension GraphGesturesModifier {
     }
 }
 extension GraphGesturesModifier {
-    func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+    public func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
         let startX = Double(startPoint.x), startY = Double(startPoint.y)
         let endX = Double(endPoint.x), endY = Double(endPoint.y)

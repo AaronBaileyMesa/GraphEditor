@@ -39,9 +39,9 @@ struct GraphGesturesModifierTests {
         )
     }
     
-    @Test func testHitTestNodesInScreenSpace() async {
+    @MainActor @Test func testHitTestNodesInScreenSpace() async {
         let viewModel = await setupViewModel()
-        let modifier = createModifier(viewModel: viewModel,
+        _ = createModifier(viewModel: viewModel,
                                       selectedNodeID: .constant(nil),
                                       selectedEdgeID: .constant(nil))
         
@@ -49,9 +49,8 @@ struct GraphGesturesModifierTests {
         let context = GestureContext(zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300), effectiveCentroid: CGPoint.zero)
         // Compute screen pos: viewCenter (150,150) + zoom * (model - centroid) + offset = (150,150) + 1*(100-0,100-0) + (0,0) = (250,250)
         let screenTapPos = CGPoint(x: 250, y: 250)
-        let hitNode = await MainActor.run {
-            modifier.hitTestNodesInScreenSpace(at: screenTapPos, visibleNodes: nodes, context: context)
-        }
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        let hitNode = HitTestHelper.closestNode(at: screenTapPos, visibleNodes: nodes, context: hitContext)
         #expect(hitNode != nil, "Should hit node within radius")
     }
     
@@ -87,8 +86,7 @@ struct GraphGesturesModifierTests {
         
         // Compute screen pos for model .zero: (150,150) + 1*(0-0,0-0) + (0,0) = (150,150)
         let screenTapPos = CGPoint(x: 150, y: 150)
-        // Simulate tap on node
-        await MainActor.run {
+        _ = await MainActor.run {
             modifier.handleTap(at: screenTapPos, visibleNodes: nodes, visibleEdges: edges, context: context)
         }
         // Assert on mocked bindings

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-26 08:21:15
+Current date: 2025-09-27 08:58:33
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphUtilities.swift
@@ -9,11 +9,10 @@ Table of Contents:
 4. GraphEditorWatch/Views/MenuView.swift
 5. GraphEditorWatch/Views/NodeView.swift
 6. GraphEditorWatchTests/AccessibilityTests.swift
-7. GraphEditorWatchTests/CoordinateTransformerTests.swift
-8. GraphEditorWatchTests/EditContentSheetTests.swift--------------------------------------------------
+7. GraphEditorWatchTests/CoordinateTransformerTests.swift--------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-09-25 17:07:07
+Last modified: 2025-09-26 10:16:43
 
 Contents:
 //
@@ -93,6 +92,8 @@ struct GraphGesturesModifier: ViewModifier {
 }
 
 extension GraphGesturesModifier {
+    
+    /*
     // Screen-space hit test for nodes (consistent usability)
     func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
         var closestNode: (any NodeProtocol)?
@@ -185,7 +186,8 @@ extension GraphGesturesModifier {
 #endif
         return closestEdge
     }
-    
+    */
+     
     private func resetGestureState() {
         dragStartNode = nil
         isMovingSelectedNode = false
@@ -205,11 +207,12 @@ extension GraphGesturesModifier {
         logger.debug("Visible Nodes Count: \(visibleNodes.count)")
         logger.debug("--------------------------------")
     #endif
-        
+      
         // Pause simulation first (mimics handleTap)
         Task { await viewModel.model.pauseSimulation() }
-        
-        let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+      
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
         if let node = hitNode {
             // Node hit: Handle toggle or selection (replicates viewModel.handleTap logic)
             if let toggleNode = node as? ToggleNode {
@@ -229,22 +232,22 @@ extension GraphGesturesModifier {
             }
             // Sync with ViewModel (triggers onChange in ContentView)
             viewModel.objectWillChange.send()
-            
+          
             // Resume simulation after delay (mimics handleTap)
             Task { await viewModel.resumeSimulationAfterDelay() }
             return true  // Hit occurred
         } else {
             // No node: Check edges
-            let hitEdge = hitTestEdgesInScreenSpace(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: context)
+            let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext)
             if let edge = hitEdge {
                 // Select edge, clear node
                 selectedEdgeID = edge.id
                 selectedNodeID = nil
                 logger.debug("Tap selected Edge \(edge.id.uuidString.prefix(8))")
-                
+              
                 // Sync with ViewModel (triggers onChange in ContentView)
                 viewModel.objectWillChange.send()
-                
+              
                 // Resume simulation after delay (mimics handleTap)
                 Task { await viewModel.resumeSimulationAfterDelay() }
                 return true  // Hit occurred
@@ -253,25 +256,26 @@ extension GraphGesturesModifier {
                 selectedNodeID = nil
                 selectedEdgeID = nil
                 logger.debug("Tap missed; cleared selections")
-                
+              
                 // Sync with ViewModel (triggers onChange in ContentView)
                 viewModel.objectWillChange.send()
-                
+              
                 // Resume simulation after delay (mimics handleTap)
                 Task { await viewModel.resumeSimulationAfterDelay() }
                 return false  // No hit
             }
         }
     }
-    
+  
     private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
         let location = value.location
         let translation = value.translation
         let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
-        
+      
         // Initial hit if no dragStartNode (start of drag)
         if dragStartNode == nil {
-            let hitNode = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+            let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             if let node = hitNode {
                 dragStartNode = node
                 draggedNode = node
@@ -290,11 +294,12 @@ extension GraphGesturesModifier {
             gestureStartCentroid = context.effectiveCentroid
             return
         }
-        
+      
         // Ongoing drag: Update drag offset and check for potential target
         if let node = draggedNode {
             dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-            let potential = hitTestNodesInScreenSpace(at: location, visibleNodes: visibleNodes, context: context)
+            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+            let potential = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             potentialEdgeTarget = (potential?.id != node.id) ? potential : nil  // Avoid self-edges
             if let target = potentialEdgeTarget {
                 logger.debug("Potential edge target: Node \(target.label)")
@@ -381,7 +386,7 @@ extension GraphGesturesModifier {
     }
 }
 extension GraphGesturesModifier {
-    func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+    public func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)
         let startX = Double(startPoint.x), startY = Double(startPoint.y)
         let endX = Double(endPoint.x), endY = Double(endPoint.y)
@@ -1041,45 +1046,6 @@ struct CoordinateTransformerTests {
         let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
         
         #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: EditContentSheetTests.swift
-Path: GraphEditorWatchTests/EditContentSheetTests.swift
-Last modified: 2025-09-25 14:25:51
-
-Contents:
-//
-//  EditContentSheetTests.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/25/25.
-//
-import Testing
-import SwiftUI
-@testable import GraphEditorWatch
-@testable import GraphEditorShared
-
-struct EditContentSheetTests {
-    private func setupViewModel() async -> GraphViewModel {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
-        return await GraphViewModel(model: model)
-    }
-    
-    @Test func testSaveStringContent() async {
-        let viewModel = await setupViewModel()
-        let nodeID = NodeID()
-        var savedContent: NodeContent?
-        let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
-            savedContent = content
-        }
-        // Simulate input: Since @State is private, this is placeholder; use XCUITest for full simulation or expose states for testing
-        // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
-        // Placeholder assertion (adapt based on actual simulation logic)
-        _ = sheet  // Use to silence warning
-        #expect(savedContent == nil, "Initially nil; add simulation to set .string(\"test\")")
     }
 }
 --------------------------------------------------

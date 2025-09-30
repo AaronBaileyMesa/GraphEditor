@@ -183,7 +183,9 @@ struct GraphModelTests {
         let originalEdges = await model.edges
         let originalNodes = await model.nodes
         await model.addNode(at: CGPoint.zero)
-        await model.snapshot()  // Triggers save()
+        // NEW: Stabilize after add to match load() behavior
+        await runSimulation(on: model)
+        await model.snapshot()  // Triggers save() with stabilized positions
         let newModel = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await newModel.load()
         #expect(await MainActor.run { newModel.nodes.count } == originalNodeCount + 1, "Loaded nodes include added one")
@@ -194,5 +196,5 @@ struct GraphModelTests {
             $0.label == $1.label && approximatelyEqual($0.position, $1.position, accuracy: 1e-5)
         }, "Loaded nodes match expected")
     }
-    
+     
 }
