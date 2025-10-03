@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-27 08:58:32
+Current date: 2025-10-02 11:37:10
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
@@ -612,7 +612,7 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-09-08 10:58:41
+Last modified: 2025-09-27 09:13:41
 
 Contents:
 //

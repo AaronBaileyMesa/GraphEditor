@@ -86,15 +86,15 @@ struct EditSection: View {
                 }
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
-
+                
                 if viewModel.isSelectedToggleNode {
-                                Button("Toggle Expand/Collapse") {
-                                    Task { await viewModel.toggleSelectedNode() }
-                                    onDismiss()
-                                }
-                                .onSubmit { /* Same as above */ }
-                            }
-                    
+                    Button("Toggle Expand/Collapse") {
+                        Task { await viewModel.toggleSelectedNode() }
+                        onDismiss()
+                    }
+                    .onSubmit { /* Same as above */ }
+                }
+                
                 Button("Delete Node", role: .destructive) {
                     Task {
                         isProcessing = true
@@ -199,6 +199,24 @@ struct GraphSection: View {
     
     var body: some View {
         Section(header: Text("Graph")) {
+            if viewModel.canRedo || viewModel.canUndo {
+                Section(header: Text("Undo")) {
+                    if viewModel.canUndo {
+                        Button("Undo") {
+                            Task { await viewModel.undo()}
+                            onDismiss()
+
+                        }
+                    }
+                    if viewModel.canRedo {
+                        Button("Redo") {
+                            Task { await viewModel.redo()}
+                            onDismiss()
+                        }
+                    }
+                }
+            }
+            
             Button("Reset Graph", role: .destructive) {
                 Task { await viewModel.clearGraph() }
                 onDismiss()
@@ -257,7 +275,6 @@ struct MenuView: View {
                 )
             }
             
-            // Keep your existing ViewSection and GraphSection here
             ViewSection(
                 showOverlays: $showOverlays,  // Now in scope
                 isSimulating: isSimulatingBinding,
@@ -312,7 +329,6 @@ struct MenuView: View {
     @Previewable @State var mockSelectedNodeID: NodeID?
     @Previewable @State var mockSelectedEdgeID: UUID? = UUID()  // Simulate
     let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    // UPDATED: Pass new bindings for preview (use placeholders); simulate selection for testing
     mockViewModel.setSelectedEdge(UUID())  // Simulate edge selection for preview
     return MenuView(
         viewModel: mockViewModel,

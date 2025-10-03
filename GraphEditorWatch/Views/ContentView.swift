@@ -236,12 +236,13 @@ struct ContentView: View {
                 showMenu = true   // Open menu
             }
         }, label: {
-            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
+            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
                 .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
         })
         .buttonStyle(.plain)
         .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Preserve adjacent positioning
+        .accessibilityLabel("Menu")
     }
 }
 

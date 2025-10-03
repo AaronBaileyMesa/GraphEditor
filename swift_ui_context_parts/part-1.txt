@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-27 08:58:31
+Current date: 2025-10-02 11:37:09
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -872,7 +872,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-26 14:22:38
+Last modified: 2025-09-28 19:10:01
 
 Contents:
 // Sources/GraphEditorShared/GraphSimulator.swift
@@ -933,49 +933,61 @@ class GraphSimulator {
     }
     
     @MainActor
-        func startSimulation() async {
-            #if os(watchOS)
-            guard WKApplication.shared().applicationState == .active else { return }
-            #endif
-            physicsEngine.resetSimulation()
-            recentVelocities.removeAll()
-            
-            let nodeCount = getNodes().count
-            if nodeCount < 5 { return }
-            
-            var adjustedInterval = baseInterval
-            if nodeCount >= 20 {
-                adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
-            }
-            if ProcessInfo.processInfo.isLowPowerModeEnabled {
-                adjustedInterval *= 2.0
-            }
-            
-            simulationTask = Task {
-                await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
-            }
-            await simulationTask?.value
+    func startSimulation() async {
+#if os(watchOS)
+        guard WKApplication.shared().applicationState == .active else { return }
+#endif
+        physicsEngine.resetSimulation()
+        recentVelocities.removeAll()
+        
+        let nodeCount = getNodes().count
+        if nodeCount < 5 {
+            onStable?()  // NEW: Call here to handle "already stable" cases
+            return
         }
         
-        internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {  // Changed from private to internal
-            while !Task.isCancelled {
-                let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
-                if !shouldContinue {
-                    break
-                }
-            }
-            self.onStable?()
+        var adjustedInterval = baseInterval
+        if nodeCount >= 20 {
+            adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
         }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            adjustedInterval *= 2.0
+        }
+        
+        simulationTask = Task {
+            await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
+        }
+        await simulationTask?.value
+    }
+    
+    internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
+        print("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")  // NEW: Confirm entry
+        var iterations = 0
+        let maxIterations = 500
+        while !Task.isCancelled && iterations < maxIterations {
+            let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
+            iterations += 1
+            print("Iteration \(iterations): shouldContinue = \(shouldContinue)")  // NEW: Per-iter log
+            if !shouldContinue {
+                print("Simulation stabilized after \(iterations) iterations")
+                break
+            }
+        }
+        if iterations >= maxIterations {
+            print("Simulation timed out after \(iterations) iterations; recent velocities: \(recentVelocities)")
+        }
+        self.onStable?()
+    }
     
     private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
-        #if os(watchOS)
+#if os(watchOS)
         if await WKApplication.shared().applicationState != .active { return false }
-        #endif
+#endif
         
         let result: SimulationStepResult = await Task.detached {
             return self.computeSimulationStep()
         }.value
-        
+        print("Step: Total velocity = \(result.totalVelocity)")
         self.setNodes(result.updatedNodes)
         
         if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
@@ -1009,6 +1021,7 @@ class GraphSimulator {
     }
     
     func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
+        print("Check stop: totalVel = \(result.totalVelocity), threshold = \(Constants.Physics.velocityThreshold * CGFloat(nodeCount)), shouldContinue = \(result.shouldContinue)")  // NEW
         if !result.shouldContinue || result.totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
             return true
         }
@@ -1021,7 +1034,8 @@ class GraphSimulator {
         if recentVelocities.count == velocityHistoryCount {
             let maxVel = recentVelocities.max() ?? 1.0
             let minVel = recentVelocities.min() ?? 0.0
-            let relativeChange = (maxVel - minVel) / maxVel
+            let relativeChange = (maxVel > 0) ? (maxVel - minVel) / maxVel : 0.0  // Guard zero-divide
+            print("Relative change: \(relativeChange) (threshold: \(velocityChangeThreshold))")  // NEW
             if relativeChange < velocityChangeThreshold {
                 return true
             }

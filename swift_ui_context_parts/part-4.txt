@@ -1,14 +1,14 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-09-27 08:58:32
+Current date: 2025-10-02 11:37:10
 Table of Contents:
 1. GraphEditorWatch/Views/ContentView.swift
 2. GraphEditorWatch/Views/EditContentSheet.swift
 3. GraphEditorWatch/Views/GraphCanvasView.swift--------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-09-25 17:40:05
+Last modified: 2025-10-02 10:47:13
 
 Contents:
 // ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
@@ -249,12 +249,13 @@ struct ContentView: View {
                 showMenu = true   // Open menu
             }
         }, label: {
-            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "ellipsis.circle.fill")  // NEW: Dynamic icon (graph for back, menu for open)
+            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")  // NEW: Dynamic icon (graph for back, menu for open)
                 .font(.system(size: 30))
                 .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
         })
         .buttonStyle(.plain)
         .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Preserve adjacent positioning
+        .accessibilityLabel("Menu")
     }
 }
 
@@ -337,7 +338,7 @@ struct EditContentSheet: View {
 ----------------------------------------------------------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-09-26 08:18:55
+Last modified: 2025-10-02 11:03:02
 
 Contents:
 import SwiftUI
@@ -478,6 +479,8 @@ struct GraphCanvasView: View {
                 drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
             }
             .frame(width: viewSize.width, height: viewSize.height)
+            .accessibilityLabel("GraphCanvas")
+            .accessibilityIdentifier("GraphCanvas")  // Add this line
             
             if showOverlays {
                 boundingBoxOverlay
@@ -485,7 +488,7 @@ struct GraphCanvasView: View {
             
             if let selectedID = selectedNodeID {
                 Text("Selected: \(selectedID.uuidString.prefix(8))")  // Debug label
-                    .position(x: 10, y: 10)
+                    .position(x: 20, y: 10)
                     .foregroundColor(.yellow)
             }
         }

@@ -136,6 +136,9 @@ struct GraphCanvasView: View {
                 drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
             }
             .frame(width: viewSize.width, height: viewSize.height)
+            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID, selectedEdgeID: selectedEdgeID))
+            .accessibilityIdentifier("GraphCanvas")  // Add this line
+            .accessibilityHint("Tap menu button on bottom edge.")
             
             if showOverlays {
                 boundingBoxOverlay
@@ -143,7 +146,7 @@ struct GraphCanvasView: View {
             
             if let selectedID = selectedNodeID {
                 Text("Selected: \(selectedID.uuidString.prefix(8))")  // Debug label
-                    .position(x: 10, y: 10)
+                    .position(x: 20, y: 10)
                     .foregroundColor(.yellow)
             }
         }
