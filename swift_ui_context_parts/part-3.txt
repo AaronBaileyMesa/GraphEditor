@@ -1,15 +1,221 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-02 11:37:10
+Current date: 2025-10-03 15:54:41
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-3. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-4. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-5. GraphEditorWatch/GraphEditorWatch.swift
-6. GraphEditorWatch/Models/AppConstants.swift
-7. GraphEditorWatch/ViewModels/GraphViewModel.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+3. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+4. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+5. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+6. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+7. GraphEditorWatch/GraphEditorWatch.swift
+8. GraphEditorWatch/Models/AppConstants.swift--------------------------------------------------
+File: PositionUpdater.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+Last modified: 2025-09-16 11:17:51
+
+Contents:
+//
+//  PositionUpdater.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct PositionUpdater {
+    let simulationBounds: CGSize
+
+    private func clampedPositionAndBouncedVelocity(for tentativePosition: CGPoint, with tentativeVelocity: CGPoint) -> (CGPoint, CGPoint) {
+        let oldPosition = tentativePosition
+        var newPosition = tentativePosition
+        newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
+        newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
+        var newVelocity = tentativeVelocity
+        if newPosition.x != oldPosition.x {
+            newVelocity.x = -newVelocity.x * 0.8
+        }
+        if newPosition.y != oldPosition.y {
+            newVelocity.y = -newVelocity.y * 0.8
+        }
+        return (newPosition, newVelocity)
+    }
+
+    private func adjustPositionForCollisions(_ position: CGPoint, excluding nodeID: NodeID, using quadtree: Quadtree?, allNodes nodes: [any NodeProtocol]) -> CGPoint {
+        let minDist: CGFloat = 35.0
+        var newPosition = position
+        if let quadTree = quadtree {
+            let nearby = quadTree.queryNearby(position: newPosition, radius: minDist)
+            for other in nearby where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        } else {
+            for other in nodes where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        }
+        return newPosition
+    }
+
+    private func buildParentMap(from edges: [GraphEdge]) -> [NodeID: [NodeID]] {
+        var parentMap = [NodeID: [NodeID]]()
+        for edge in edges {
+            parentMap[edge.target, default: []].append(edge.from)
+        }
+        return parentMap
+    }
+
+    private func finalPositionAndVelocity(for nodeID: NodeID, tentative: (position: CGPoint, velocity: CGPoint), parentMap: [NodeID: [NodeID]], isExpandedMap: [NodeID: Bool], tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)]) -> (CGPoint, CGPoint) {
+        var newPosition = tentative.position
+        var newVelocity = tentative.velocity
+        if let parents = parentMap[nodeID], !parents.isEmpty {
+            let collapsedParents = parents.filter { parentID in
+                isExpandedMap[parentID] == false
+            }
+            if !collapsedParents.isEmpty {
+                var avgPos = CGPoint.zero
+                for parentID in collapsedParents {
+                    avgPos += tentativeUpdates[parentID]!.position
+                }
+                avgPos /= CGFloat(collapsedParents.count)
+                newPosition = avgPos
+                newVelocity = .zero
+            }
+        }
+        return (newPosition, newVelocity)
+    }
+
+    func updatePositionsAndVelocities(nodes: [any NodeProtocol], forces: [NodeID: CGPoint], edges: [GraphEdge], quadtree: Quadtree?) -> ([any NodeProtocol], Bool) {
+        var tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)] = [:]
+        for node in nodes {
+            let force = forces[node.id] ?? .zero
+            var newVelocity = CGPoint(x: node.velocity.x + force.x * Constants.Physics.timeStep, y: node.velocity.y + force.y * Constants.Physics.timeStep)
+            newVelocity = CGPoint(x: newVelocity.x * Constants.Physics.damping, y: newVelocity.y * Constants.Physics.damping)
+            var newPosition = CGPoint(x: node.position.x + newVelocity.x * Constants.Physics.timeStep, y: node.position.y + newVelocity.y * Constants.Physics.timeStep)
+            (newPosition, newVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
+            newPosition = adjustPositionForCollisions(newPosition, excluding: node.id, using: quadtree, allNodes: nodes)
+            tentativeUpdates[node.id] = (newPosition, newVelocity)
+        }
+
+        let parentMap = buildParentMap(from: edges)
+        let isExpandedMap: [NodeID: Bool] = nodes.reduce(into: [:]) { $0[$1.id] = $1.isExpanded }
+
+        var updatedNodes: [any NodeProtocol] = []
+        var totalVelocity: CGFloat = 0.0
+        for node in nodes {
+            let tentative = tentativeUpdates[node.id]!
+            let (newPosition, newVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
+            let updatedNode = node.with(position: newPosition, velocity: newVelocity)
+            updatedNodes.append(updatedNode)
+            totalVelocity += hypot(newVelocity.x, newVelocity.y)
+        }
+
+        let isActive = totalVelocity >= Constants.Physics.velocityThreshold * CGFloat(nodes.count)
+
+        return (updatedNodes, isActive)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: Protocols.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+Last modified: 2025-10-03 14:47:43
+
+Contents:
+//
+//  Protocols.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/1/25.
+//
+
+// Sources/GraphEditorShared/Protocols.swift
+
+import SwiftUI
+
+@available(iOS 16.0, watchOS 6.0, *)
+public struct ViewState: Codable {
+    public var offset: CGPoint
+    public var zoomScale: CGFloat
+    public var selectedNodeID: UUID?
+    public var selectedEdgeID: UUID?
+
+    // Explicit initializer to fix "Extra arguments" error
+    public init(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID? = nil, selectedEdgeID: UUID? = nil) {
+        self.offset = offset
+        self.zoomScale = zoomScale
+        self.selectedNodeID = selectedNodeID
+        self.selectedEdgeID = selectedEdgeID
+    }
+
+    // Custom Codable conformance to handle decoding/encoding
+    enum CodingKeys: String, CodingKey {
+        case offset
+        case zoomScale
+        case selectedNodeID
+        case selectedEdgeID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let offsetX = try container.decode(CGFloat.self, forKey: .offset)
+        let offsetY = try container.decode(CGFloat.self, forKey: .offset)
+        offset = CGPoint(x: offsetX, y: offsetY)  // Assuming offset is encoded as two values; adjust if encoded as dict/array
+        zoomScale = try container.decode(CGFloat.self, forKey: .zoomScale)
+        selectedNodeID = try container.decodeIfPresent(UUID.self, forKey: .selectedNodeID)
+        selectedEdgeID = try container.decodeIfPresent(UUID.self, forKey: .selectedEdgeID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(offset.x, forKey: .offset)  // Adjust encoding if needed
+        try container.encode(offset.y, forKey: .offset)
+        try container.encode(zoomScale, forKey: .zoomScale)
+        try container.encodeIfPresent(selectedNodeID, forKey: .selectedNodeID)
+        try container.encodeIfPresent(selectedEdgeID, forKey: .selectedEdgeID)
+    }
+}
+
+@available(iOS 16.0, watchOS 6.0, *)
+public protocol GraphStorage {
+    /// Saves the graph nodes and edges, throwing on failure (e.g., encoding or writing errors).
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws
+    /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
+    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func clear() async throws  // Unchanged
+    func saveViewState(_ viewState: ViewState) async throws
+    func loadViewState() async throws -> ViewState?
+    // Multi-graph methods (required to preserve functionality)
+    func listGraphNames() async throws -> [String]
+    func createNewGraph(name: String) async throws
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws
+    func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func deleteGraph(name: String) async throws
+    func saveViewState(_ viewState: ViewState, for name: String) throws
+    func loadViewState(for name: String) throws -> ViewState?
+}
+
+@available(iOS 16.0, watchOS 6.0, *)
+extension GraphStorage {
+    func saveViewState(_ viewState: ViewState) throws {
+        // Default: Do nothing (for storages that don't support view state)
+    }
+    
+    func loadViewState() throws -> ViewState? {
+        return nil  // Default: No state
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: Quadtree.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 Last modified: 2025-09-19 13:45:29
@@ -612,7 +818,7 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-09-27 09:13:41
+Last modified: 2025-10-03 09:37:35
 
 Contents:
 //
@@ -637,9 +843,6 @@ struct GraphEditorWatch: App {
             ContentView(
                 viewModel: viewModel
             )
-            .task {
-                await viewModel.loadGraph()  // Async load inside
-            }
         }
     }
 }
@@ -670,279 +873,5 @@ struct AppConstants {
     static let defaultMaxZoom: CGFloat = 5.0
     public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
     public static let crownZoomSteps: Int = 20  // Smooth steps for crown
-}
-----------------------------------------------------------------------------------------------------
-File: GraphViewModel.swift
-Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-09-20 10:09:45
-
-Contents:
-// GraphViewModel.swift (Minimal fixes: Use model.nodes as [NodeWrapper]; access .value; fix GraphEdge init label; wrap assignments in enum cases; add @MainActor to non-concurrent funcs if needed, but class is @MainActor; make loadGraph async with await model.load)
-
-import Combine
-import GraphEditorShared
-import WatchKit  // For WKApplication
-
-@MainActor public class GraphViewModel: ObservableObject {
-    @Published public var model: GraphModel
-    @Published public var selectedEdgeID: UUID?
-    @Published public var pendingEdgeType: EdgeType = .association
-    @Published public var selectedNodeID: UUID?
-    @Published public var offset: CGPoint = .zero
-    @Published public var zoomScale: CGFloat = 1.0
-        
-    private var saveTimer: Timer?
-    private var cancellable: AnyCancellable?
-    
-    var isSelectedToggleNode: Bool {
-        guard let id = selectedNodeID else { return false }
-        return model.nodes.first { $0.id == id }?.unwrapped is ToggleNode
-    }
-    
-    public var canUndo: Bool {
-        model.canUndo
-    }
-    
-    public var canRedo: Bool {
-        model.canRedo
-    }
-    
-    private var pauseObserver: NSObjectProtocol?
-    private var resumeObserver: NSObjectProtocol?
-    
-    private var resumeTimer: Timer?
-    
-    public var effectiveCentroid: CGPoint {
-        let visibleNodes = model.visibleNodes()
-        if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
-            return node.position
-        } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }),
-                  let target = visibleNodes.first(where: { $0.id == edge.target }) {
-            return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
-        }
-        return centroid(of: visibleNodes) ?? .zero
-    }
-    
-    public enum AppFocusState: Equatable {
-        case graph
-        case node(UUID)
-        case edge(UUID)
-        case menu
-    }
-
-    @Published public var focusState: AppFocusState = .graph
-    
-    public init(model: GraphModel) {
-        self.model = model
-        cancellable = model.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
-        
-        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.model.pauseSimulation()
-            }
-        }
-        
-        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.resumeSimulationAfterDelay()
-            }
-        }
-
-        model.nodes = model.nodes.map { anyNode in
-            let updated = anyNode.with(position: anyNode.position, velocity: CGPoint.zero)
-            return updated
-        }
-    }
-    
-    public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
-        var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes.map { $0.unwrapped })
-        if graphBounds.width < 100 || graphBounds.height < 100 {
-            graphBounds = graphBounds.insetBy(dx: -50, dy: -50)
-        }
-        let contentPadding: CGFloat = Constants.App.contentPadding
-        let paddedWidth = graphBounds.width + 2 * contentPadding
-        let paddedHeight = graphBounds.height + 2 * contentPadding
-        let fitWidth = viewSize.width / paddedWidth
-        let fitHeight = viewSize.height / paddedHeight
-        let calculatedMin = min(fitWidth, fitHeight)
-        let minZoom = max(calculatedMin, 0.5)
-        let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
-        print("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds \(graphBounds)")  // Enhanced debug
-        return (min: minZoom, max: maxZoom)
-    }
-    
-    public func saveViewState() {
-            print("GraphViewModel.saveViewState called")  // NEW for debugging
-            Task {
-                do {
-                    try await model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
-                    await model.save()  // NEW: Optionally save graph data here if selections imply state change; remove if too frequent
-                    print("GraphViewModel.saveViewState succeeded")
-                } catch {
-                    print("GraphViewModel.saveViewState failed: \(error.localizedDescription)")
-                }
-            }
-        }
-
-        public func loadGraph() async {
-            print("GraphViewModel.loadGraph called")  // NEW for debugging
-            await model.load()
-            if let viewState = try? await model.loadViewState() {
-                self.offset = viewState.offset
-                self.zoomScale = viewState.zoomScale
-                self.selectedNodeID = viewState.selectedNodeID
-                self.selectedEdgeID = viewState.selectedEdgeID
-                print("Applied loaded view state")
-            }
-            objectWillChange.send()
-        }
-    
-    public func addNode(at position: CGPoint) async {
-        await model.addNode(at: position)
-    }
-    
-    public func addEdge(from: UUID, target: UUID, type: EdgeType) async {
-        await model.addEdge(from: from, target: target, type: type)
-    }
-    
-    public func deleteNode(withID id: UUID) async {
-        await model.deleteNode(withID: id)
-    }
-    
-    public func deleteEdge(withID id: UUID) async {
-        await model.deleteEdge(withID: id)
-    }
-    
-    public func undo() async {
-        await model.undo()
-    }
-    
-    public func redo() async {
-        await model.redo()
-    }
-       
-    public func startSimulation() async {
-        await model.startSimulation()
-    }
-    
-    public func addToggleNode(at position: CGPoint) async {
-        await model.addToggleNode(at: position)
-    }
-    
-    public func toggleSelectedNode() async {
-        guard let id = selectedNodeID, let index = model.nodes.firstIndex(where: { $0.id == id }), let toggleNode = model.nodes[index].unwrapped as? ToggleNode else { return }
-        let toggled = toggleNode.handlingTap()  // Toggles isExpanded
-        model.nodes[index] = AnyNode(toggled)
-        await model.handleTap(on: toggled.id)  // Optional: If needed for other effects
-        if toggled.isExpanded {
-            let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
-            for (idx, childID) in children.enumerated() {
-                if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
-                    let child = model.nodes[childIdx].unwrapped
-                    let offX = CGFloat(idx * 40) - CGFloat(children.count * 20)
-                    let newPos = toggled.position + CGPoint(x: offX, y: 50.0)
-                    let updatedChild: any NodeProtocol
-                    if let concrete = child as? Node {
-                        updatedChild = concrete.with(position: newPos, velocity: .zero)
-                    } else if let concrete = child as? ToggleNode {
-                        updatedChild = concrete.with(position: newPos, velocity: .zero)
-                    } else {
-                        continue
-                    }
-                    model.nodes[childIdx] = AnyNode(updatedChild)
-                }
-            }
-        }
-        objectWillChange.send()
-        await model.startSimulation()
-    }
-    
-    public func addChild(to parentID: NodeID) async {
-        await model.addChild(to: parentID)
-    }
-       
-    public func clearGraph() async {
-        await model.clearGraph()
-    }
-    
-    public func pauseSimulation() async {
-        await model.pauseSimulation()
-    }
-    
-    public func resumeSimulation() async {
-        await model.resumeSimulation()
-    }
-    
-    public func resumeSimulationAfterDelay() async {
-        resumeTimer?.invalidate()
-        resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            Task { @MainActor in  // Hop to main for safe access
-                guard let self = self else { return }
-                if WKApplication.shared().applicationState == .active {
-                    await self.model.resumeSimulation()  // Consistent async call
-                }
-            }
-        }
-    }
-    
-    // Fixed: handleTap with proper scoping, removed invalid SwiftUI Text, added ToggleNode update logic (assumes model.updateNode method; adjust if needed)
-    public func handleTap(at modelPos: CGPoint) async {
-        await model.pauseSimulation()
-        
-        print("Handling tap at model pos: \(modelPos)")  // For testing
-        
-        // Efficient hit test with queryNearby
-        let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
-        let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
-        print("Nearby nodes found: \(nearbyNodes.count)")  // For testing
-        
-        // Sort by distance to get closest (if multiple)
-        let sortedNearby = nearbyNodes.sorted {
-            hypot($0.position.x - modelPos.x, $0.position.y - modelPos.y) < hypot($1.position.x - modelPos.x, $1.position.y - modelPos.y)
-        }
-        
-        if let tappedNode = sortedNearby.first {
-            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
-            selectedEdgeID = nil
-            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
-            model.objectWillChange.send()  // Trigger UI refresh
-        } else {
-            // Miss: Clear selections
-            selectedNodeID = nil
-            selectedEdgeID = nil
-            print("Tap missed; cleared selections")
-        }
-        
-        focusState = selectedNodeID.map { .node($0) } ?? .graph
-        objectWillChange.send()
-        await resumeSimulationAfterDelay()
-    }
-    
-    public func setSelectedNode(_ id: UUID?) {
-        selectedNodeID = id
-        focusState = id.map { .node($0) } ?? .graph
-        objectWillChange.send()
-    }
-
-    public func setSelectedEdge(_ id: UUID?) {
-        selectedEdgeID = id
-        focusState = id.map { .edge($0) } ?? .graph
-        objectWillChange.send()
-    }
-    
-    public func centerGraph() {
-        // UPDATED: Enhanced to recalculate based on bounds
-        let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
-        let (minZoom, _) = calculateZoomRanges(for: viewSize)
-        zoomScale = minZoom
-        offset = .zero
-        objectWillChange.send()
-    }
-    
 }
 --------------------------------------------------

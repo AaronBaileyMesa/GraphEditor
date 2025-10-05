@@ -1,16 +1,107 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-02 11:37:11
+Current date: 2025-10-03 15:54:43
 Table of Contents:
-1. GraphEditorWatchTests/EditContentSheetTests.swift
-2. GraphEditorWatchTests/GestureTests.swift
-3. GraphEditorWatchTests/GraphEditorWatchTests.swift
-4. GraphEditorWatchTests/GraphGesturesModifierTests.swift
-5. GraphEditorWatchTests/GraphModelTests.swift
-6. GraphEditorWatchTests/MenuViewTests.swift
-7. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-8. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+1. GraphEditorWatchTests/AccessibilityTests.swift
+2. GraphEditorWatchTests/CoordinateTransformerTests.swift
+3. GraphEditorWatchTests/EditContentSheetTests.swift
+4. GraphEditorWatchTests/GestureTests.swift
+5. GraphEditorWatchTests/GraphEditorWatchTests.swift
+6. GraphEditorWatchTests/GraphGesturesModifierTests.swift
+7. GraphEditorWatchTests/GraphModelTests.swift
+8. GraphEditorWatchTests/MenuViewTests.swift
+9. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+10. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+File: AccessibilityTests.swift
+Path: GraphEditorWatchTests/AccessibilityTests.swift
+Last modified: 2025-09-22 11:21:14
+
+Contents:
+//
+//  AccessibilityTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct AccessibilityTests {
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    }
+    
+    @Test func testGraphDescription() async throws {
+        let storage = MockGraphStorage()
+        storage.nodes = [Node(label: 0, position: .zero)]
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        await MainActor.run { model.nextNodeLabel = 1 }
+        await model.addNode(at: .zero)
+        await model.addNode(at: CGPoint(x: 10, y: 10))
+        
+        await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }
+        
+        let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
+        
+        let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: CoordinateTransformerTests.swift
+Path: GraphEditorWatchTests/CoordinateTransformerTests.swift
+Last modified: 2025-09-22 11:21:14
+
+Contents:
+//
+//  CoordinateTransformerTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct CoordinateTransformerTests {
+    @Test func testCoordinateRoundTrip() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 150, y: 150)
+        let modelPos = CGPoint(x: 167.78, y: 165.66)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize.zero
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
+    }
+    
+    @Test func testCoordinateRoundTripWithZoomAndOffset() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 56.73, y: 161.10)
+        let modelPos = CGPoint(x: -40.27, y: 52.60)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize(width: 81, height: 111.5)
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: EditContentSheetTests.swift
 Path: GraphEditorWatchTests/EditContentSheetTests.swift
 Last modified: 2025-09-25 14:25:51
@@ -598,7 +689,7 @@ struct MenuViewTests {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITests.swift
 Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-10-02 11:33:23
+Last modified: 2025-10-02 20:55:48
 
 Contents:
 //
@@ -613,7 +704,20 @@ import XCTest
 final class GraphEditorWatchUITests: XCTestCase {
     
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        
+        // Open menu, tap "New Graph", enter "TestGraph", create
+        let menuButton = app.buttons["Menu"]
+        menuButton.tap()
+        let newButton = app.buttons["New Graph"]
+        newButton.tap()
+        let textField = app.textFields.firstMatch  // Assume one
+        textField.typeText("TestGraph
+")  // Enter name and submit
+        sleep(2)  // Wait for creation
+        
+        // Now graph is new/empty; proceed
     }
     
     override func tearDownWithError() throws {}

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-02 11:37:09
+Current date: 2025-10-03 15:54:40
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -13,8 +13,7 @@ Table of Contents:
 8. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
 9. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
 10. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-11. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
-12. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift--------------------------------------------------
+11. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift--------------------------------------------------
 File: AttractionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 Last modified: 2025-09-19 13:45:29
@@ -269,9 +268,16 @@ private extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-09-24 11:08:58
+Last modified: 2025-10-03 14:29:14
 
 Contents:
+//
+//  GraphModel.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 10/3/25.
+//
+
 import os.log
 import SwiftUI
 import Combine
@@ -285,6 +291,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
 
 @available(iOS 16.0, watchOS 6.0, *)
 @MainActor public class GraphModel: ObservableObject {
+    @Published public var currentGraphName: String = "default"  // Standardized to "default" for consistency
     @Published public var nodes: [AnyNode] = []
     @Published public var edges: [GraphEdge] = []
     @Published public var isSimulating: Bool = false
@@ -292,13 +299,13 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
     @Published public var simulationError: Error?
 
     var simulationTimer: Timer?
-    var undoStack: [GraphState] = []
-    var redoStack: [GraphState] = []
+    var undoStack: [UndoGraphState] = []
+    var redoStack: [UndoGraphState] = []
     public var maxUndo: Int = 10
 
     public var nextNodeLabel = 1
 
-    let storage: GraphStorage
+    public let storage: GraphStorage
     public var physicsEngine: PhysicsEngine
 
     public var hiddenNodeIDs: Set<NodeID> {
@@ -311,7 +318,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
             toHide.append(contentsOf: children)
         }
 
-        let adj = buildAdjacencyList(for: EdgeType.hierarchy)
+        let adj = buildAdjacencyList(for: .hierarchy)
         while !toHide.isEmpty {
             let current = toHide.removeLast()
             if hidden.insert(current).inserted {
@@ -365,20 +372,31 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         self.physicsEngine = physicsEngine
         print("GraphModel initialized with storage: \(type(of: storage))")  // NEW: Log init
         
+        // Load default graph on init
+        Task {
+            do {
+                try await self.loadGraph()
+            } catch {
+                print("Failed to load default graph: \(error)")
+                // Fallback to empty if load fails
+                self.nodes = []
+                self.edges = []
+            }
+        }
     }
-}
-
-@available(iOS 16.0, watchOS 6.0, *)
-public struct GraphViewState {
-    public var offset: CGPoint
-    public var zoomScale: CGFloat
-    public var selectedNodeID: UUID?
-    public var selectedEdgeID: UUID?
+    
+    func buildAdjacencyList(for type: EdgeType) -> [NodeID: [NodeID]] {
+        var adj: [NodeID: [NodeID]] = [:]
+        for edge in edges where edge.type == type {
+            adj[edge.from, default: []].append(edge.target)
+        }
+        return adj
+    }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+EdgesNodes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-10-03 14:29:35
 
 Contents:
 //
@@ -392,8 +410,8 @@ import Foundation
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
     public func wouldCreateCycle(withNewEdgeFrom from: NodeID, target: NodeID, type: EdgeType) -> Bool {
-        guard type == EdgeType.hierarchy else { return false } // Changed to EdgeType.hierarchy
-        var tempEdges = edges.filter { $0.type == EdgeType.hierarchy } // Changed to EdgeType.hierarchy
+        guard type == .hierarchy else { return false }
+        var tempEdges = edges.filter { $0.type == .hierarchy }
         tempEdges.append(GraphEdge(from: from, target: target, type: type))
         return !isAcyclic(edges: tempEdges)
     }
@@ -420,66 +438,97 @@ extension GraphModel {
     }
 
     public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
-            if wouldCreateCycle(withNewEdgeFrom: from, target: target, type: type) {
-                print("Cannot add edge: Would create cycle in hierarchy")
-                return
-            }
-            edges.append(GraphEdge(from: from, target: target, type: type))
-            objectWillChange.send()
-            await startSimulation()
+        if wouldCreateCycle(withNewEdgeFrom: from, target: target, type: type) {
+            print("Cannot add edge: Would create cycle in hierarchy")
+            return
         }
+        pushUndo()
+        edges.append(GraphEdge(from: from, target: target, type: type))
+        objectWillChange.send()
+        await resumeSimulation()
+    }
 
     public func deleteEdge(withID id: UUID) async {
+        pushUndo()
         edges.removeAll { $0.id == id }
         objectWillChange.send()
-        await startSimulation()
+        await resumeSimulation()
     }
 
     public func addNode(at position: CGPoint) async {
+        pushUndo()
         let newLabel = nextNodeLabel
         nextNodeLabel += 1
         let newNode = AnyNode(Node(label: newLabel, position: position))
         nodes.append(newNode)
         objectWillChange.send()
-        await startSimulation()
+        await resumeSimulation()
     }
 
     public func addToggleNode(at position: CGPoint) async {
+        pushUndo()
         let newLabel = nextNodeLabel
         nextNodeLabel += 1
         let newNode = AnyNode(ToggleNode(label: newLabel, position: position))
         nodes.append(newNode)
         objectWillChange.send()
-        await startSimulation()
+        await resumeSimulation()
     }
 
     public func addChild(to parentID: NodeID) async {
-            let newLabel = nextNodeLabel
-            nextNodeLabel += 1
-            guard let parentIndex = nodes.firstIndex(where: { $0.id == parentID }) else { return }
-            let parentPosition = nodes[parentIndex].position
-            let offsetX = CGFloat.random(in: -50...50)
-            let offsetY = CGFloat.random(in: -50...50)
-            let newPosition = parentPosition + CGPoint(x: offsetX, y: offsetY)
-            let newNode = AnyNode(Node(label: newLabel, position: newPosition))
-            nodes.append(newNode)
-            await addEdge(from: parentID, target: newNode.id, type: EdgeType.hierarchy) // Changed to EdgeType.hierarchy
-        }
+        pushUndo()
+        let newLabel = nextNodeLabel
+        nextNodeLabel += 1
+        guard let parentIndex = nodes.firstIndex(where: { $0.id == parentID }) else { return }
+        let parentPosition = nodes[parentIndex].position
+        let offsetX = CGFloat.random(in: -50...50)
+        let offsetY = CGFloat.random(in: -50...50)
+        let newPosition = parentPosition + CGPoint(x: offsetX, y: offsetY)
+        let newNode = AnyNode(Node(label: newLabel, position: newPosition))
+        nodes.append(newNode)
+        edges.append(GraphEdge(from: parentID, target: newNode.id, type: .hierarchy))
+        objectWillChange.send()
+        await resumeSimulation()
+    }
 
     public func deleteNode(withID id: NodeID) async {
+        pushUndo()
         nodes.removeAll { $0.id == id }
         edges.removeAll { $0.from == id || $0.target == id }
         objectWillChange.send()
-        await startSimulation()
+        await resumeSimulation()
     }
 
     public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
+        pushUndo()
         if let index = nodes.firstIndex(where: { $0.id == id }) {
             var updated = nodes[index].unwrapped
             updated.content = newContent
             nodes[index] = AnyNode(updated)
             objectWillChange.send()
+            await resumeSimulation()
         }
+    }
+
+    public func deleteSelected(selectedNodeID: NodeID?, selectedEdgeID: UUID?) async {
+        pushUndo()
+        if let id = selectedEdgeID {
+            edges.removeAll { $0.id == id }
+        } else if let id = selectedNodeID {
+            nodes.removeAll { $0.id == id }
+            edges.removeAll { $0.from == id || $0.target == id }
+        }
+        objectWillChange.send()
+        await resumeSimulation()
+    }
+
+    public func toggleExpansion(for nodeID: NodeID) async {
+        pushUndo()
+        guard let idx = nodes.firstIndex(where: { $0.id == nodeID }), let toggle = nodes[idx].unwrapped as? ToggleNode else { return }
+        let updated = toggle.handlingTap()
+        nodes[idx] = AnyNode(updated)
+        objectWillChange.send()
+        await resumeSimulation()
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -606,7 +655,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-09-26 19:23:58
+Last modified: 2025-10-03 14:11:39
 
 Contents:
 //
@@ -668,7 +717,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Storage.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
-Last modified: 2025-09-20 10:09:45
+Last modified: 2025-10-03 14:16:01
 
 Contents:
 //
@@ -681,10 +730,10 @@ import Foundation
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
-    private func loadFromStorage() async throws {
-        print("loadFromStorage started")  // Existing
-        let (loadedNodes, loadedEdges) = try await storage.load()
-        print("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges")  // NEW for consistency
+    private func loadFromStorage(for name: String) async throws {
+        print("loadFromStorage started for \(name)")  // Updated
+        let (loadedNodes, loadedEdges) = try await storage.load(for: name)
+        print("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges for \(name)")  // Updated
         self.nodes = loadedNodes.map { AnyNode($0) }
         self.edges = loadedEdges
         self.nextNodeLabel = (nodes.map { $0.unwrapped.label }.max() ?? 0) + 1
@@ -693,9 +742,9 @@ extension GraphModel {
     public func load() async {
         print("GraphModel.load() called")  // Existing
         do {
-            try await loadFromStorage()
+            try await loadFromStorage(for: currentGraphName)
             syncCollapsedPositions()
-            if let viewState = try await loadViewState() {  // NEW: Load view state during graph load
+            if let viewState = try storage.loadViewState(for: currentGraphName) {  // Updated to named (note: throws, but no await as per storage)
                 // Apply view state if needed (e.g., publish or set properties)
                 print("Loaded view state: offset \(viewState.offset), zoom \(viewState.zoomScale)")
             }
@@ -708,7 +757,7 @@ extension GraphModel {
     public func save() async {
         print("GraphModel.save() called; nodes: \(nodes.count), edges: \(edges.count)")  // Existing
         do {
-            try await storage.save(nodes: nodes.map { $0.unwrapped }, edges: edges)
+            try await storage.save(nodes: nodes.map { $0.unwrapped }, edges: edges, for: currentGraphName)
             print("GraphModel.save() succeeded")  // Existing
         } catch {
             print("GraphModel.save() failed: \(error.localizedDescription)")  // Existing
@@ -735,24 +784,80 @@ extension GraphModel {
     }
     
     public func clearGraph() async {
-            print("clearGraph called")  // NEW
+        print("clearGraph called")  // NEW
+        nodes = []
+        edges = []
+        nextNodeLabel = 1
+        do {
+            try await storage.deleteGraph(name: currentGraphName)  // Updated to multi-graph clear (delete)
+            print("clearGraph succeeded")  // Existing
+        } catch {
+            print("clearGraph failed: \(error.localizedDescription)")  // Existing
+        }
+        objectWillChange.send()
+    }
+    
+    // Multi-graph methods (integrated into Storage extension)
+    /// Loads the current graph (based on currentGraphName); defaults to empty if not found.
+    public func loadGraph() async throws {
+        do {
+            try await loadFromStorage(for: currentGraphName)
+            print("Loaded graph '\(currentGraphName)' with \(nodes.count) nodes and \(edges.count) edges")
+            objectWillChange.send()
+        } catch GraphStorageError.graphNotFound(_) {
+            // Graph doesn't exist: Treat as new/empty
             nodes = []
             edges = []
-            nextNodeLabel = 1
-            do {
-                try await storage.clear()
-                try await storage.saveViewState(ViewState(offset: .zero, zoomScale: 1.0, selectedNodeID: nil, selectedEdgeID: nil))  // NEW: Clear view state too
-                print("clearGraph succeeded")  // Existing
-            } catch {
-                print("clearGraph failed: \(error.localizedDescription)")  // Existing
-            }
-            objectWillChange.send()
+            print("Graph '\(currentGraphName)' not found; starting empty")
+        } catch {
+            throw error
         }
     }
+    
+    /// Saves the current graph state under currentGraphName.
+    public func saveGraph() async throws {
+        try await save()
+    }
+    
+    /// Creates a new empty graph with the given name and switches to it.
+    public func createNewGraph(name: String) async throws {
+        try await storage.createNewGraph(name: name)
+        currentGraphName = name
+        nodes = []
+        edges = []
+        nextNodeLabel = 1
+        undoStack = []
+        redoStack = []
+        objectWillChange.send()
+        print("Created and switched to new graph '\(name)'")
+    }
+    
+    /// Loads a specific graph by name and switches to it.
+    public func loadGraph(name: String) async throws {
+        currentGraphName = name
+        try await loadGraph()
+    }
+    
+    /// Deletes the graph with the given name (if not current, no change to model).
+    public func deleteGraph(name: String) async throws {
+        try await storage.deleteGraph(name: name)
+        if name == currentGraphName {
+            // Reset to default if current is deleted
+            currentGraphName = "default"
+            try await loadGraph()
+        }
+        print("Deleted graph '\(name)'")
+    }
+    
+    /// Lists all available graph names.
+    public func listGraphNames() async throws -> [String] {
+        try await storage.listGraphNames()
+    }
+}
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-09-25 10:28:00
+Last modified: 2025-10-03 11:45:25
 
 Contents:
 //
@@ -763,62 +868,60 @@ Contents:
 //
 import Foundation
 
+struct UndoGraphState {
+    let nodes: [AnyNode]
+    let edges: [GraphEdge]
+    let nextLabel: Int
+}
+
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
+    internal func pushUndo() {
+        undoStack.append(currentState())
+        if undoStack.count > maxUndo { undoStack.removeFirst() }
+        redoStack = []
+    }
+    
+    private func currentState() -> UndoGraphState {
+        UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
+    }
+    
+    public func undo() async {
+        if let state = undoStack.popLast() {
+            redoStack.append(currentState())
+            nodes = state.nodes
+            edges = state.edges
+            nextNodeLabel = state.nextLabel
+            objectWillChange.send()
+            await resumeSimulation()
+        }
+    }
+    
+    public func redo() async {
+        if let state = redoStack.popLast() {
+            undoStack.append(currentState())
+            nodes = state.nodes
+            edges = state.edges
+            nextNodeLabel = state.nextLabel
+            objectWillChange.send()
+            await resumeSimulation()
+        }
+    }
+    
     public func snapshot() async {
         print("snapshot() called from: \(#function), nodes: \(nodes.count), edges: \(edges.count)")  // Add for debugging
-        let state = GraphState(nodes: nodes.map { $0.unwrapped }, edges: edges)
+        let state = UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
         undoStack.append(state)
         if undoStack.count > maxUndo { undoStack.removeFirst() }
         redoStack.removeAll()
         await save()  // NEW: Auto-save graph data on snapshot (triggered by mutations)
         print("snapshot() completed; undoStack size: \(undoStack.count)")  // Add for debugging
     }
-
-    public func undo() async {
-        print("undo() called; undoStack size: \(undoStack.count)")  // Debugging
-        guard undoStack.count > 1 else {
-            print("undo() early return: cannot undo further")
-            return
-        }
-        if let popped = undoStack.popLast() {
-            redoStack.append(popped)
-            if let previous = undoStack.last {
-                nodes = previous.nodes.map { AnyNode($0) }
-                edges = previous.edges
-                objectWillChange.send()
-                await save()  // Auto-save
-                print("undo() completed; nodes: \(nodes.count), undoStack size: \(undoStack.count), redoStack size: \(redoStack.count)")  // Debugging
-            }
-        }
-    }
-    
-    public func redo() async {
-        print("redo() called; redoStack size: \(redoStack.count)")  // Debugging
-        guard let state = redoStack.popLast() else { return }
-        nodes = state.nodes.map { AnyNode($0) }
-        edges = state.edges
-        undoStack.append(state)
-        objectWillChange.send()
-        await save()  // Auto-save
-        print("redo() completed; nodes: \(nodes.count), undoStack size: \(undoStack.count), redoStack size: \(redoStack.count)")  // Debugging (updated to include stacks)
-    }
-
-    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
-        print("GraphModel.saveViewState called with offset: \(offset), zoom: \(zoomScale)")  // Add for debugging
-        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
-        try await storage.saveViewState(viewState)  // Delegate to storage (e.g., UserDefaults)
-    }
-
-    public func loadViewState() async throws -> ViewState? {
-        print("GraphModel.loadViewState called")  // Add for debugging
-        return try await storage.loadViewState()  // Delegate to storage
-    }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Visibility.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-10-03 10:02:52
 
 Contents:
 //
@@ -833,7 +936,7 @@ import Foundation
 extension GraphModel {
     public func visibleNodes() -> [any NodeProtocol] {
         let hidden = hiddenNodeIDs
-        return nodes.filter { !hidden.contains($0.id) }.map { $0.unwrapped }
+        return nodes.map { $0.unwrapped }.filter { !hidden.contains($0.id) }
     }
 
     public func visibleEdges() -> [GraphEdge] {
@@ -867,187 +970,6 @@ extension GraphModel {
             incoming.insert(edge.target)
         }
         return nodes.filter { !incoming.contains($0.id) }.map { $0.unwrapped }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphSimulator.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-28 19:10:01
-
-Contents:
-// Sources/GraphEditorShared/GraphSimulator.swift
-
-import Foundation
-import os.log  // For logging if needed
-
-#if os(watchOS)
-import WatchKit  // Only if using haptics; otherwise remove
-#endif
-
-@available(iOS 16.0, watchOS 6.0, *)
-/// Manages physics simulation loops for graph updates.
-class GraphSimulator {
-    var simulationTask: Task<Void, Never>?  // Exposed for testing
-    internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access    
-    let velocityChangeThreshold: CGFloat
-    let velocityHistoryCount: Int
-    let baseInterval: TimeInterval  // Now configurable
-    
-    let physicsEngine: PhysicsEngine
-    private let getVisibleNodes: () -> [any NodeProtocol]
-    private let getVisibleEdges: () -> [GraphEdge]
-    
-    internal let getNodes: () -> [any NodeProtocol]  // Changed from private to internal
-    private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
-    private let getEdges: () -> [GraphEdge]
-    private let onStable: (() -> Void)?  // New: Optional callback
-    
-    init(getNodes: @escaping () -> [any NodeProtocol],
-         setNodes: @escaping ([any NodeProtocol]) -> Void,
-         getEdges: @escaping () -> [GraphEdge],
-         getVisibleNodes: @escaping () -> [any NodeProtocol],
-         getVisibleEdges: @escaping () -> [GraphEdge],
-         physicsEngine: PhysicsEngine,
-         onStable: (() -> Void)? = nil,
-         baseInterval: TimeInterval = 1.0 / 30.0,  // Default value
-         velocityChangeThreshold: CGFloat = 0.01,
-         velocityHistoryCount: Int = 5) {
-        self.getNodes = getNodes
-        self.setNodes = setNodes
-        self.getEdges = getEdges
-        self.physicsEngine = physicsEngine
-        self.onStable = onStable
-        
-        self.getVisibleNodes = getVisibleNodes
-        self.getVisibleEdges = getVisibleEdges
-        
-        self.baseInterval = baseInterval
-        self.velocityChangeThreshold = velocityChangeThreshold
-        self.velocityHistoryCount = velocityHistoryCount
-    }
-    
-    struct SimulationStepResult {
-        let updatedNodes: [any NodeProtocol]
-        let shouldContinue: Bool
-        let totalVelocity: CGFloat
-    }
-    
-    @MainActor
-    func startSimulation() async {
-#if os(watchOS)
-        guard WKApplication.shared().applicationState == .active else { return }
-#endif
-        physicsEngine.resetSimulation()
-        recentVelocities.removeAll()
-        
-        let nodeCount = getNodes().count
-        if nodeCount < 5 {
-            onStable?()  // NEW: Call here to handle "already stable" cases
-            return
-        }
-        
-        var adjustedInterval = baseInterval
-        if nodeCount >= 20 {
-            adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
-        }
-        if ProcessInfo.processInfo.isLowPowerModeEnabled {
-            adjustedInterval *= 2.0
-        }
-        
-        simulationTask = Task {
-            await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
-        }
-        await simulationTask?.value
-    }
-    
-    internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
-        print("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")  // NEW: Confirm entry
-        var iterations = 0
-        let maxIterations = 500
-        while !Task.isCancelled && iterations < maxIterations {
-            let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
-            iterations += 1
-            print("Iteration \(iterations): shouldContinue = \(shouldContinue)")  // NEW: Per-iter log
-            if !shouldContinue {
-                print("Simulation stabilized after \(iterations) iterations")
-                break
-            }
-        }
-        if iterations >= maxIterations {
-            print("Simulation timed out after \(iterations) iterations; recent velocities: \(recentVelocities)")
-        }
-        self.onStable?()
-    }
-    
-    private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
-#if os(watchOS)
-        if await WKApplication.shared().applicationState != .active { return false }
-#endif
-        
-        let result: SimulationStepResult = await Task.detached {
-            return self.computeSimulationStep()
-        }.value
-        print("Step: Total velocity = \(result.totalVelocity)")
-        self.setNodes(result.updatedNodes)
-        
-        if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
-            return false
-        }
-        
-        try? await Task.sleep(for: .seconds(baseInterval))
-        return true
-    }
-    
-    nonisolated func computeSimulationStep() -> SimulationStepResult {
-        let nodes = self.getNodes()
-        let visibleNodes = self.getVisibleNodes()
-        let visibleEdges = self.getVisibleEdges()
-        let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
-        var updatedForces = forces
-        updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
-        updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
-        
-        var tempNodes = nodes
-        var stepActive = false
-        let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
-        for _ in 0..<subSteps {
-            let (updated, active) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: tempNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
-            tempNodes = updated
-            stepActive = stepActive || active
-        }
-        
-        let totalVel = tempNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        return SimulationStepResult(updatedNodes: tempNodes, shouldContinue: stepActive, totalVelocity: totalVel)
-    }
-    
-    func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
-        print("Check stop: totalVel = \(result.totalVelocity), threshold = \(Constants.Physics.velocityThreshold * CGFloat(nodeCount)), shouldContinue = \(result.shouldContinue)")  // NEW
-        if !result.shouldContinue || result.totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
-            return true
-        }
-        
-        recentVelocities.append(result.totalVelocity)
-        if recentVelocities.count > velocityHistoryCount {
-            recentVelocities.removeFirst()
-        }
-        
-        if recentVelocities.count == velocityHistoryCount {
-            let maxVel = recentVelocities.max() ?? 1.0
-            let minVel = recentVelocities.min() ?? 0.0
-            let relativeChange = (maxVel > 0) ? (maxVel - minVel) / maxVel : 0.0  // Guard zero-divide
-            print("Relative change: \(relativeChange) (threshold: \(velocityChangeThreshold))")  // NEW
-            if relativeChange < velocityChangeThreshold {
-                return true
-            }
-        }
-        
-        return false
-    }
-    
-    func stopSimulation() async {
-        simulationTask?.cancel()
-        await simulationTask?.value  // Await to ensure clean stop
-        simulationTask = nil
     }
 }
 --------------------------------------------------

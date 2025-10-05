@@ -20,9 +20,6 @@ struct GraphEditorWatch: App {
             ContentView(
                 viewModel: viewModel
             )
-            .task {
-                await viewModel.loadGraph()  // Async load inside
-            }
         }
     }
 }

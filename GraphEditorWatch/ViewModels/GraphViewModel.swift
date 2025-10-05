@@ -1,4 +1,9 @@
-// GraphViewModel.swift (Minimal fixes: Use model.nodes as [NodeWrapper]; access .value; fix GraphEdge init label; wrap assignments in enum cases; add @MainActor to non-concurrent funcs if needed, but class is @MainActor; make loadGraph async with await model.load)
+//
+//  GraphViewModel.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on 10/3/25.
+//
 
 import Combine
 import GraphEditorShared
@@ -11,6 +16,7 @@ import WatchKit  // For WKApplication
     @Published public var selectedNodeID: UUID?
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
+    @Published public var currentGraphName: String = "default"  // Sync with model; standardized to "default"
         
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
@@ -42,7 +48,7 @@ import WatchKit  // For WKApplication
                   let target = visibleNodes.first(where: { $0.id == edge.target }) {
             return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
         }
-        return centroid(of: visibleNodes) ?? .zero
+        return centroid(of: visibleNodes) ?? .zero  // Fix unwrap
     }
     
     public enum AppFocusState: Equatable {
@@ -56,6 +62,7 @@ import WatchKit  // For WKApplication
     
     public init(model: GraphModel) {
         self.model = model
+        self.currentGraphName = model.currentGraphName  // Sync on init
         cancellable = model.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
@@ -75,8 +82,23 @@ import WatchKit  // For WKApplication
         }
 
         model.nodes = model.nodes.map { anyNode in
-            let updated = anyNode.with(position: anyNode.position, velocity: CGPoint.zero)
-            return updated
+            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+            return AnyNode(updated)
+        }
+        
+        // Load view state for current graph on init (after model load in GraphModel init)
+        Task {
+            do {
+                if let viewState = try await model.storage.loadViewState(for: model.currentGraphName) {
+                    self.offset = viewState.offset
+                    self.zoomScale = viewState.zoomScale
+                    self.selectedNodeID = viewState.selectedNodeID
+                    self.selectedEdgeID = viewState.selectedEdgeID
+                    print("Loaded view state for '\(model.currentGraphName)'")
+                }
+            } catch {
+                print("Failed to load view state: \(error)")
+            }
         }
     }
     
@@ -93,102 +115,69 @@ import WatchKit  // For WKApplication
         let calculatedMin = min(fitWidth, fitHeight)
         let minZoom = max(calculatedMin, 0.5)
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
-        print("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds \(graphBounds)")  // Enhanced debug
-        return (min: minZoom, max: maxZoom)
+        print("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds \(graphBounds)")  // Enhanced log
+        return (minZoom, maxZoom)
     }
     
-    public func saveViewState() {
-            print("GraphViewModel.saveViewState called")  // NEW for debugging
-            Task {
-                do {
-                    try await model.saveViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
-                    await model.save()  // NEW: Optionally save graph data here if selections imply state change; remove if too frequent
-                    print("GraphViewModel.saveViewState succeeded")
-                } catch {
-                    print("GraphViewModel.saveViewState failed: \(error.localizedDescription)")
-                }
-            }
-        }
-
-        public func loadGraph() async {
-            print("GraphViewModel.loadGraph called")  // NEW for debugging
-            await model.load()
-            if let viewState = try? await model.loadViewState() {
-                self.offset = viewState.offset
-                self.zoomScale = viewState.zoomScale
-                self.selectedNodeID = viewState.selectedNodeID
-                self.selectedEdgeID = viewState.selectedEdgeID
-                print("Applied loaded view state")
-            }
-            objectWillChange.send()
-        }
-    
-    public func addNode(at position: CGPoint) async {
-        await model.addNode(at: position)
+    public func addNode(at position: CGPoint? = nil) async {
+        await model.addNode(at: position ?? .zero)
+        await saveAfterDelay()
     }
     
-    public func addEdge(from: UUID, target: UUID, type: EdgeType) async {
-        await model.addEdge(from: from, target: target, type: type)
+    public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
+        await model.addToggleNode(at: position)
+        await saveAfterDelay()
     }
     
-    public func deleteNode(withID id: UUID) async {
-        await model.deleteNode(withID: id)
-    }
-    
-    public func deleteEdge(withID id: UUID) async {
-        await model.deleteEdge(withID: id)
+    public func addEdge(from fromID: NodeID, to toID: NodeID, type: EdgeType = .association) async {
+        await model.addEdge(from: fromID, target: toID, type: type)
+        await saveAfterDelay()
     }
     
     public func undo() async {
         await model.undo()
+        await saveAfterDelay()
     }
     
     public func redo() async {
         await model.redo()
-    }
-       
-    public func startSimulation() async {
-        await model.startSimulation()
+        await saveAfterDelay()
     }
     
-    public func addToggleNode(at position: CGPoint) async {
-        await model.addToggleNode(at: position)
+    public func deleteSelected() async {
+        await model.deleteSelected(selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        await saveAfterDelay()
     }
     
-    public func toggleSelectedNode() async {
-        guard let id = selectedNodeID, let index = model.nodes.firstIndex(where: { $0.id == id }), let toggleNode = model.nodes[index].unwrapped as? ToggleNode else { return }
-        let toggled = toggleNode.handlingTap()  // Toggles isExpanded
-        model.nodes[index] = AnyNode(toggled)
-        await model.handleTap(on: toggled.id)  // Optional: If needed for other effects
-        if toggled.isExpanded {
-            let children = model.edges.filter { $0.from == toggled.id && $0.type == .hierarchy }.map { $0.target }
-            for (idx, childID) in children.enumerated() {
-                if let childIdx = model.nodes.firstIndex(where: { $0.id == childID }) {
-                    let child = model.nodes[childIdx].unwrapped
-                    let offX = CGFloat(idx * 40) - CGFloat(children.count * 20)
-                    let newPos = toggled.position + CGPoint(x: offX, y: 50.0)
-                    let updatedChild: any NodeProtocol
-                    if let concrete = child as? Node {
-                        updatedChild = concrete.with(position: newPos, velocity: .zero)
-                    } else if let concrete = child as? ToggleNode {
-                        updatedChild = concrete.with(position: newPos, velocity: .zero)
-                    } else {
-                        continue
-                    }
-                    model.nodes[childIdx] = AnyNode(updatedChild)
-                }
-            }
+    public func toggleExpansion(for nodeID: NodeID) async {
+        await model.toggleExpansion(for: nodeID)
+        await saveAfterDelay()
+    }
+    
+    public func toggleSelectedNode() async {  // NEW: Add this method to fix 'no member 'toggleSelectedNode''
+        if let id = selectedNodeID {
+            await toggleExpansion(for: id)
         }
-        objectWillChange.send()
-        await model.startSimulation()
     }
     
     public func addChild(to parentID: NodeID) async {
         await model.addChild(to: parentID)
+        await saveAfterDelay()
     }
-       
+    
+    public func deleteNode(withID id: NodeID) async {
+        await model.deleteNode(withID: id)
+        if selectedNodeID == id { selectedNodeID = nil }
+        // Deleting a node may also invalidate an edge selection
+        selectedEdgeID = nil
+        await saveAfterDelay()
+    }
+    
     public func clearGraph() async {
         await model.clearGraph()
+        await saveAfterDelay()
     }
     
     public func pauseSimulation() async {
@@ -265,4 +254,86 @@ import WatchKit  // For WKApplication
         objectWillChange.send()
     }
     
+    // MARK: - Multi-Graph Support
+    
+    /// Creates a new empty graph and switches to it, resetting view state.
+    public func createNewGraph(name: String) async throws {
+        // Save current view state before switching
+        try saveViewState()
+        
+        try await model.createNewGraph(name: name)
+        currentGraphName = model.currentGraphName  // Sync
+        
+        // Reset view state for new graph
+        offset = .zero
+        zoomScale = 1.0
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        focusState = .graph
+        
+        await resumeSimulation()
+        objectWillChange.send()
+    }
+    
+    /// Loads a specific graph by name, switches to it, and loads its view state.
+    public func loadGraph(name: String) async throws {
+        // Save current view state before switching
+        try saveViewState()
+        
+        try await model.loadGraph(name: name)
+        currentGraphName = model.currentGraphName  // Sync
+        
+        // Load view state for the new graph
+        if let viewState = try await model.storage.loadViewState(for: currentGraphName) {
+            offset = viewState.offset
+            zoomScale = viewState.zoomScale
+            selectedNodeID = viewState.selectedNodeID
+            selectedEdgeID = viewState.selectedEdgeID
+        } else {
+            // Default if no view state
+            offset = .zero
+            zoomScale = 1.0
+            selectedNodeID = nil
+            selectedEdgeID = nil
+        }
+        focusState = .graph
+        
+        await resumeSimulation()
+        objectWillChange.send()
+    }
+    
+    /// Deletes a graph by name.
+    public func deleteGraph(name: String) async throws {
+        try await model.deleteGraph(name: name)
+    }
+    
+    /// Lists all graph names.
+    public func listGraphNames() async throws -> [String] {
+        try await model.listGraphNames()
+    }
+    
+    // MARK: - View State Persistence
+    
+    /// Saves current view state for the current graph.
+    public func saveViewState() throws {
+        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        try model.storage.saveViewState(viewState, for: currentGraphName)
+        print("Saved view state for '\(currentGraphName)'")
+    }
+    
+    // MARK: - Helpers
+    
+    private func saveAfterDelay() async {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                do {
+                    try await self?.model.saveGraph()
+                    try self?.saveViewState()
+                } catch {
+                    print("Save failed: \(error)")
+                }
+            }
+        }
+    }
 }

@@ -10,7 +10,19 @@ import XCTest
 final class GraphEditorWatchUITests: XCTestCase {
     
     override func setUpWithError() throws {
-        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launch()
+        
+        // Open menu, tap "New Graph", enter "TestGraph", create
+        let menuButton = app.buttons["Menu"]
+        menuButton.tap()
+        let newButton = app.buttons["New Graph"]
+        newButton.tap()
+        let textField = app.textFields.firstMatch  // Assume one
+        textField.typeText("TestGraph\n")  // Enter name and submit
+        sleep(2)  // Wait for creation
+        
+        // Now graph is new/empty; proceed
     }
     
     override func tearDownWithError() throws {}

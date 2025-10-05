@@ -1,26 +1,211 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-02 11:37:10
+Current date: 2025-10-03 15:54:41
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-2. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
-3. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-4. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-5. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-6. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-7. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift--------------------------------------------------
-File: GraphTypes.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-09-19 13:45:29
+1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+3. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
+4. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+5. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+6. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift--------------------------------------------------
+File: GraphSimulator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+Last modified: 2025-09-28 19:10:01
 
 Contents:
+// Sources/GraphEditorShared/GraphSimulator.swift
+
+import Foundation
+import os.log  // For logging if needed
+
+#if os(watchOS)
+import WatchKit  // Only if using haptics; otherwise remove
+#endif
+
+@available(iOS 16.0, watchOS 6.0, *)
+/// Manages physics simulation loops for graph updates.
+class GraphSimulator {
+    var simulationTask: Task<Void, Never>?  // Exposed for testing
+    internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access    
+    let velocityChangeThreshold: CGFloat
+    let velocityHistoryCount: Int
+    let baseInterval: TimeInterval  // Now configurable
+    
+    let physicsEngine: PhysicsEngine
+    private let getVisibleNodes: () -> [any NodeProtocol]
+    private let getVisibleEdges: () -> [GraphEdge]
+    
+    internal let getNodes: () -> [any NodeProtocol]  // Changed from private to internal
+    private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
+    private let getEdges: () -> [GraphEdge]
+    private let onStable: (() -> Void)?  // New: Optional callback
+    
+    init(getNodes: @escaping () -> [any NodeProtocol],
+         setNodes: @escaping ([any NodeProtocol]) -> Void,
+         getEdges: @escaping () -> [GraphEdge],
+         getVisibleNodes: @escaping () -> [any NodeProtocol],
+         getVisibleEdges: @escaping () -> [GraphEdge],
+         physicsEngine: PhysicsEngine,
+         onStable: (() -> Void)? = nil,
+         baseInterval: TimeInterval = 1.0 / 30.0,  // Default value
+         velocityChangeThreshold: CGFloat = 0.01,
+         velocityHistoryCount: Int = 5) {
+        self.getNodes = getNodes
+        self.setNodes = setNodes
+        self.getEdges = getEdges
+        self.physicsEngine = physicsEngine
+        self.onStable = onStable
+        
+        self.getVisibleNodes = getVisibleNodes
+        self.getVisibleEdges = getVisibleEdges
+        
+        self.baseInterval = baseInterval
+        self.velocityChangeThreshold = velocityChangeThreshold
+        self.velocityHistoryCount = velocityHistoryCount
+    }
+    
+    struct SimulationStepResult {
+        let updatedNodes: [any NodeProtocol]
+        let shouldContinue: Bool
+        let totalVelocity: CGFloat
+    }
+    
+    @MainActor
+    func startSimulation() async {
+#if os(watchOS)
+        guard WKApplication.shared().applicationState == .active else { return }
+#endif
+        physicsEngine.resetSimulation()
+        recentVelocities.removeAll()
+        
+        let nodeCount = getNodes().count
+        if nodeCount < 5 {
+            onStable?()  // NEW: Call here to handle "already stable" cases
+            return
+        }
+        
+        var adjustedInterval = baseInterval
+        if nodeCount >= 20 {
+            adjustedInterval = nodeCount < 50 ? 1.0 / 15.0 : 1.0 / 10.0
+        }
+        if ProcessInfo.processInfo.isLowPowerModeEnabled {
+            adjustedInterval *= 2.0
+        }
+        
+        simulationTask = Task {
+            await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
+        }
+        await simulationTask?.value
+    }
+    
+    internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
+        print("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")  // NEW: Confirm entry
+        var iterations = 0
+        let maxIterations = 500
+        while !Task.isCancelled && iterations < maxIterations {
+            let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
+            iterations += 1
+            print("Iteration \(iterations): shouldContinue = \(shouldContinue)")  // NEW: Per-iter log
+            if !shouldContinue {
+                print("Simulation stabilized after \(iterations) iterations")
+                break
+            }
+        }
+        if iterations >= maxIterations {
+            print("Simulation timed out after \(iterations) iterations; recent velocities: \(recentVelocities)")
+        }
+        self.onStable?()
+    }
+    
+    private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
+#if os(watchOS)
+        if await WKApplication.shared().applicationState != .active { return false }
+#endif
+        
+        let result: SimulationStepResult = await Task.detached {
+            return self.computeSimulationStep()
+        }.value
+        print("Step: Total velocity = \(result.totalVelocity)")
+        self.setNodes(result.updatedNodes)
+        
+        if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
+            return false
+        }
+        
+        try? await Task.sleep(for: .seconds(baseInterval))
+        return true
+    }
+    
+    nonisolated func computeSimulationStep() -> SimulationStepResult {
+        let nodes = self.getNodes()
+        let visibleNodes = self.getVisibleNodes()
+        let visibleEdges = self.getVisibleEdges()
+        let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
+        var updatedForces = forces
+        updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
+        updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
+        
+        var tempNodes = nodes
+        var stepActive = false
+        let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
+        for _ in 0..<subSteps {
+            let (updated, active) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: tempNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
+            tempNodes = updated
+            stepActive = stepActive || active
+        }
+        
+        let totalVel = tempNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+        return SimulationStepResult(updatedNodes: tempNodes, shouldContinue: stepActive, totalVelocity: totalVel)
+    }
+    
+    func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
+        print("Check stop: totalVel = \(result.totalVelocity), threshold = \(Constants.Physics.velocityThreshold * CGFloat(nodeCount)), shouldContinue = \(result.shouldContinue)")  // NEW
+        if !result.shouldContinue || result.totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
+            return true
+        }
+        
+        recentVelocities.append(result.totalVelocity)
+        if recentVelocities.count > velocityHistoryCount {
+            recentVelocities.removeFirst()
+        }
+        
+        if recentVelocities.count == velocityHistoryCount {
+            let maxVel = recentVelocities.max() ?? 1.0
+            let minVel = recentVelocities.min() ?? 0.0
+            let relativeChange = (maxVel > 0) ? (maxVel - minVel) / maxVel : 0.0  // Guard zero-divide
+            print("Relative change: \(relativeChange) (threshold: \(velocityChangeThreshold))")  // NEW
+            if relativeChange < velocityChangeThreshold {
+                return true
+            }
+        }
+        
+        return false
+    }
+    
+    func stopSimulation() async {
+        simulationTask?.cancel()
+        await simulationTask?.value  // Await to ensure clean stop
+        simulationTask = nil
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphTypes.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+Last modified: 2025-10-03 11:45:25
+
+Contents:
+//
+//  GraphTypes.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 2025-09-19 13:45:29
+
 import SwiftUI
 import Foundation
 
 public typealias NodeID = UUID
 
-// Replace the entire Node struct in GraphTypes.swift with this corrected version
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)
 public struct Node: NodeProtocol, Equatable {
@@ -47,98 +232,8 @@ public struct Node: NodeProtocol, Equatable {
     public func with(position: CGPoint, velocity: CGPoint) -> Self {
         Node(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content)
     }
-    
-    public func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self {
-        Node(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content ?? self.content)
-    }
-    
-    public func handlingTap() -> Self { self }  // No-op for basic Node
-    
-    public func shouldHideChildren() -> Bool { false }  // Basic nodes don't hide children
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        AnyView(Circle().fill(.red).frame(width: radius * 2 * zoomScale, height: radius * 2 * zoomScale))  // Simple default
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * zoomScale) : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-
-        // Draw border if selected
-        if borderWidth > 0 {
-            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
-        }
-
-        // Draw node circle
-        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(fillColor))
-
-        // Draw label above node
-        let labelFontSize = max(8.0, 12.0 * zoomScale)
-        let labelResolved = context.resolve(Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize)))
-        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
-        context.draw(labelResolved, at: labelPosition, anchor: .center)
-
-        // Draw content below node if present and zoomed in
-        if let content = content, zoomScale > 0.5 {
-            let contentFontSize = max(6.0, 8.0 * zoomScale)
-            let contentResolved = context.resolve(Text(content.displayText).foregroundColor(.gray).font(.system(size: contentFontSize)))
-            let contentPosition = CGPoint(x: position.x, y: position.y + (scaledRadius + 10 * zoomScale))
-            context.draw(contentResolved, at: contentPosition, anchor: .center)
-        }
-    }
-    
-    // Codable conformance
-    enum CodingKeys: String, CodingKey {
-        case id, label, radius, isExpanded, content
-        case positionX, positionY
-        case velocityX, velocityY
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(NodeID.self, forKey: .id)
-        label = try container.decode(Int.self, forKey: .label)
-        radius = try container.decodeIfPresent(CGFloat.self, forKey: .radius) ?? 10.0
-        isExpanded = try container.decodeIfPresent(Bool.self, forKey: .isExpanded) ?? true
-        content = try container.decodeIfPresent(NodeContent.self, forKey: .content)
-        let posX = try container.decode(CGFloat.self, forKey: .positionX)
-        let posY = try container.decode(CGFloat.self, forKey: .positionY)
-        position = CGPoint(x: posX, y: posY)
-        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
-        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
-        velocity = CGPoint(x: velX, y: velY)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(label, forKey: .label)
-        try container.encode(radius, forKey: .radius)
-        try container.encode(isExpanded, forKey: .isExpanded)
-        try container.encodeIfPresent(content, forKey: .content)
-        try container.encode(position.x, forKey: .positionX)
-        try container.encode(position.y, forKey: .positionY)
-        try container.encode(velocity.x, forKey: .velocityX)
-        try container.encode(velocity.y, forKey: .velocityY)
-    }
-    
-    public static func == (lhs: Node, rhs: Node) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.label == rhs.label &&
-        lhs.position == rhs.position &&
-        lhs.velocity == rhs.velocity &&
-        lhs.radius == rhs.radius &&
-        lhs.isExpanded == rhs.isExpanded &&
-        lhs.content == rhs.content
-    }
 }
+
 
 // New: EdgeType enum
 public enum EdgeType: String, Codable {
@@ -652,7 +747,7 @@ public struct AnyNode: NodeProtocol {
 ----------------------------------------------------------------------------------------------------
 File: PersistenceManager.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-Last modified: 2025-09-24 08:49:32
+Last modified: 2025-10-02 20:55:48
 
 Contents:
 // Sources/GraphEditorShared/PersistenceManager.swift
@@ -670,91 +765,172 @@ public enum GraphStorageError: Error {
     case loadingFailed(Error)
     case decodingFailed(Error)
     case inconsistentFiles(String)  // Retained for potential future multi-file use
+    case graphExists(String)  // New: For createNewGraph duplicates
+    case graphNotFound(String)  // New: For load/delete misses
 }
 
 /// File-based JSON persistence conforming to GraphStorage.
 @available(iOS 16.0, watchOS 6.0, *)
 public class PersistenceManager: GraphStorage {
-    public let fileURL: URL
+    private let directory: URL
+    private let defaultGraphName = "default"
     
-    public init(fileName: String = "graphState.json") {
+    public init(directoryName: String = "graphs") {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        fileURL = documents.appendingPathComponent(fileName)
+        self.directory = documents.appendingPathComponent(directoryName)
+        createDirectoryIfNeeded()
+    }
+    
+    private func createDirectoryIfNeeded() {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            logger.error("Failed to create directory: \(error.localizedDescription)")
+        }
+    }
+    
+    private func fileURL(for name: String) -> URL {
+        directory.appendingPathComponent("graph-\(name).json")
+    }
+    
+    private func viewStateKey(for name: String) -> String {
+        "graphViewState_\(name)"
     }
     
     struct SavedState: Codable {
         var version: Int = 1
         let nodes: [NodeWrapper]
         let edges: [GraphEdge]
-        let viewState: ViewState?  // Embed view state (optional)
     }
     
+    // MARK: - Default (Single-Graph) Methods (Unchanged Behavior)
+    
     public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
+        try await save(nodes: nodes, edges: edges, for: defaultGraphName)
+    }
+    
+    public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        try await load(for: defaultGraphName)
+    }
+    
+    public func clear() async throws {
+        try await deleteGraph(name: defaultGraphName)
+    }
+    
+    public func saveViewState(_ viewState: ViewState) async throws {
+        try saveViewState(viewState, for: defaultGraphName)
+    }
+    
+    public func loadViewState() async throws -> ViewState? {
+        try loadViewState(for: defaultGraphName)
+    }
+    
+    // MARK: - Multi-Graph Methods
+    
+    public func listGraphNames() async throws -> [String] {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let names = contents
+                .filter { $0.lastPathComponent.hasPrefix("graph-") && $0.pathExtension == "json" }
+                .map { String($0.deletingPathExtension().lastPathComponent.dropFirst(6)) }  // Drop "graph-"
+                .sorted()
+            logger.debug("Listed \(names.count) graphs: \(names)")
+            return names
+        } catch {
+            logger.error("Listing failed: \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
+        }
+    }
+    
+    public func createNewGraph(name: String) async throws {
+        let url = fileURL(for: name)
+        if FileManager.default.fileExists(atPath: url.path) {
+            logger.warning("Graph '\(name)' already exists")
+            throw GraphStorageError.graphExists(name)
+        }
+        // Create empty graph
+        let emptyNodes: [any NodeProtocol] = []
+        let emptyEdges: [GraphEdge] = []
+        try await save(nodes: emptyNodes, edges: emptyEdges, for: name)
+        logger.debug("Created new graph: \(name)")
+    }
+    
+    public func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws {
         let wrapped = nodes.compactMap { node -> NodeWrapper? in
             if let plainNode = node as? Node { return .node(plainNode) } else if let toggleNode = node as? ToggleNode { return .toggleNode(toggleNode) } else {
                 logger.error("Unsupported node type: \(String(describing: type(of: node))); skipping.")
                 return nil  // Skip instead of fatalError
             }
         }
-        let state = SavedState(nodes: wrapped, edges: edges, viewState: nil)  // Add viewState if passed
+        let state = SavedState(nodes: wrapped, edges: edges)
         do {
-            // Ensure directory exists
-            let directory = fileURL.deletingLastPathComponent()
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            
             let data = try JSONEncoder().encode(state)
-            try data.write(to: fileURL, options: .atomic)  // Ensures full overwrite
-            logger.debug("Saved \(wrapped.count) nodes and \(edges.count) edges")
+            try data.write(to: fileURL(for: name), options: .atomic)  // Ensures full overwrite
+            logger.debug("Saved \(wrapped.count) nodes and \(edges.count) edges for graph '\(name)'")
         } catch let error as EncodingError {
-            logger.error("Encoding failed: \(error.localizedDescription)")
+            logger.error("Encoding failed for '\(name)': \(error.localizedDescription)")
             throw GraphStorageError.encodingFailed(error)
         } catch {
-            logger.error("Writing failed: \(error.localizedDescription)")
+            logger.error("Writing failed for '\(name)': \(error.localizedDescription)")
             throw GraphStorageError.writingFailed(error)
         }
     }
     
-    public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: fileURL.path) else {
-            logger.debug("No saved file; returning empty")
-            return ([], [])
+    public func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        let url = fileURL(for: name)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            logger.debug("No saved file for '\(name)'; throwing not found")
+            throw GraphStorageError.graphNotFound(name)
         }
         do {
-            let data = try Data(contentsOf: fileURL)
+            let data = try Data(contentsOf: url)
             let state = try JSONDecoder().decode(SavedState.self, from: data)
             if state.version != 1 {
-                throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version)", code: 0))
+                throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version) for '\(name)'", code: 0))
             }
             let loadedNodes = state.nodes.map { $0.value }
-            logger.debug("Loaded \(loadedNodes.count) nodes and \(state.edges.count) edges")
+            logger.debug("Loaded \(loadedNodes.count) nodes and \(state.edges.count) edges for graph '\(name)'")
             return (loadedNodes, state.edges)
         } catch let error as DecodingError {
-            logger.error("Decoding failed: \(error.localizedDescription)")
+            logger.error("Decoding failed for '\(name)': \(error.localizedDescription)")
             throw GraphStorageError.decodingFailed(error)
         } catch {
-            logger.error("Loading failed: \(error.localizedDescription)")
+            logger.error("Loading failed for '\(name)': \(error.localizedDescription)")
             throw GraphStorageError.loadingFailed(error)
         }
     }
-
-    public func clear() async throws {
-        let fileManager = FileManager.default
-        if fileManager.fileExists(atPath: fileURL.path) {
-            try fileManager.removeItem(at: fileURL)
-            logger.debug("Cleared saved graph")
+    
+    public func deleteGraph(name: String) async throws {
+        let url = fileURL(for: name)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+            // Also clear associated view state
+            UserDefaults.standard.removeObject(forKey: viewStateKey(for: name))
+            UserDefaults.standard.synchronize()
+            logger.debug("Deleted graph '\(name)'")
+        } else {
+            logger.warning("Graph '\(name)' not found for deletion")
+            throw GraphStorageError.graphNotFound(name)
         }
     }
     
-    public func saveViewState(_ viewState: ViewState) async throws {
+    // MARK: - View State (Per-Graph)
+    
+    public func saveViewState(_ viewState: ViewState, for name: String) throws {
         let data = try JSONEncoder().encode(viewState)
-        UserDefaults.standard.set(data, forKey: "graphViewState")
+        UserDefaults.standard.set(data, forKey: viewStateKey(for: name))
         UserDefaults.standard.synchronize()  // Ensure immediate write
+        logger.debug("Saved view state for '\(name)'")
     }
-
-    public func loadViewState() async throws -> ViewState? {
-        guard let data = UserDefaults.standard.data(forKey: "graphViewState") else { return nil }
-        return try JSONDecoder().decode(ViewState.self, from: data)
+    
+    public func loadViewState(for name: String) throws -> ViewState? {
+        guard let data = UserDefaults.standard.data(forKey: viewStateKey(for: name)) else {
+            logger.debug("No view state for '\(name)'")
+            return nil
+        }
+        let decoded = try JSONDecoder().decode(ViewState.self, from: data)
+        logger.debug("Loaded view state for '\(name)'")
+        return decoded
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -895,168 +1071,6 @@ public class PhysicsEngine {
         guard !nodes.isEmpty else { return [] }
         let quadtree = repulsionCalculator.buildQuadtree(nodes: nodes)
         return quadtree.queryNearby(position: position, radius: radius)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: PositionUpdater.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-Last modified: 2025-09-16 11:17:51
-
-Contents:
-//
-//  PositionUpdater.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/12/25.
-//
-
-import Foundation
-import CoreGraphics
-
-struct PositionUpdater {
-    let simulationBounds: CGSize
-
-    private func clampedPositionAndBouncedVelocity(for tentativePosition: CGPoint, with tentativeVelocity: CGPoint) -> (CGPoint, CGPoint) {
-        let oldPosition = tentativePosition
-        var newPosition = tentativePosition
-        newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
-        newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
-        var newVelocity = tentativeVelocity
-        if newPosition.x != oldPosition.x {
-            newVelocity.x = -newVelocity.x * 0.8
-        }
-        if newPosition.y != oldPosition.y {
-            newVelocity.y = -newVelocity.y * 0.8
-        }
-        return (newPosition, newVelocity)
-    }
-
-    private func adjustPositionForCollisions(_ position: CGPoint, excluding nodeID: NodeID, using quadtree: Quadtree?, allNodes nodes: [any NodeProtocol]) -> CGPoint {
-        let minDist: CGFloat = 35.0
-        var newPosition = position
-        if let quadTree = quadtree {
-            let nearby = quadTree.queryNearby(position: newPosition, radius: minDist)
-            for other in nearby where other.id != nodeID {
-                let delta = newPosition - other.position
-                let distance = hypot(delta.x, delta.y)
-                if distance < minDist && distance > 0 {
-                    newPosition += (delta / distance) * (minDist - distance) / 2
-                }
-            }
-        } else {
-            for other in nodes where other.id != nodeID {
-                let delta = newPosition - other.position
-                let distance = hypot(delta.x, delta.y)
-                if distance < minDist && distance > 0 {
-                    newPosition += (delta / distance) * (minDist - distance) / 2
-                }
-            }
-        }
-        return newPosition
-    }
-
-    private func buildParentMap(from edges: [GraphEdge]) -> [NodeID: [NodeID]] {
-        var parentMap = [NodeID: [NodeID]]()
-        for edge in edges {
-            parentMap[edge.target, default: []].append(edge.from)
-        }
-        return parentMap
-    }
-
-    private func finalPositionAndVelocity(for nodeID: NodeID, tentative: (position: CGPoint, velocity: CGPoint), parentMap: [NodeID: [NodeID]], isExpandedMap: [NodeID: Bool], tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)]) -> (CGPoint, CGPoint) {
-        var newPosition = tentative.position
-        var newVelocity = tentative.velocity
-        if let parents = parentMap[nodeID], !parents.isEmpty {
-            let collapsedParents = parents.filter { parentID in
-                isExpandedMap[parentID] == false
-            }
-            if !collapsedParents.isEmpty {
-                var avgPos = CGPoint.zero
-                for parentID in collapsedParents {
-                    avgPos += tentativeUpdates[parentID]!.position
-                }
-                avgPos /= CGFloat(collapsedParents.count)
-                newPosition = avgPos
-                newVelocity = .zero
-            }
-        }
-        return (newPosition, newVelocity)
-    }
-
-    func updatePositionsAndVelocities(nodes: [any NodeProtocol], forces: [NodeID: CGPoint], edges: [GraphEdge], quadtree: Quadtree?) -> ([any NodeProtocol], Bool) {
-        var tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)] = [:]
-        for node in nodes {
-            let force = forces[node.id] ?? .zero
-            var newVelocity = CGPoint(x: node.velocity.x + force.x * Constants.Physics.timeStep, y: node.velocity.y + force.y * Constants.Physics.timeStep)
-            newVelocity = CGPoint(x: newVelocity.x * Constants.Physics.damping, y: newVelocity.y * Constants.Physics.damping)
-            var newPosition = CGPoint(x: node.position.x + newVelocity.x * Constants.Physics.timeStep, y: node.position.y + newVelocity.y * Constants.Physics.timeStep)
-            (newPosition, newVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
-            newPosition = adjustPositionForCollisions(newPosition, excluding: node.id, using: quadtree, allNodes: nodes)
-            tentativeUpdates[node.id] = (newPosition, newVelocity)
-        }
-
-        let parentMap = buildParentMap(from: edges)
-        let isExpandedMap: [NodeID: Bool] = nodes.reduce(into: [:]) { $0[$1.id] = $1.isExpanded }
-
-        var updatedNodes: [any NodeProtocol] = []
-        var totalVelocity: CGFloat = 0.0
-        for node in nodes {
-            let tentative = tentativeUpdates[node.id]!
-            let (newPosition, newVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
-            let updatedNode = node.with(position: newPosition, velocity: newVelocity)
-            updatedNodes.append(updatedNode)
-            totalVelocity += hypot(newVelocity.x, newVelocity.y)
-        }
-
-        let isActive = totalVelocity >= Constants.Physics.velocityThreshold * CGFloat(nodes.count)
-
-        return (updatedNodes, isActive)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: Protocols.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-Last modified: 2025-09-19 13:58:04
-
-Contents:
-//
-//  GraphStorage.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/1/25.
-//
-
-// Sources/GraphEditorShared/Protocols.swift
-
-import SwiftUI
-
-@available(iOS 16.0, watchOS 6.0, *)
-public struct ViewState: Codable {
-    public var offset: CGPoint
-    public var zoomScale: CGFloat
-    public var selectedNodeID: UUID?
-    public var selectedEdgeID: UUID?
-}
-
-@available(iOS 16.0, watchOS 6.0, *)
-public protocol GraphStorage {
-    /// Saves the graph nodes and edges, throwing on failure (e.g., encoding or writing errors).
-    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws
-    /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
-    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
-    func clear() async throws  // Unchanged
-    func saveViewState(_ viewState: ViewState) async throws
-    func loadViewState() async throws -> ViewState?
-}
-
-@available(iOS 16.0, watchOS 6.0, *)
-extension GraphStorage {
-    func saveViewState(_ viewState: ViewState) throws {
-        // Default: Do nothing (for storages that don't support view state)
-    }
-    
-    func loadViewState() throws -> ViewState? {
-        return nil  // Default: No state
     }
 }
 --------------------------------------------------

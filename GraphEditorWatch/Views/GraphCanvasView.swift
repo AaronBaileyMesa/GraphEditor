@@ -183,16 +183,32 @@ struct GraphCanvasView: View {
             ))
         }
         .onChange(of: selectedNodeID) {
-            viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+            do {
+                try viewModel.saveViewState()  // Existing: Triggers view state save on selection change
+            } catch {
+                print("Failed to save view state on selectedNodeID change: \(error)")
+            }
         }
         .onChange(of: selectedEdgeID) {
-            viewModel.saveViewState()  // Existing
+            do {
+                try viewModel.saveViewState()  // Existing
+            } catch {
+                print("Failed to save view state on selectedEdgeID change: \(error)")
+            }
         }
         .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
-            viewModel.saveViewState()
+            do {
+                try viewModel.saveViewState()
+            } catch {
+                print("Failed to save view state on offset change: \(error)")
+            }
         }
         .onChange(of: zoomScale) {
-            viewModel.saveViewState()
+            do {
+                try viewModel.saveViewState()
+            } catch {
+                print("Failed to save view state on zoomScale change: \(error)")
+            }
         }
         .ignoresSafeArea()
     }

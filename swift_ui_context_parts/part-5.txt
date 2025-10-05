@@ -1,18 +1,16 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-02 11:37:11
+Current date: 2025-10-03 15:54:42
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphUtilities.swift
 3. GraphEditorWatch/Views/InnerView.swift
 4. GraphEditorWatch/Views/MenuView.swift
-5. GraphEditorWatch/Views/NodeView.swift
-6. GraphEditorWatchTests/AccessibilityTests.swift
-7. GraphEditorWatchTests/CoordinateTransformerTests.swift--------------------------------------------------
+5. GraphEditorWatch/Views/NodeView.swift--------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-09-26 10:16:43
+Last modified: 2025-10-03 15:50:34
 
 Contents:
 //
@@ -353,7 +351,7 @@ extension GraphGesturesModifier {
             let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
             viewModel.pendingEdgeType = type  // Update for UI
             Task {
-                await viewModel.addEdge(from: dragged.id, target: target.id, type: type)  // Async call
+                await viewModel.addEdge(from: dragged.id, to: target.id, type: type)  // Async call
             }
             print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
             isAddingEdge = false
@@ -584,7 +582,7 @@ struct InnerView: View {
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-10-02 10:48:40
+Last modified: 2025-10-03 15:48:45
 
 Contents:
 //
@@ -687,9 +685,7 @@ struct EditSection: View {
                 Button("Delete Node", role: .destructive) {
                     Task {
                         isProcessing = true
-                        do {
-                            await viewModel.deleteNode(withID: selectedID)
-                        }
+                        await viewModel.model.deleteNode(withID: selectedID)
                         clearSelections()  // NEW: Clear after delete
                         isProcessing = false
                     }
@@ -786,6 +782,12 @@ struct GraphSection: View {
     let viewModel: GraphViewModel
     let onDismiss: () -> Void
     
+    @State private var graphName: String = ""
+    @State private var showNewSheet: Bool = false
+    @State private var newGraphName: String = ""
+    @State private var graphs: [String] = []
+    @State private var errorMessage: String?
+    
     var body: some View {
         Section(header: Text("Graph")) {
             if viewModel.canRedo || viewModel.canUndo {
@@ -806,23 +808,107 @@ struct GraphSection: View {
                 }
             }
             
+            TextField("Graph Name", text: $graphName)
+                .onAppear { graphName = viewModel.currentGraphName }
+            
+            Button("New Graph") {
+                newGraphName = ""
+                showNewSheet = true
+            }
+            .onSubmit { /* Same as above */ }
+            .sheet(isPresented: $showNewSheet) {
+                VStack {
+                    TextField("New Graph Name", text: $newGraphName)
+                    Button("Create") {
+                        Task {
+                            do {
+                                try await viewModel.model.createNewGraph(name: newGraphName)
+                                viewModel.currentGraphName = newGraphName
+                                showNewSheet = false
+                                onDismiss()
+                            } catch {
+                                errorMessage = error.localizedDescription
+                            }
+                        }
+                    }
+                }
+            }
+            
+            Button("Save Graph") {
+                Task {
+                    viewModel.currentGraphName = graphName
+                    do {
+                        try await viewModel.model.saveGraph()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    onDismiss()
+                }
+            }
+            .onSubmit { /* Same as above */ }
+            
+            Button("Load Graph") {
+                Task {
+                    do {
+                        try await viewModel.model.loadGraph(name: graphName)
+                        viewModel.currentGraphName = graphName
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                    onDismiss()
+                }
+            }
+            .onSubmit { /* Same as above */ }
+            
+            Button("List Graphs") {
+                Task {
+                    do {
+                        graphs = try await viewModel.model.listGraphNames()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
+            }
+            .onSubmit { /* Same as above */ }
+            
+            ForEach(graphs, id: \.self) { name in
+                Button(name) {
+                    Task {
+                        do {
+                            try await viewModel.model.loadGraph(name: name)
+                            viewModel.currentGraphName = name
+                            graphName = name
+                            onDismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            
             Button("Reset Graph", role: .destructive) {
                 Task { await viewModel.clearGraph() }
                 onDismiss()
             }
             .onSubmit { /* Same as above */ }
             
-            Button("Save Graph") {
-                Task { await viewModel.model.save() }
-                onDismiss()
+            Button("Delete Graph", role: .destructive) {
+                Task {
+                    do {
+                        try await viewModel.model.deleteGraph(name: graphName)
+                        graphName = "default"
+                        try await viewModel.model.loadGraph(name: "default")
+                        onDismiss()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
+                }
             }
             .onSubmit { /* Same as above */ }
             
-            Button("Load Graph") {
-                Task { await viewModel.loadGraph() }
-                onDismiss()
+            if let error = errorMessage {
+                Text(error).foregroundColor(.red)
             }
-            .onSubmit { /* Same as above */ }
         }
         .accessibilityLabel("Graph section")  // NEW: Accessibility
     }
@@ -973,95 +1059,6 @@ struct NodeView: View {
                 .font(.system(size: max(8.0, 12.0 * zoomScale)))
                 .offset(y: -(node.radius + 10) * zoomScale)  // Position above
         }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: AccessibilityTests.swift
-Path: GraphEditorWatchTests/AccessibilityTests.swift
-Last modified: 2025-09-22 11:21:14
-
-Contents:
-//
-//  AccessibilityTests.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/22/25.
-//
-import Testing
-import Foundation
-import CoreGraphics
-@testable import GraphEditorWatch
-@testable import GraphEditorShared
-import XCTest
-import SwiftUI
-
-struct AccessibilityTests {
-    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
-        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-    }
-    
-    @Test func testGraphDescription() async throws {
-        let storage = MockGraphStorage()
-        storage.nodes = [Node(label: 0, position: .zero)]
-        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        await MainActor.run { model.nextNodeLabel = 1 }
-        await model.addNode(at: .zero)
-        await model.addNode(at: CGPoint(x: 10, y: 10))
-        
-        await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }
-        
-        let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
-        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
-        
-        let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
-        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: CoordinateTransformerTests.swift
-Path: GraphEditorWatchTests/CoordinateTransformerTests.swift
-Last modified: 2025-09-22 11:21:14
-
-Contents:
-//
-//  CoordinateTransformerTests.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/22/25.
-//
-import Testing
-import Foundation
-import CoreGraphics
-@testable import GraphEditorWatch
-@testable import GraphEditorShared
-import XCTest
-import SwiftUI
-
-struct CoordinateTransformerTests {
-    @Test func testCoordinateRoundTrip() {
-        let viewSize = CGSize(width: 205, height: 251)
-        let centroid = CGPoint(x: 150, y: 150)
-        let modelPos = CGPoint(x: 167.78, y: 165.66)
-        let zoom: CGFloat = 1.0
-        let offset = CGSize.zero
-        
-        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        
-        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
-    }
-    
-    @Test func testCoordinateRoundTripWithZoomAndOffset() {
-        let viewSize = CGSize(width: 205, height: 251)
-        let centroid = CGPoint(x: 56.73, y: 161.10)
-        let modelPos = CGPoint(x: -40.27, y: 52.60)
-        let zoom: CGFloat = 1.0
-        let offset = CGSize(width: 81, height: 111.5)
-        
-        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
-        
-        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
     }
 }
 --------------------------------------------------
