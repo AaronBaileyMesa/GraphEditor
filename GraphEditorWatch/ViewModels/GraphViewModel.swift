@@ -89,7 +89,7 @@ import WatchKit  // For WKApplication
         // Load view state for current graph on init (after model load in GraphModel init)
         Task {
             do {
-                if let viewState = try await model.storage.loadViewState(for: model.currentGraphName) {
+                if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
                     self.offset = viewState.offset
                     self.zoomScale = viewState.zoomScale
                     self.selectedNodeID = viewState.selectedNodeID
@@ -253,7 +253,9 @@ import WatchKit  // For WKApplication
         offset = .zero
         objectWillChange.send()
     }
-    
+}
+
+extension GraphViewModel {
     // MARK: - Multi-Graph Support
     
     /// Creates a new empty graph and switches to it, resetting view state.
@@ -284,7 +286,7 @@ import WatchKit  // For WKApplication
         currentGraphName = model.currentGraphName  // Sync
         
         // Load view state for the new graph
-        if let viewState = try await model.storage.loadViewState(for: currentGraphName) {
+        if let viewState = try model.storage.loadViewState(for: currentGraphName) {
             offset = viewState.offset
             zoomScale = viewState.zoomScale
             selectedNodeID = viewState.selectedNodeID
@@ -311,7 +313,9 @@ import WatchKit  // For WKApplication
     public func listGraphNames() async throws -> [String] {
         try await model.listGraphNames()
     }
-    
+}
+
+extension GraphViewModel {
     // MARK: - View State Persistence
     
     /// Saves current view state for the current graph.
@@ -320,7 +324,9 @@ import WatchKit  // For WKApplication
         try model.storage.saveViewState(viewState, for: currentGraphName)
         print("Saved view state for '\(currentGraphName)'")
     }
-    
+}
+
+extension GraphViewModel {
     // MARK: - Helpers
     
     private func saveAfterDelay() async {
