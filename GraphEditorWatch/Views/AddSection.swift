@@ -24,11 +24,13 @@ struct AddSection: View {
                 onDismiss()
             }
             .onSubmit { onDismiss() }  // NEW: WatchOS focus improvement
+            .accessibilityIdentifier("addNodeButton")
             
             Button("Add Toggle Node") {
                 Task { await viewModel.addToggleNode(at: .zero) }
                 onDismiss()
             }
+            .accessibilityIdentifier("addToggleNodeButton")
             .onSubmit { onDismiss() }
             
             if let selectedID = selectedNodeID {
@@ -37,6 +39,7 @@ struct AddSection: View {
                     onDismiss()
                 }
                 .onSubmit { onDismiss() }
+                .accessibilityIdentifier("addChildButton")
                 
                 // NEW: Picker for edge type
                 Picker("Edge Type", selection: $selectedEdgeType) {
@@ -51,6 +54,7 @@ struct AddSection: View {
                 }
                 .onSubmit { onAddEdge(selectedEdgeType); onDismiss() }
                 .disabled(selectedNodeID == nil)  // Improvement: Explicit disable
+                .accessibilityIdentifier("addEdgeButton")
             }
         }
         .accessibilityLabel("Add section")  // NEW: Accessibility

@@ -62,6 +62,7 @@ struct MenuView: View {
             
             GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
         }
+        .accessibilityIdentifier("menuList")
         .navigationTitle("Menu")
         .focused($isMenuFocused)  // New: Bind focus to list
         .onAppear {

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-03 15:54:40
+Current date: 2025-10-07 00:27:38
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -268,7 +268,7 @@ private extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-10-03 14:29:14
+Last modified: 2025-10-06 18:41:27
 
 Contents:
 //
@@ -371,18 +371,6 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
         self.storage = storage
         self.physicsEngine = physicsEngine
         print("GraphModel initialized with storage: \(type(of: storage))")  // NEW: Log init
-        
-        // Load default graph on init
-        Task {
-            do {
-                try await self.loadGraph()
-            } catch {
-                print("Failed to load default graph: \(error)")
-                // Fallback to empty if load fails
-                self.nodes = []
-                self.edges = []
-            }
-        }
     }
     
     func buildAdjacencyList(for type: EdgeType) -> [NodeID: [NodeID]] {
@@ -717,7 +705,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Storage.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
-Last modified: 2025-10-03 14:16:01
+Last modified: 2025-10-05 15:59:59
 
 Contents:
 //
@@ -727,6 +715,7 @@ Contents:
 //  Created by handcart on 9/19/25.
 //
 import Foundation
+import CoreGraphics
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
@@ -816,7 +805,7 @@ extension GraphModel {
     
     /// Saves the current graph state under currentGraphName.
     public func saveGraph() async throws {
-        try await save()
+        await save()
     }
     
     /// Creates a new empty graph with the given name and switches to it.
@@ -852,6 +841,15 @@ extension GraphModel {
     /// Lists all available graph names.
     public func listGraphNames() async throws -> [String] {
         try await storage.listGraphNames()
+    }
+    
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
+        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        try storage.saveViewState(viewState, for: currentGraphName)
+    }
+
+    public func loadViewState() async throws -> ViewState? {
+        try storage.loadViewState(for: currentGraphName)
     }
 }
 ----------------------------------------------------------------------------------------------------

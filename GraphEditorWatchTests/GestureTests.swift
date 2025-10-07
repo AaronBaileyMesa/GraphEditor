@@ -28,6 +28,13 @@ struct GestureTests {
         let model = await setupModel()
         #expect((await model.edges).isEmpty, "No edges initially")
         
+        // Ensure at least two nodes exist before indexing
+        if await model.nodes.count < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+        }
+        
         let viewModel = await GraphViewModel(model: model)
         let draggedNode = await model.nodes[0]
         let potentialEdgeTarget = await model.nodes[1]
@@ -35,6 +42,8 @@ struct GestureTests {
         
         let mockTranslation = CGSize(width: 50, height: 50)
         let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
+        let initialPositionUpdated = CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y)  // NEW: Compute expected position if moved
+        
         let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
         
         if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
@@ -45,33 +54,29 @@ struct GestureTests {
                 if potentialEdgeTarget.id != draggedNode.id {
                     let fromID = draggedNode.id
                     let toID = potentialEdgeTarget.id
-                    let edgeExists = await MainActor.run {
-                        let edges = viewModel.model.edges  // No await needed here if already on MainActor
-                        let forwardMatch = edges.contains { $0.from == fromID && $0.target == toID }
-                        let reverseMatch = edges.contains { $0.from == toID && $0.target == fromID }
-                        return forwardMatch || reverseMatch
-                    }
+                    let initialEdges = await MainActor.run { viewModel.model.edges }  // Capture initial for comparison on MainActor
+                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == toID } ||
+                                     initialEdges.contains { $0.from == toID && $0.target == fromID }
                     if !edgeExists {
                         await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
-                        await viewModel.model.startSimulation()
                     } else {
                         await MainActor.run {
-                            let currentPos = viewModel.model.nodes[index].position
-                            viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
+                            viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: initialPositionUpdated, velocity: .zero)
                         }
-                        await viewModel.model.startSimulation()
                     }
+                    await viewModel.model.startSimulation()
                 }
             }
         }
         
-        #expect((await viewModel.model.edges).count == 1, "Edge created after simulated drag")
-        let newEdge = (await viewModel.model.edges).first!
+        let finalEdgeCount = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount == 1, "Edge created after simulated drag")
+        let newEdge = await MainActor.run { viewModel.model.edges.first! }
         #expect(newEdge.from == draggedNode.id, "Edge from correct node")
         #expect(newEdge.target == potentialEdgeTarget.id, "Edge to correct node")
-        #expect(approximatelyEqual((await model.nodes[0]).position, initialPosition, accuracy: 1e-5), "Position unchanged on create")
+        let node0PositionAfter = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfter, initialPositionUpdated, accuracy: 1e-5), "Position updated on drag")
     }
-    
     @Test func testShortDragAsTap() async throws {
         let model = await setupModel()
         #expect((await model.edges).isEmpty, "No edges initially")
@@ -94,12 +99,22 @@ struct GestureTests {
             }
         }
         
-        #expect((await model.edges).count == initialEdgeCount, "No edge created on short drag")
-        #expect(approximatelyEqual((await model.nodes[0]).position, initialPosition, accuracy: 1e-5), "Position unchanged")
+        let edgeCountAfter = await MainActor.run { model.edges.count }
+        #expect(edgeCountAfter == initialEdgeCount, "No edge created on short drag")
+        let node0PositionAfterTap = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfterTap, initialPosition, accuracy: 1e-5), "Position unchanged")
     }
     
     @Test func testDragMovesNodeIfEdgeExists() async throws {
         let model = await setupModel()
+        
+        // Ensure at least two nodes exist before indexing
+        if await model.nodes.count < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+        }
+
         let fromID = (await model.nodes[0]).id
         let toID = (await model.nodes[1]).id
         await MainActor.run { model.edges.append(GraphEdge(from: fromID, target: toID)) }
@@ -136,16 +151,18 @@ struct GestureTests {
                             let currentPos = viewModel.model.nodes[index].position
                             viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
                         }
-                        // NEW: Check position immediately after move, before simulation
-                        #expect(!approximatelyEqual((await model.nodes[0]).position, initialPosition, accuracy: 1e-5), "Position changed on move")
-                        #expect(approximatelyEqual((await model.nodes[0]).position, initialPosition + dragOffset, accuracy: 1e-5), "Moved by offset")
+                        let posAfterImmediateMove = await MainActor.run { model.nodes[0].position }
+                        #expect(!approximatelyEqual(posAfterImmediateMove, initialPosition, accuracy: 1e-5), "Position changed on move")
+                        #expect(approximatelyEqual(posAfterImmediateMove, CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y), accuracy: 1e-5), "Moved by offset")
                         await viewModel.model.startSimulation()  // Keep this if needed for side effects, but checks are now before it
                     }
                 }
             }
         }
         
-        #expect((await viewModel.model.edges).count == 1, "No new edge created")
+        let finalEdgeCount2 = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount2 == 1, "No new edge created")
         // OPTIONAL: If you want to verify post-simulation (e.g., position changed but not exactly by offset), add looser checks here
     }
 }
+

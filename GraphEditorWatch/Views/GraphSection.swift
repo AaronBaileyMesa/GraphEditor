@@ -19,20 +19,23 @@ struct GraphSection: View {
     
     var body: some View {
         Section(header: Text("Graph")) {
+            TextField("Graph Name", text: $graphName)
+                .accessibilityIdentifier("graphNameTextField")
             if viewModel.canRedo || viewModel.canUndo {
                 Section(header: Text("Undo")) {
                     if viewModel.canUndo {
                         Button("Undo") {
                             Task { await viewModel.undo()}
                             onDismiss()
-
                         }
+                        .accessibilityIdentifier("undoButton")
                     }
                     if viewModel.canRedo {
                         Button("Redo") {
                             Task { await viewModel.redo()}
                             onDismiss()
                         }
+                        .accessibilityIdentifier("redoButton")
                     }
                 }
             }
@@ -44,10 +47,12 @@ struct GraphSection: View {
                 newGraphName = ""
                 showNewSheet = true
             }
+            .accessibilityIdentifier("newGraphButton")
             .onSubmit { /* Same as above */ }
             .sheet(isPresented: $showNewSheet) {
                 VStack {
                     TextField("New Graph Name", text: $newGraphName)
+                        .accessibilityIdentifier("newGraphNameTextField")  // Add this
                     Button("Create") {
                         Task {
                             do {
@@ -60,6 +65,7 @@ struct GraphSection: View {
                             }
                         }
                     }
+                    .accessibilityIdentifier("createButton")
                 }
             }
             
@@ -74,6 +80,7 @@ struct GraphSection: View {
                     onDismiss()
                 }
             }
+            .accessibilityIdentifier("saveButton")
             .onSubmit { /* Same as above */ }
             
             Button("Load Graph") {
@@ -87,6 +94,7 @@ struct GraphSection: View {
                     onDismiss()
                 }
             }
+            .accessibilityIdentifier("loadButton")
             .onSubmit { /* Same as above */ }
             
             Button("List Graphs") {
@@ -98,6 +106,7 @@ struct GraphSection: View {
                     }
                 }
             }
+            .accessibilityIdentifier("listGraphsButton")
             .onSubmit { /* Same as above */ }
             
             ForEach(graphs, id: \.self) { name in
@@ -120,6 +129,7 @@ struct GraphSection: View {
                 onDismiss()
             }
             .onSubmit { /* Same as above */ }
+            .accessibilityIdentifier("resetGraphButton")
             
             Button("Delete Graph", role: .destructive) {
                 Task {
@@ -134,6 +144,7 @@ struct GraphSection: View {
                 }
             }
             .onSubmit { /* Same as above */ }
+            .accessibilityLabel("deleteGraphButton")
             
             if let error = errorMessage {
                 Text(error).foregroundColor(.red)

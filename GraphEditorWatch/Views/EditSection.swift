@@ -38,6 +38,8 @@ struct EditSection: View {
                 }
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
+                .accessibilityIdentifier("editNodeButton")
+
                 
                 if viewModel.isSelectedToggleNode {
                     Button("Toggle Expand/Collapse") {
@@ -45,6 +47,8 @@ struct EditSection: View {
                         onDismiss()
                     }
                     .onSubmit { /* Same as above */ }
+                    .accessibilityIdentifier("toggleExpandCollapseButton")
+
                 }
                 
                 Button("Delete Node", role: .destructive) {
@@ -58,6 +62,7 @@ struct EditSection: View {
                 }
                 .onSubmit { /* Same as above, but for focus */ }
                 .disabled(isProcessing)
+                .accessibilityIdentifier("deleteNodeButton")
             }
             
             if let selectedEdgeID = selectedEdgeID,
@@ -91,6 +96,8 @@ struct EditSection: View {
                 }
                 .onSubmit { /* Same as above */ }
                 .disabled(isProcessing)
+                .accessibilityIdentifier("deleteEdgeButton")
+
                 
                 if selectedEdge.type == .hierarchy {  // NEW: Only for directed edges
                     Button("Reverse Edge") {
@@ -107,6 +114,8 @@ struct EditSection: View {
                     }
                     .onSubmit { /* Same as above */ }
                     .disabled(isProcessing)
+                    .accessibilityIdentifier("reverseNodeButton")
+
                 }
             }
         }

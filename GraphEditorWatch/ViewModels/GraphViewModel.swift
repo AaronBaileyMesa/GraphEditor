@@ -81,14 +81,16 @@ import WatchKit  // For WKApplication
             }
         }
 
-        model.nodes = model.nodes.map { anyNode in
-            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
-            return AnyNode(updated)
-        }
-        
-        // Load view state for current graph on init (after model load in GraphModel init)
+        // Load graph, reset velocities, and view state async to avoid races
         Task {
             do {
+                try await model.loadGraph()
+                
+                model.nodes = model.nodes.map { anyNode in
+                    let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                    return AnyNode(updated)
+                }
+                
                 if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
                     self.offset = viewState.offset
                     self.zoomScale = viewState.zoomScale
@@ -97,7 +99,7 @@ import WatchKit  // For WKApplication
                     print("Loaded view state for '\(model.currentGraphName)'")
                 }
             } catch {
-                print("Failed to load view state: \(error)")
+                print("Failed to load graph or view state: \(error)")
             }
         }
     }

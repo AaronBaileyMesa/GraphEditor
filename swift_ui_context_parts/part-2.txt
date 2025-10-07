@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-03 15:54:41
+Current date: 2025-10-07 00:27:38
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
@@ -192,7 +192,7 @@ class GraphSimulator {
 ----------------------------------------------------------------------------------------------------
 File: GraphTypes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-10-03 11:45:25
+Last modified: 2025-10-05 15:51:03
 
 Contents:
 //
@@ -233,7 +233,6 @@ public struct Node: NodeProtocol, Equatable {
         Node(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, content: content)
     }
 }
-
 
 // New: EdgeType enum
 public enum EdgeType: String, Codable {

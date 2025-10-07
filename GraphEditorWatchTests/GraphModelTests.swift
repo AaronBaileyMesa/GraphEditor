@@ -23,14 +23,14 @@ struct GraphModelTests {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
     
-    private func setupDefaults(for storage: MockGraphStorage) throws {
+    private func setupDefaults(for storage: MockGraphStorage) async throws {
         let node1 = AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))
         let node2 = AnyNode(Node(label: 2, position: CGPoint(x: 200, y: 200)))
         let node3 = AnyNode(Node(label: 3, position: CGPoint(x: 150, y: 150)))
         let edge1 = GraphEdge(from: node1.id, target: node2.id)
         let edge2 = GraphEdge(from: node2.id, target: node3.id)
         let edge3 = GraphEdge(from: node3.id, target: node1.id)
-        try storage.save(nodes: [node1, node2, node3], edges: [edge1, edge2, edge3])
+        try await storage.save(nodes: [node1, node2, node3], edges: [edge1, edge2, edge3])
     }
     
     private func generateNodesAndEdges(seed: Int) async -> ([AnyNode], [GraphEdge]) {
@@ -116,7 +116,7 @@ struct GraphModelTests {
     
     @Test func testUndoRedoMixedOperations() async throws {
         let storage = MockGraphStorage()
-        try setupDefaults(for: storage)
+        try await setupDefaults(for: storage)
         let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         await runSimulation(on: model)
@@ -152,7 +152,7 @@ struct GraphModelTests {
     
     @Test func testInitializationWithDefaults() async throws {
         let storage = MockGraphStorage()
-        try setupDefaults(for: storage)
+        try await setupDefaults(for: storage)
         let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         #expect(await MainActor.run { model.nodes.count } >= 3, "Should load default or saved nodes")
@@ -161,7 +161,7 @@ struct GraphModelTests {
     
     @Test func testDeleteNodeAndEdges() async throws {
         let storage = MockGraphStorage()
-        try setupDefaults(for: storage)
+        try await setupDefaults(for: storage)
         let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         let nodes = await model.nodes
@@ -176,7 +176,7 @@ struct GraphModelTests {
     
     @Test func testSaveLoadRoundTrip() async throws {
         let storage = MockGraphStorage()
-        try setupDefaults(for: storage)
+        try await setupDefaults(for: storage)
         let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         let originalNodeCount = await MainActor.run { model.nodes.count }
