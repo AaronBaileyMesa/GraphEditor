@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-07 00:27:39
+Current date: 2025-10-08 15:39:31
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
 2. GraphEditorWatch/Views/AddSection.swift
@@ -10,7 +10,7 @@ Table of Contents:
 5. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-06 18:42:29
+Last modified: 2025-10-07 15:20:00
 
 Contents:
 //
@@ -95,28 +95,6 @@ import WatchKit  // For WKApplication
                 await self?.resumeSimulationAfterDelay()
             }
         }
-
-        // Load graph, reset velocities, and view state async to avoid races
-        Task {
-            do {
-                try await model.loadGraph()
-                
-                model.nodes = model.nodes.map { anyNode in
-                    let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
-                    return AnyNode(updated)
-                }
-                
-                if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
-                    self.offset = viewState.offset
-                    self.zoomScale = viewState.zoomScale
-                    self.selectedNodeID = viewState.selectedNodeID
-                    self.selectedEdgeID = viewState.selectedEdgeID
-                    print("Loaded view state for '\(model.currentGraphName)'")
-                }
-            } catch {
-                print("Failed to load graph or view state: \(error)")
-            }
-        }
     }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -136,9 +114,8 @@ import WatchKit  // For WKApplication
         return (minZoom, maxZoom)
     }
     
-    public func addNode(at position: CGPoint? = nil) async {
-        await model.addNode(at: position ?? .zero)
-        await saveAfterDelay()
+    public func addNode(at position: CGPoint) async {
+        await model.addNode(at: position)
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
@@ -761,7 +738,7 @@ struct EditContentSheet: View {
 ----------------------------------------------------------------------------------------------------
 File: EditSection.swift
 Path: GraphEditorWatch/Views/EditSection.swift
-Last modified: 2025-10-06 20:19:46
+Last modified: 2025-10-07 03:37:27
 
 Contents:
 //
@@ -805,7 +782,6 @@ struct EditSection: View {
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
                 .accessibilityIdentifier("editNodeButton")
-
                 
                 if viewModel.isSelectedToggleNode {
                     Button("Toggle Expand/Collapse") {
@@ -864,7 +840,6 @@ struct EditSection: View {
                 .disabled(isProcessing)
                 .accessibilityIdentifier("deleteEdgeButton")
 
-                
                 if selectedEdge.type == .hierarchy {  // NEW: Only for directed edges
                     Button("Reverse Edge") {
                         Task {

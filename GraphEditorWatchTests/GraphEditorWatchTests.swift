@@ -129,7 +129,3 @@ class MockGraphStorage: GraphStorage {
     #expect(await model.nodes.count == 2, "Redo adds node")
     #expect(await model.undoStack.count == 2, "Undo stack updated")
 }
-
-func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
-    return hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
-}

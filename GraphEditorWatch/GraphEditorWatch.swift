@@ -14,12 +14,50 @@ import GraphEditorShared
 struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
-            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-            let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
-            let viewModel = GraphViewModel(model: model)  // Sync init
+            ContentLoaderView()
+        }
+    }
+}
+
+struct ContentLoaderView: View {
+    @State private var viewModel: GraphViewModel?
+    
+    var body: some View {
+        if let viewModel = viewModel {
             ContentView(
                 viewModel: viewModel
             )
+        } else {
+            Text("Loading...")
+                .task {
+                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let storage = PersistenceManager()
+                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                    do {
+                        try await model.loadGraph()
+                        
+                        model.nodes = model.nodes.map { anyNode in
+                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                            return AnyNode(updated)
+                        }
+                        
+                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
+                            // Note: Create viewModel first to set properties
+                            let tempViewModel = GraphViewModel(model: model)
+                            tempViewModel.offset = viewState.offset
+                            tempViewModel.zoomScale = viewState.zoomScale
+                            tempViewModel.selectedNodeID = viewState.selectedNodeID
+                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                            print("Loaded view state for '\(model.currentGraphName)'")
+                            self.viewModel = tempViewModel
+                        } else {
+                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } catch {
+                        print("Failed to load graph or view state: \(error)")
+                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    }
+                }
         }
     }
 }

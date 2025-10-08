@@ -13,8 +13,8 @@ struct GraphGesturesModifierTests {
     private func setupViewModel() async -> GraphViewModel {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
-        return await GraphViewModel(model: model)
+        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
+        return await MainActor.run { GraphViewModel(model: model) }
     }
     
     private func createModifier(viewModel: GraphViewModel,

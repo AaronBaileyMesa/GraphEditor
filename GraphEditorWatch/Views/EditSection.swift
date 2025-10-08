@@ -39,7 +39,6 @@ struct EditSection: View {
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
                 .accessibilityIdentifier("editNodeButton")
-
                 
                 if viewModel.isSelectedToggleNode {
                     Button("Toggle Expand/Collapse") {
@@ -98,7 +97,6 @@ struct EditSection: View {
                 .disabled(isProcessing)
                 .accessibilityIdentifier("deleteEdgeButton")
 
-                
                 if selectedEdge.type == .hierarchy {  // NEW: Only for directed edges
                     Button("Reverse Edge") {
                         Task {

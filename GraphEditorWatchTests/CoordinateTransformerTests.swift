@@ -38,4 +38,8 @@ struct CoordinateTransformerTests {
         
         #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
     }
+    
+    public func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
+    }
 }

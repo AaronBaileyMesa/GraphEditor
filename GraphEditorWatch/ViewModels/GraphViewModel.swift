@@ -80,28 +80,6 @@ import WatchKit  // For WKApplication
                 await self?.resumeSimulationAfterDelay()
             }
         }
-
-        // Load graph, reset velocities, and view state async to avoid races
-        Task {
-            do {
-                try await model.loadGraph()
-                
-                model.nodes = model.nodes.map { anyNode in
-                    let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
-                    return AnyNode(updated)
-                }
-                
-                if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
-                    self.offset = viewState.offset
-                    self.zoomScale = viewState.zoomScale
-                    self.selectedNodeID = viewState.selectedNodeID
-                    self.selectedEdgeID = viewState.selectedEdgeID
-                    print("Loaded view state for '\(model.currentGraphName)'")
-                }
-            } catch {
-                print("Failed to load graph or view state: \(error)")
-            }
-        }
     }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -121,9 +99,8 @@ import WatchKit  // For WKApplication
         return (minZoom, maxZoom)
     }
     
-    public func addNode(at position: CGPoint? = nil) async {
-        await model.addNode(at: position ?? .zero)
-        await saveAfterDelay()
+    public func addNode(at position: CGPoint) async {
+        await model.addNode(at: position)
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''

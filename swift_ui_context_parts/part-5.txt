@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-07 00:27:39
+Current date: 2025-10-08 15:39:32
 Table of Contents:
 1. GraphEditorWatch/Views/GraphCanvasView.swift
 2. GraphEditorWatch/Views/GraphGesturesModifier.swift
@@ -815,7 +815,7 @@ extension GraphGesturesModifier {
 ----------------------------------------------------------------------------------------------------
 File: GraphSection.swift
 Path: GraphEditorWatch/Views/GraphSection.swift
-Last modified: 2025-10-06 22:57:52
+Last modified: 2025-10-07 00:41:34
 
 Contents:
 //
@@ -872,6 +872,7 @@ struct GraphSection: View {
             .sheet(isPresented: $showNewSheet) {
                 VStack {
                     TextField("New Graph Name", text: $newGraphName)
+                        .accessibilityIdentifier("newGraphNameTextField")  // Add this
                     Button("Create") {
                         Task {
                             do {

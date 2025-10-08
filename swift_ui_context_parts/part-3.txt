@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-07 00:27:39
+Current date: 2025-10-08 15:39:31
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
@@ -13,7 +13,7 @@ Table of Contents:
 8. GraphEditorWatch/Models/AppConstants.swift--------------------------------------------------
 File: PositionUpdater.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-Last modified: 2025-09-16 11:17:51
+Last modified: 2025-10-08 13:12:23
 
 Contents:
 //
@@ -90,38 +90,46 @@ struct PositionUpdater {
                 }
                 avgPos /= CGFloat(collapsedParents.count)
                 newPosition = avgPos
-                newVelocity = .zero
+                newVelocity = .zero  // Override velocity for collapsed children
             }
         }
         return (newPosition, newVelocity)
     }
 
     func updatePositionsAndVelocities(nodes: [any NodeProtocol], forces: [NodeID: CGPoint], edges: [GraphEdge], quadtree: Quadtree?) -> ([any NodeProtocol], Bool) {
+        let timeStep: CGFloat = Constants.Physics.timeStep  // Updated: Use constant
         var tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)] = [:]
+        var isActive = false
+
         for node in nodes {
             let force = forces[node.id] ?? .zero
-            var newVelocity = CGPoint(x: node.velocity.x + force.x * Constants.Physics.timeStep, y: node.velocity.y + force.y * Constants.Physics.timeStep)
-            newVelocity = CGPoint(x: newVelocity.x * Constants.Physics.damping, y: newVelocity.y * Constants.Physics.damping)
-            var newPosition = CGPoint(x: node.position.x + newVelocity.x * Constants.Physics.timeStep, y: node.position.y + newVelocity.y * Constants.Physics.timeStep)
-            (newPosition, newVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
+            var newVelocity = node.velocity + force / node.mass * timeStep
+            var newPosition = node.position + newVelocity * timeStep
+
+            newVelocity *= Constants.Physics.damping  // Apply global damping
+
+            let (clampedPosition, bouncedVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
+            newPosition = clampedPosition
+            newVelocity = bouncedVelocity
+
             newPosition = adjustPositionForCollisions(newPosition, excluding: node.id, using: quadtree, allNodes: nodes)
+
+            if hypot(newVelocity.x, newVelocity.y) > 0.001 {
+                isActive = true
+            }
+
             tentativeUpdates[node.id] = (newPosition, newVelocity)
         }
 
         let parentMap = buildParentMap(from: edges)
-        let isExpandedMap: [NodeID: Bool] = nodes.reduce(into: [:]) { $0[$1.id] = $1.isExpanded }
-
+        let isExpandedMap = nodes.reduce(into: [NodeID: Bool]()) { $0[$1.id] = $1.isExpanded }
         var updatedNodes: [any NodeProtocol] = []
-        var totalVelocity: CGFloat = 0.0
+
         for node in nodes {
             let tentative = tentativeUpdates[node.id]!
-            let (newPosition, newVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
-            let updatedNode = node.with(position: newPosition, velocity: newVelocity)
-            updatedNodes.append(updatedNode)
-            totalVelocity += hypot(newVelocity.x, newVelocity.y)
+            let (finalPosition, finalVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
+            updatedNodes.append(node.with(position: finalPosition, velocity: finalVelocity))
         }
-
-        let isActive = totalVelocity >= Constants.Physics.velocityThreshold * CGFloat(nodes.count)
 
         return (updatedNodes, isActive)
     }
@@ -818,7 +826,7 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-10-03 09:37:35
+Last modified: 2025-10-07 15:20:23
 
 Contents:
 //
@@ -837,12 +845,50 @@ import GraphEditorShared
 struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
-            let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-            let model = GraphModel(storage: PersistenceManager(), physicsEngine: physicsEngine)
-            let viewModel = GraphViewModel(model: model)  // Sync init
+            ContentLoaderView()
+        }
+    }
+}
+
+struct ContentLoaderView: View {
+    @State private var viewModel: GraphViewModel?
+    
+    var body: some View {
+        if let viewModel = viewModel {
             ContentView(
                 viewModel: viewModel
             )
+        } else {
+            Text("Loading...")
+                .task {
+                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let storage = PersistenceManager()
+                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                    do {
+                        try await model.loadGraph()
+                        
+                        model.nodes = model.nodes.map { anyNode in
+                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                            return AnyNode(updated)
+                        }
+                        
+                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
+                            // Note: Create viewModel first to set properties
+                            let tempViewModel = GraphViewModel(model: model)
+                            tempViewModel.offset = viewState.offset
+                            tempViewModel.zoomScale = viewState.zoomScale
+                            tempViewModel.selectedNodeID = viewState.selectedNodeID
+                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                            print("Loaded view state for '\(model.currentGraphName)'")
+                            self.viewModel = tempViewModel
+                        } else {
+                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } catch {
+                        print("Failed to load graph or view state: \(error)")
+                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    }
+                }
         }
     }
 }

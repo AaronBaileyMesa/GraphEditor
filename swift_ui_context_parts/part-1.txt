@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-07 00:27:38
+Current date: 2025-10-08 15:39:30
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -121,7 +121,7 @@ struct CenteringCalculator {
 ----------------------------------------------------------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-09-25 15:18:40
+Last modified: 2025-10-08 13:12:23
 
 Contents:
 //
@@ -138,11 +138,11 @@ public enum Constants {
     public enum Physics {
         public static let stiffness: CGFloat = 0.4  // Reduced from 0.8 for softer springs
         public static let repulsion: CGFloat = 1200  // Reduced from 2200 for less aggressive push
-        public static let damping: CGFloat = 0.9  // Reduced from 0.99 for faster settling
+        public static let damping: CGFloat = 0.94  // Updated from 0.9 for better convergence with alpha
         public static let idealLength: CGFloat = 80  // Slightly increased for more space
-        public static let centeringForce: CGFloat = 0.03  // Reduced from 0.06 to avoid over-pull
+        public static let centeringForce: CGFloat = 0.1  // Increased from 0.03 for better centering
         public static let distanceEpsilon: CGFloat = 1e-3
-        public static let timeStep: CGFloat = 0.02  // Slightly reduced for finer steps
+        public static let timeStep: CGFloat = 0.05  // Updated to match PositionUpdater; tune if needed
         public static let velocityThreshold: CGFloat = 0.3  // Increased from 0.2 for earlier stop
         public static let maxSimulationSteps = 500  // Further reduced from 1000 for quick convergence
         public static let minQuadSize: CGFloat = 1e-6
@@ -150,6 +150,7 @@ public enum Constants {
         public static let maxNodesForQuadtree = 200
         public static let minCollisionDist: CGFloat = 35.0  // New: For anti-collision separation
         public static let verticalBias: CGFloat = 0.0  // New: Downward bias for hierarchy edges (tune as needed)
+        public static let alphaDecay: CGFloat = 0.0228  // New: For cooling schedule
     }
     
     public enum App {
@@ -268,7 +269,7 @@ private extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-10-06 18:41:27
+Last modified: 2025-10-07 16:10:09
 
 Contents:
 //
@@ -332,13 +333,31 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
 
     lazy var simulator: GraphSimulator = {
         GraphSimulator(
-            getNodes: { [weak self] in self?.nodes.map { $0.unwrapped } ?? [] },
-            setNodes: { [weak self] newNodes in
-                self?.nodes = newNodes.map { AnyNode($0) }
+            getNodes: { [weak self] in
+                await MainActor.run {
+                    self?.nodes.map { $0.unwrapped } ?? []
+                }
             },
-            getEdges: { [weak self] in self?.edges ?? [] },
-            getVisibleNodes: { [weak self] in self?.visibleNodes() ?? [] },
-            getVisibleEdges: { [weak self] in self?.visibleEdges() ?? [] },
+            setNodes: { [weak self] newNodes in
+                await MainActor.run {
+                    self?.nodes = newNodes.map { AnyNode($0) }
+                }
+            },
+            getEdges: { [weak self] in
+                await MainActor.run {
+                    self?.edges ?? []
+                }
+            },
+            getVisibleNodes: { [weak self] in
+                await MainActor.run {
+                    self?.visibleNodes() ?? []
+                }
+            },
+            getVisibleEdges: { [weak self] in
+                await MainActor.run {
+                    self?.visibleEdges() ?? []
+                }
+            },
             physicsEngine: self.physicsEngine,
             onStable: { [weak self] in
                 guard let self = self, !self.isStable else { return }
@@ -348,10 +367,12 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
                     let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes.map { $0.unwrapped })
                     self.nodes = centeredNodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
                     self.isStable = true
-                    Task {
+                    Task.detached {
                         await self.stopSimulation()
                         try? await Task.sleep(nanoseconds: 500_000_000)
-                        self.isStable = false
+                        await MainActor.run {
+                            self.isStable = false
+                        }
                     }
                     self.objectWillChange.send()
                 }
@@ -643,7 +664,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-10-03 14:11:39
+Last modified: 2025-10-07 16:16:49
 
 Contents:
 //
@@ -656,50 +677,24 @@ import Foundation
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
-    public func resizeSimulationBounds(for nodeCount: Int) async {
-        let newSize = max(300.0, sqrt(Double(nodeCount)) * 100.0)
-        self.physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: newSize, height: newSize))
-        self.simulator = GraphSimulator(
-            getNodes: { [weak self] in self?.nodes.map { $0.unwrapped } ?? [] },
-            setNodes: { [weak self] newNodes in
-                self?.nodes = newNodes.map { AnyNode($0) }
-            },
-            getEdges: { [weak self] in self?.edges ?? [] },
-            getVisibleNodes: { [weak self] in self?.visibleNodes() ?? [] },
-            getVisibleEdges: { [weak self] in self?.visibleEdges() ?? [] },
-            physicsEngine: self.physicsEngine,
-            onStable: { [weak self] in
-                guard let self = self else { return }
-                print("Simulation stable: Centering nodes")
-                let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes.map { $0.unwrapped })
-                self.nodes = centeredNodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
-                self.isStable = true
-                self.objectWillChange.send()
-            }
-        )
-    }
-
     public func startSimulation() async {
-        
-        isStable = false
-        simulationError = nil
+        await stopSimulation()  // Cancel any ongoing
         isSimulating = true
+        isStable = false
         await simulator.startSimulation()
-        isSimulating = false
     }
-
-    public func stopSimulation() async {
-        await simulator.stopSimulation()
-    }
-
+    
     public func pauseSimulation() async {
         await stopSimulation()
-        physicsEngine.isPaused = true
     }
-
+    
     public func resumeSimulation() async {
-        physicsEngine.isPaused = false
         await startSimulation()
+    }
+    
+    public func stopSimulation() async {
+        await simulator.stopSimulation()
+        isSimulating = false
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -855,7 +850,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-10-03 11:45:25
+Last modified: 2025-10-07 15:41:31
 
 Contents:
 //
@@ -884,25 +879,29 @@ extension GraphModel {
         UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
     }
     
-    public func undo() async {
+    public func undo(resume: Bool = true) async {
         if let state = undoStack.popLast() {
             redoStack.append(currentState())
             nodes = state.nodes
             edges = state.edges
             nextNodeLabel = state.nextLabel
             objectWillChange.send()
-            await resumeSimulation()
+            if resume {
+                await resumeSimulation()
+            }
         }
     }
     
-    public func redo() async {
+    public func redo(resume: Bool = true) async {
         if let state = redoStack.popLast() {
             undoStack.append(currentState())
             nodes = state.nodes
             edges = state.edges
             nextNodeLabel = state.nextLabel
             objectWillChange.send()
-            await resumeSimulation()
+            if resume {
+                await resumeSimulation()
+            }
         }
     }
     

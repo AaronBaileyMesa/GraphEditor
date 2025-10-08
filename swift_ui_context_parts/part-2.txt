@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-07 00:27:38
+Current date: 2025-10-08 15:39:31
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
@@ -11,10 +11,15 @@ Table of Contents:
 6. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift--------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-09-28 19:10:01
+Last modified: 2025-10-08 15:39:06
 
 Contents:
-// Sources/GraphEditorShared/GraphSimulator.swift
+//
+//  GraphSimulator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
 
 import Foundation
 import os.log  // For logging if needed
@@ -27,25 +32,25 @@ import WatchKit  // Only if using haptics; otherwise remove
 /// Manages physics simulation loops for graph updates.
 class GraphSimulator {
     var simulationTask: Task<Void, Never>?  // Exposed for testing
-    internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access    
+    internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access
     let velocityChangeThreshold: CGFloat
     let velocityHistoryCount: Int
     let baseInterval: TimeInterval  // Now configurable
     
     let physicsEngine: PhysicsEngine
-    private let getVisibleNodes: () -> [any NodeProtocol]
-    private let getVisibleEdges: () -> [GraphEdge]
+    private let getVisibleNodes: () async -> [any NodeProtocol]
+    private let getVisibleEdges: () async -> [GraphEdge]
     
-    internal let getNodes: () -> [any NodeProtocol]  // Changed from private to internal
-    private let setNodes: ([any NodeProtocol]) -> Void  // Updated: Polymorphic
-    private let getEdges: () -> [GraphEdge]
-    private let onStable: (() -> Void)?  // New: Optional callback
+    internal let getNodes: () async -> [any NodeProtocol]  // Changed from private to internal
+    internal let setNodes: ([any NodeProtocol]) async -> Void  // Updated: Polymorphic
+    private let getEdges: () async -> [GraphEdge]
+    internal let onStable: (() -> Void)?  // New: Optional callback
     
-    init(getNodes: @escaping () -> [any NodeProtocol],
-         setNodes: @escaping ([any NodeProtocol]) -> Void,
-         getEdges: @escaping () -> [GraphEdge],
-         getVisibleNodes: @escaping () -> [any NodeProtocol],
-         getVisibleEdges: @escaping () -> [GraphEdge],
+    init(getNodes: @escaping () async -> [any NodeProtocol],
+         setNodes: @escaping ([any NodeProtocol]) async -> Void,
+         getEdges: @escaping () async -> [GraphEdge],
+         getVisibleNodes: @escaping () async -> [any NodeProtocol],
+         getVisibleEdges: @escaping () async -> [GraphEdge],
          physicsEngine: PhysicsEngine,
          onStable: (() -> Void)? = nil,
          baseInterval: TimeInterval = 1.0 / 30.0,  // Default value
@@ -73,13 +78,13 @@ class GraphSimulator {
     
     @MainActor
     func startSimulation() async {
-#if os(watchOS)
+    #if os(watchOS)
         guard WKApplication.shared().applicationState == .active else { return }
-#endif
+    #endif
         physicsEngine.resetSimulation()
         recentVelocities.removeAll()
         
-        let nodeCount = getNodes().count
+        let nodeCount = await getNodes().count
         if nodeCount < 5 {
             onStable?()  // NEW: Call here to handle "already stable" cases
             return
@@ -95,8 +100,14 @@ class GraphSimulator {
         
         simulationTask = Task {
             await self.runSimulationLoop(baseInterval: adjustedInterval, nodeCount: nodeCount)
+            self.simulationTask = nil  // Clear after completion (moved inside Task)
         }
+    }
+    
+    func stopSimulation() async {
+        simulationTask?.cancel()
         await simulationTask?.value
+        simulationTask = nil  // Added: Clear task after stop
     }
     
     internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
@@ -105,6 +116,7 @@ class GraphSimulator {
         let maxIterations = 500
         while !Task.isCancelled && iterations < maxIterations {
             let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
+            physicsEngine.alpha *= (1 - Constants.Physics.alphaDecay)  // New: Decay alpha
             iterations += 1
             print("Iteration \(iterations): shouldContinue = \(shouldContinue)")  // NEW: Per-iter log
             if !shouldContinue {
@@ -118,75 +130,48 @@ class GraphSimulator {
         self.onStable?()
     }
     
-    private func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
+    internal func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
 #if os(watchOS)
         if await WKApplication.shared().applicationState != .active { return false }
 #endif
         
+        if physicsEngine.isPaused { return false } // Added: Stop loop if paused to prevent infinite loop
+        
         let result: SimulationStepResult = await Task.detached {
-            return self.computeSimulationStep()
+            await self.computeSimulationStep()
         }.value
         print("Step: Total velocity = \(result.totalVelocity)")
-        self.setNodes(result.updatedNodes)
-        
-        if self.shouldStopSimulation(result: result, nodeCount: nodeCount) {
-            return false
-        }
-        
-        try? await Task.sleep(for: .seconds(baseInterval))
-        return true
-    }
-    
-    nonisolated func computeSimulationStep() -> SimulationStepResult {
-        let nodes = self.getNodes()
-        let visibleNodes = self.getVisibleNodes()
-        let visibleEdges = self.getVisibleEdges()
-        let (forces, quadtree) = self.physicsEngine.repulsionCalculator.computeRepulsions(nodes: visibleNodes)
-        var updatedForces = forces
-        updatedForces = self.physicsEngine.attractionCalculator.applyAttractions(forces: updatedForces, edges: visibleEdges, nodes: visibleNodes)
-        updatedForces = self.physicsEngine.centeringCalculator.applyCentering(forces: updatedForces, nodes: visibleNodes)
-        
-        var tempNodes = nodes
-        var stepActive = false
-        let subSteps = nodes.count < 5 ? 2 : (nodes.count < 10 ? 5 : (nodes.count < 30 ? 3 : 1))
-        for _ in 0..<subSteps {
-            let (updated, active) = self.physicsEngine.positionUpdater.updatePositionsAndVelocities(nodes: tempNodes, forces: updatedForces, edges: self.getEdges(), quadtree: quadtree)
-            tempNodes = updated
-            stepActive = stepActive || active
-        }
-        
-        let totalVel = tempNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        return SimulationStepResult(updatedNodes: tempNodes, shouldContinue: stepActive, totalVelocity: totalVel)
-    }
-    
-    func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
-        print("Check stop: totalVel = \(result.totalVelocity), threshold = \(Constants.Physics.velocityThreshold * CGFloat(nodeCount)), shouldContinue = \(result.shouldContinue)")  // NEW
-        if !result.shouldContinue || result.totalVelocity < Constants.Physics.velocityThreshold * CGFloat(nodeCount) {
-            return true
-        }
+        await self.setNodes(result.updatedNodes)
         
         recentVelocities.append(result.totalVelocity)
         if recentVelocities.count > velocityHistoryCount {
             recentVelocities.removeFirst()
         }
         
-        if recentVelocities.count == velocityHistoryCount {
-            let maxVel = recentVelocities.max() ?? 1.0
-            let minVel = recentVelocities.min() ?? 0.0
-            let relativeChange = (maxVel > 0) ? (maxVel - minVel) / maxVel : 0.0  // Guard zero-divide
-            print("Relative change: \(relativeChange) (threshold: \(velocityChangeThreshold))")  // NEW
-            if relativeChange < velocityChangeThreshold {
-                return true
-            }
-        }
+        let velocityChange = recentVelocities.max()! - recentVelocities.min()!
+        let isStable = velocityChange < velocityChangeThreshold && recentVelocities.allSatisfy { $0 < 0.5 }
         
-        return false
+        return !isStable
     }
     
-    func stopSimulation() async {
-        simulationTask?.cancel()
-        await simulationTask?.value  // Await to ensure clean stop
-        simulationTask = nil
+    internal func computeSimulationStep() async -> SimulationStepResult {
+        let nodes = await getNodes()
+        let edges = await getEdges()
+        
+        let (updatedNodes, isActive) = physicsEngine.simulationStep(nodes: nodes, edges: edges)
+        let totalVelocity = updatedNodes.reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
+        
+        return SimulationStepResult(updatedNodes: updatedNodes, shouldContinue: isActive, totalVelocity: totalVelocity)
+    }
+    
+    internal func shouldStopSimulation(result: SimulationStepResult, nodeCount: Int) -> Bool {
+        recentVelocities.append(result.totalVelocity)
+        if recentVelocities.count > velocityHistoryCount {
+            recentVelocities.removeFirst()
+        }
+        let velocityChange = recentVelocities.max()! - recentVelocities.min()!
+        let isStable = velocityChange < velocityChangeThreshold && recentVelocities.allSatisfy { $0 < 0.5 }
+        return isStable  // True if should stop (stable and low velocity)
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -463,7 +448,7 @@ public struct HitTestHelper {
 ----------------------------------------------------------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-09-25 11:53:46
+Last modified: 2025-10-07 17:03:45
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -502,6 +487,9 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     
     // Data payload for the node
     var content: NodeContent? { get set }
+    
+    /// Mass for physics calculations (default: 1.0).
+    var mass: CGFloat { get }
     
     /// Creates a copy with updated position and velocity.
     func with(position: CGPoint, velocity: CGPoint) -> Self
@@ -557,90 +545,85 @@ public enum NodeContent: Codable, Equatable {
             formatter.timeZone = TimeZone(secondsFromGMT: 0)  // Use UTC for consistency
             formatter.locale = Locale(identifier: "en_US")  // Set locale for consistent output
             return formatter.string(from: date)
-        case .number(let num): return String(format: "%.1f", num)
+        case .number(let num): return String(format: "%.2f", num)
         }
     }
 }
 
-/// Extension providing default implementations for non-rendering behaviors.
-/// These can be overridden in conformers for custom logic.
-@available(iOS 16.0, *)
-@available(watchOS 9.0, *)
-public extension NodeProtocol {
-    /// Default: No change on tap.
-    func handlingTap() -> Self { self }
+extension NodeProtocol {
+    public var isVisible: Bool { true }  // Default visible
     
-    /// Default: Node is always visible.
-    var isVisible: Bool { true }
+    public var fillColor: Color { .blue }  // Default fill
     
-    var fillColor: Color { .red }  // Default to red for all nodes
+    public var mass: CGFloat { 1.0 }  // Default mass
     
-    var isExpanded: Bool {
-        true  // Default: Always expanded (non-toggle nodes ignore)
-    }
+    public func shouldHideChildren() -> Bool { false }  // Default: show children
     
-    func shouldHideChildren() -> Bool {
-        !isExpanded  // Default: Hide if not expanded
-    }
+    public func handlingTap() -> Self { self }  // Default: no-op
     
-    var content: NodeContent? {
-       nil
-    }
-    
-    func with(position: CGPoint, velocity: CGPoint, content: NodeContent?) -> Self {
-        with(position: position, velocity: velocity)  // Default: Ignore content
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        AnyView(Text("Node \(label)"))  // Default simple view
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * zoomScale) : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-
-        // Draw border if selected
-        if borderWidth > 0 {
-            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+    public func with(position: CGPoint, velocity: CGPoint, content: NodeContent? = nil) -> Self {
+        var newSelf = self
+        newSelf.position = position
+        newSelf.velocity = velocity
+        if let content = content {
+            newSelf.content = content
         }
-
-        // Draw node circle
-        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(fillColor))
-
-        // Draw label above node
-        let labelFontSize = max(8.0, 12.0 * zoomScale)
-        let labelResolved = context.resolve(Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize)))
-        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
-        context.draw(labelResolved, at: labelPosition, anchor: .center)
-
-        // Draw content below node if present and zoomed in
-        if let content = content, zoomScale > 0.5 {
-            let contentKey = "\(content.displayText)-\(zoomScale)"
-            let contentResolved: GraphicsContext.ResolvedText
-            if let cached = nodeTextCache[contentKey] {
+        return newSelf
+    }
+    
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
+        let scaledRadius = radius * zoomScale
+        return AnyView(
+            Circle()
+                .fill(fillColor)
+                .frame(width: scaledRadius * 2, height: scaledRadius * 2)
+                .overlay(
+                    Circle()
+                        .stroke(isSelected ? Color.green : Color.white, lineWidth: 2 * zoomScale)
+                )
+                .overlay(
+                    Text("\(label)")
+                        .font(.system(size: 12 * zoomScale))
+                        .foregroundColor(.white)
+                )
+                .accessibilityLabel("Node \(label)")
+        )
+    }
+    
+    @available(iOS 15.0, *)
+    @available(watchOS 9.0, *)
+    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
+        let scaledRadius = radius * zoomScale
+        let path = CGPath(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: scaledRadius * 2, height: scaledRadius * 2), transform: nil)
+        context.fill(Path(path), with: .color(fillColor))
+        context.stroke(Path(path), with: .color(isSelected ? Color.green : Color.white), lineWidth: 2 * zoomScale)
+        
+        let textKey = "\(label)_\(zoomScale)"
+        var contentResolved: GraphicsContext.ResolvedText?
+        nodeCacheQueue.sync {
+            if let cached = nodeTextCache[textKey] {
                 contentResolved = cached
             } else {
-                let text = Text(content.displayText).foregroundColor(.gray).font(.system(size: max(6.0, 8.0 * zoomScale)))
+                let text = Text("\(label)").font(.system(size: 12 * zoomScale)).foregroundColor(.white)
                 let resolved = context.resolve(text)
-                nodeCacheQueue.async(flags: .barrier) {
-                    nodeTextCache[contentKey] = resolved
-                    insertionOrder.append(contentKey)
-                    if nodeTextCache.count > maxCacheSize {
-                        let oldestKey = insertionOrder.removeFirst()
-                        nodeTextCache.removeValue(forKey: oldestKey)
-                    }
+                nodeTextCache[textKey] = resolved
+                insertionOrder.append(textKey)
+                if nodeTextCache.count > maxCacheSize {
+                    let oldestKey = insertionOrder.removeFirst()
+                    nodeTextCache.removeValue(forKey: oldestKey)
                 }
                 contentResolved = resolved
             }
+        }
+        context.draw(contentResolved!, at: position, anchor: .center)
+        
+        if let content = content, !content.displayText.isEmpty {
+            let contentText = Text(content.displayText).font(.system(size: 8 * zoomScale)).foregroundColor(.gray)
+            let resolved = context.resolve(contentText)
             let contentPosition = CGPoint(x: position.x, y: position.y + (scaledRadius + 5 * zoomScale))
-            context.draw(contentResolved, at: contentPosition, anchor: .center)
+            context.draw(resolved, at: contentPosition, anchor: .center)
         }
     }
 }
@@ -676,6 +659,7 @@ public struct AnyNode: NodeProtocol {
     }
     public var isVisible: Bool { base.isVisible }
     public var fillColor: Color { base.fillColor }
+    public var mass: CGFloat { base.mass }
     
     public init(_ base: any NodeProtocol) {
         self.base = base
@@ -935,7 +919,7 @@ public class PersistenceManager: GraphStorage {
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-09-19 13:45:29
+Last modified: 2025-10-08 15:39:06
 
 Contents:
 //
@@ -954,7 +938,7 @@ import CoreGraphics
 @available(watchOS 9.0, *)
 public class PhysicsEngine {
     private let physicsLogger = OSLog(subsystem: "io.handcart.GraphEditor", category: "physics")
-    let simulationBounds: CGSize
+    var simulationBounds: CGSize
     private var stepCount: Int = 0
     private let maxNodesForQuadtree = 200
     private let symmetricFactor: CGFloat = 0.5
@@ -964,6 +948,7 @@ public class PhysicsEngine {
     internal let centeringCalculator: CenteringCalculator
     internal let positionUpdater: PositionUpdater
     public var useAsymmetricAttraction: Bool = false
+    public var alpha: CGFloat = 1.0  // New: Cooling parameter
     
     public init(simulationBounds: CGSize) {
         self.simulationBounds = simulationBounds
@@ -982,6 +967,7 @@ public class PhysicsEngine {
     public func resetSimulation() {
         simulationSteps = 0
         stepCount = 0
+        alpha = 1.0  // New: Reset alpha
     }
     
     public var isPaused: Bool = false
@@ -995,8 +981,14 @@ public class PhysicsEngine {
         var updatedForces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
         updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
         
+        // New: Scale forces by alpha
+        for id in updatedForces.keys {
+            updatedForces[id]! *= alpha
+        }
+        
         let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
-        var updatedNodes = tempNodes.map { node in
+       
+        let updatedNodes = tempNodes.map { node in
             var clamped = node
             if hypot(clamped.velocity.x, clamped.velocity.y) < 0.001 {
                 clamped.velocity = .zero
@@ -1005,17 +997,19 @@ public class PhysicsEngine {
         }
 
         // New: Reset velocities if stable
-        let resetNodes = isActive ? tempNodes : tempNodes.map { $0.with(position: $0.position, velocity: CGPoint.zero) }         // NEW: Apply boosted damping if active
-//        var updatedNodes = resetNodes
+        var resetNodes = isActive ? updatedNodes : updatedNodes.map { $0.with(position: $0.position, velocity: CGPoint.zero) }
+
+        // NEW: Apply boosted damping if active
         if dampingBoostSteps > 0 {
-            let extraDamping = Constants.Physics.damping * 1.2  // 20% boost; adjust as needed
-            updatedNodes = updatedNodes.map { node in
+            let extraDamping = Constants.Physics.damping * 1.2
+            resetNodes = resetNodes.map { node in
                 var boostedNode = node
                 boostedNode.velocity *= extraDamping
                 return boostedNode
             }
             dampingBoostSteps -= 1
         }
+        
         if stepCount % 10 == 0 {  // Reduced logging frequency
             let totalVel = resetNodes.reduce(0.0) { $0 + $1.velocity.magnitude }
             os_log("Step %d: Total velocity = %.2f", log: physicsLogger, type: .debug, stepCount, totalVel)
