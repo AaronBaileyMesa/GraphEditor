@@ -1,12 +1,13 @@
-// ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
-
 import SwiftUI
 import WatchKit
 import GraphEditorShared
 import Foundation
 import CoreGraphics
+import os  // Added for logging
 
 struct ContentView: View {
+    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
+    
     @ObservedObject var viewModel: GraphViewModel
     @State private var zoomScale: CGFloat = 1.0
     @State private var offset: CGSize = .zero
@@ -56,14 +57,19 @@ struct ContentView: View {
                     Task { await viewModel.resumeSimulation() }
                     updateZoomRanges(for: geo.size)
                     wristSide = WKInterfaceDevice.current().wristLocation
-                    print(geo.size)
+                    
+                    #if DEBUG
+                    logger.debug("Geometry size: width=\(geo.size.width), height=\(geo.size.height)")
+                    #endif
+                    
                     canvasFocus = true
                     
                     let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
                     zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
-#if DEBUG
-                    print("Initial sync: crownPosition \(crownPosition) -> zoomScale \(zoomScale)")
-#endif
+                    
+                    #if DEBUG
+                    logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
+                    #endif
                     
                     viewSize = geo.size  // New: Set viewSize here
                 }
@@ -74,11 +80,17 @@ struct ContentView: View {
                     updateZoomRanges(for: viewSize)  // New: Use viewSize
                 }
                 .onChange(of: crownPosition) { oldValue, newValue in
-                    print("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
+                    #if DEBUG
+                    logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
+                    #endif
+                    
                     handleCrownRotation(newValue: newValue)
                 }
                 .onChange(of: canvasFocus) { oldValue, newValue in
-                    print("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
+                    #if DEBUG
+                    logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
+                    #endif
+                    
                     if !newValue { canvasFocus = true }
                 }
             
@@ -88,37 +100,42 @@ struct ContentView: View {
                     let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
                     if abs(targetCrown - crownPosition) > 0.01 {
                         crownPosition = targetCrown
-#if DEBUG
-                        print("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(crownPosition)")
-#endif
+                        
+                        #if DEBUG
+                        logger.debug("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(self.crownPosition)")
+                        #endif
                     }
                 }
                 .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
-                    print("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #if DEBUG
+                    logger.debug("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #endif
+                    
                     selectedNodeID = newValue  // Sync to local @State
                     viewModel.objectWillChange.send()  // Force re-render if needed
                 }
                 .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
-                    print("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #if DEBUG
+                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #endif
+                    
                     selectedEdgeID = newValue
                     viewModel.objectWillChange.send()
                 }
                 .onReceive(viewModel.model.$isStable) { isStable in
                     if isStable {
-                        print("Simulation stable: Centering nodes")
+                        #if DEBUG
+                        logger.debug("Simulation stable: Centering nodes")
+                        #endif
+                        
                         centerGraph()
                     }
                 }
                 .onReceive(viewModel.model.$simulationError) { error in
                     if let error = error {
-                        print("Simulation error: \(error.localizedDescription)")
-                    }
-                }
-                .sheet(isPresented: $showEditSheet) {
-                    if let selectedID = selectedNodeID {
-                        EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                            Task { await viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent) }
-                        })
+                        #if DEBUG
+                        logger.error("Simulation error: \(error.localizedDescription)")
+                        #endif
                     }
                 }
             
@@ -181,9 +198,10 @@ struct ContentView: View {
     }
     
     private func handleCrownRotation(newValue: Double) {
-#if DEBUG
-        print("handleCrownRotation triggered with newValue: \(newValue)")
-#endif
+        #if DEBUG
+        logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
+        #endif
+        
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
         let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
         
@@ -192,9 +210,10 @@ struct ContentView: View {
             zoomScale = targetZoom
         }
         viewModel.centerGraph()  // Direct call
-#if DEBUG
-        print("Updated zoomScale to: \(zoomScale)")
-#endif
+        
+        #if DEBUG
+        logger.debug("Updated zoomScale to: \(self.zoomScale)")
+        #endif
     }
     
     private func updateZoomRanges(for viewSize: CGSize) {
@@ -217,14 +236,21 @@ struct ContentView: View {
             offset.width += centroidShift.width
             offset.height += centroidShift.height
         }
-        print("Centering graph: Old centroid \(oldCentroid), Shift \(centroidShift), New target \(newCentroid)")
+        
+        #if DEBUG
+        logger.debug("Centering graph: Old centroid x=\(oldCentroid.x), y=\(oldCentroid.y), Shift width=\(centroidShift.width), height=\(centroidShift.height), New target x=\(newCentroid.x), y=\(newCentroid.y)")
+        #endif
     }
     
     // Existing add node button (unchanged, but renamed for clarity)
     private func addNodeButton(in geo: GeometryProxy) -> some View {
         Button(action: {
             WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            print("Add Node button tapped!")  // Console log (check in Xcode)
+            
+            #if DEBUG
+            logger.debug("Add Node button tapped!")
+            #endif
+            
             let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))
             Task { await viewModel.addNode(at: randomPos) }
         }, label: {
@@ -242,7 +268,11 @@ struct ContentView: View {
     private func menuButton(in geo: GeometryProxy) -> some View {
         Button(action: {
             WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            print("Menu button tapped!")  // Console log
+            
+            #if DEBUG
+            logger.debug("Menu button tapped!")
+            #endif
+            
             showMenu.toggle()
         }, label: {
             Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
