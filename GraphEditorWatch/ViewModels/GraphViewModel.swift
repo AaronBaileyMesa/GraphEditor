@@ -8,8 +8,11 @@
 import Combine
 import GraphEditorShared
 import WatchKit  // For WKApplication
+import os  // Added for logging
 
 @MainActor public class GraphViewModel: ObservableObject {
+    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")  // Added for consistent logging
+    
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
@@ -95,7 +98,11 @@ import WatchKit  // For WKApplication
         let calculatedMin = min(fitWidth, fitHeight)
         let minZoom = max(calculatedMin, 0.5)
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
-        print("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds \(graphBounds)")  // Enhanced log
+        
+        #if DEBUG
+        logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
+        #endif
+        
         return (minZoom, maxZoom)
     }
     
@@ -183,12 +190,17 @@ import WatchKit  // For WKApplication
     public func handleTap(at modelPos: CGPoint) async {
         await model.pauseSimulation()
         
-        print("Handling tap at model pos: \(modelPos)")  // For testing
+        #if DEBUG
+        logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
+        #endif
         
         // Efficient hit test with queryNearby
         let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
-        print("Nearby nodes found: \(nearbyNodes.count)")  // For testing
+        
+        #if DEBUG
+        logger.debug("Nearby nodes found: \(nearbyNodes.count)")
+        #endif
         
         // Sort by distance to get closest (if multiple)
         let sortedNearby = nearbyNodes.sorted {
@@ -198,13 +210,20 @@ import WatchKit  // For WKApplication
         if let tappedNode = sortedNearby.first {
             selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
             selectedEdgeID = nil
-            print("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
+            
+            #if DEBUG
+            logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
+            #endif
+            
             model.objectWillChange.send()  // Trigger UI refresh
         } else {
             // Miss: Clear selections
             selectedNodeID = nil
             selectedEdgeID = nil
-            print("Tap missed; cleared selections")
+            
+            #if DEBUG
+            logger.debug("Tap missed; cleared selections")
+            #endif
         }
         
         focusState = selectedNodeID.map { .node($0) } ?? .graph
@@ -301,7 +320,10 @@ extension GraphViewModel {
     public func saveViewState() throws {
         let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
         try model.storage.saveViewState(viewState, for: currentGraphName)
-        print("Saved view state for '\(currentGraphName)'")
+        
+        #if DEBUG
+        logger.debug("Saved view state for '\(self.currentGraphName)'")
+        #endif
     }
 }
 
@@ -316,7 +338,9 @@ extension GraphViewModel {
                     try await self?.model.saveGraph()
                     try self?.saveViewState()
                 } catch {
-                    print("Save failed: \(error)")
+                    #if DEBUG
+                    self?.logger.error("Save failed: \(error.localizedDescription)")
+                    #endif
                 }
             }
         }

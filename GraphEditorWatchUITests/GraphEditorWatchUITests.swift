@@ -8,7 +8,6 @@
 import XCTest
 
 extension XCUIApplication {
-    //@discardableResult
     func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
     }

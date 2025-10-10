@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-09 07:56:21
+Current date: 2025-10-10 13:25:45
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -543,7 +543,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Helpers.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
-Last modified: 2025-09-19 14:07:30
+Last modified: 2025-10-10 13:16:11
 
 Contents:
 //
@@ -637,8 +637,8 @@ extension GraphModel {
             let outgoingLabels = edges
                 .filter { $0.from == selectedID }
                 .compactMap { edge in
-                    let toID = edge.target
-                    return nodes.first { $0.id == toID }?.unwrapped.label
+                    let targetID = edge.target
+                    return nodes.first { $0.id == targetID }?.unwrapped.label
                 }
                 .sorted()
                 .map { String($0) }

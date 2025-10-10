@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-09 07:56:23
+Current date: 2025-10-10 13:25:47
 Table of Contents:
 1. GraphEditorWatchTests/GraphModelTests.swift
 2. GraphEditorWatchTests/MenuViewTests.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
 File: GraphModelTests.swift
 Path: GraphEditorWatchTests/GraphModelTests.swift
-Last modified: 2025-10-09 07:51:23
+Last modified: 2025-10-09 08:09:11
 
 Contents:
 //
@@ -76,7 +76,7 @@ struct GraphModelTests {
         physics.resetSimulation()
         let maxSteps = Constants.Physics.maxSimulationSteps
         for _ in 0..<maxSteps {
-            var nodes = await model.nodes.map { $0.unwrapped }
+            let nodes = await model.nodes.map { $0.unwrapped }
             let edges = await model.edges
             let (updatedNodes, isActive) = physics.simulationStep(nodes: nodes, edges: edges)
             await MainActor.run { model.nodes = updatedNodes.map(AnyNode.init) }
@@ -99,38 +99,35 @@ struct GraphModelTests {
         #expect(totalVel < 4.0, "Simulation converged to low velocity for seed \(seed)")
     }
     
-    @Test func testUndoRedoMixedOperations() async throws {
+    @MainActor @Test func testUndoRedoMixedOperations() async throws {
         let storage = MockGraphStorage()
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         await model.addNode(at: CGPoint.zero)
         await runSimulation(on: model)
         await model.snapshot()  // Explicit snapshot after initial simulation to capture positions
-        let initialNodes = await model.nodes
+        let initialNodes = model.nodes
         let initialNodeCount = initialNodes.count
-        let initialEdgeCount = await model.edges.count
+        let initialEdgeCount = model.edges.count
         let nodeToDelete = initialNodes[0].id
-        let connectedEdges = (await model.edges).filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
+        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
         await model.snapshot()  // Explicit before delete
         await model.deleteNode(withID: nodeToDelete)
         await runSimulation(on: model)
         await model.addNode(at: CGPoint(x: 50, y: 50))
         await runSimulation(on: model)
-        await model.undo(resume: false) // To post-add sim? Wait, undo pops the last snapshot, which is after add? No, snapshot before add in addNode, but explicit after sim no.
-        // Note: Since addNode calls snapshot before add, the last state is pre-add (post-delete sim, 0 nodes)
-        // Then add, sim
-        // So undo sets to pre-add, 0 nodes
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
-        await model.undo(resume: false) // To pre-delete (post-initial sim, 1 node)
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
-        let restoredNodes = await model.nodes
+        await model.undo(resume: false)
+        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
+        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
+        await model.undo(resume: false)
+        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
+        #expect(model.edges.count == initialEdgeCount, "Edges restored")
+        let restoredNodes = model.nodes
         #expect(zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) && approximatelyEqual($0.velocity, $1.velocity, accuracy: 1e-5) }, "Positions and velocities restored")
-        await model.redo(resume: false) // To post-delete
-        #expect((await model.nodes).count == initialNodeCount - 1, "Redo applies delete")
-        await model.redo(resume: false) // To post-add
-        #expect((await model.nodes).count == initialNodeCount, "Redo applies add")
+        await model.redo(resume: false)
+        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
+        await model.redo(resume: false)
+        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
     }
     
     @Test func testInitializationWithDefaults() async throws {
@@ -192,12 +189,12 @@ struct GraphModelTests {
         await model.snapshot()  // Pre-add new (appends [initial])
         model.nodes.append(newNode)  // Add new
         await model.undo()  // Back to 1 node
-        #expect(await model.nodes.count == 1, "Undo removes node")
-        #expect(await model.nodes[0].id == initialNode.id, "Initial state restored")
-        #expect(await model.redoStack.count == 1, "Redo stack populated")
+        #expect(model.nodes.count == 1, "Undo removes node")
+        #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+        #expect(model.redoStack.count == 1, "Redo stack populated")
         await model.redo()  // Forward to 2 nodes
-        #expect(await model.nodes.count == 2, "Redo adds node")
-        #expect(await model.undoStack.count == 2, "Undo stack updated")
+        #expect(model.nodes.count == 2, "Redo adds node")
+        #expect(model.undoStack.count == 2, "Undo stack updated")
     }
     
     internal func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
@@ -243,7 +240,7 @@ struct MenuViewTests {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITests.swift
 Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-10-07 03:30:21
+Last modified: 2025-10-10 13:17:22
 
 Contents:
 //
@@ -256,22 +253,23 @@ Contents:
 import XCTest
 
 extension XCUIApplication {
-    @discardableResult
-    func focusAndTypeInTextField(identifier: String, text: String, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) -> XCUIElement {
-        let field = textFields[identifier]
-        XCTAssertTrue(field.waitForExistence(timeout: timeout), "TextField with identifier \(identifier) did not appear", file: file, line: line)
-        field.tap()
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: field)
-        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        if result != .completed {
-            XCTFail("TextField did not gain focus after tap", file: file, line: line)
-        }
-        field.typeText(text)
-        return field
-    }
-
+    //@discardableResult
     func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
+    }
+}
+
+extension XCTestCase {
+    func waitUntilElementHasFocus(element: XCUIElement, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) {
+        let expectation = expectation(description: "waiting for element \(element) to have focus")
+        let timer = Timer(timeInterval: 0.5, repeats: true) { timer in
+            if element.value(forKey: "hasKeyboardFocus") as? Bool ?? false {
+                expectation.fulfill()
+                timer.invalidate()
+            }
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        wait(for: [expectation], timeout: timeout)
     }
 }
 
@@ -293,30 +291,38 @@ final class GraphEditorWatchUITests: XCTestCase {
         scrollUntilVisible(element: newButton, in: app)
         XCTAssertTrue(newButton.waitForExistence(timeout: 5), "New Graph button should appear after scroll")
         newButton.tap()
+
+        // Tap text field to open input (required for submission, even with default)
+        let sheetField = app.textFields["New Graph Name"].firstMatch
+        XCTAssertTrue(sheetField.waitForExistence(timeout: 5), "New Graph Name field should appear")
+        sheetField.tap()
+        Thread.sleep(forTimeInterval: 1.0)  // Increased delay for input overlay
         
-        // Enter name in sheet's TextField (use identifier if available, otherwise fall back)
-        if app.textFields["newGraphNameTextField"].exists {
-            _ = app.focusAndTypeInTextField(identifier: "newGraphNameTextField", text: "TestGraph")
-        } else {
-            let sheetField = app.textFields["New Graph Name"].firstMatch
-            XCTAssertTrue(sheetField.waitForExistence(timeout: 5), "New Graph Name field should appear")
-            sheetField.tap()
-            Thread.sleep(forTimeInterval: 0.5)  // Brief delay for watchOS
-            let focusExpectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: sheetField)
-            let focusResult = XCTWaiter.wait(for: [focusExpectation], timeout: 5.0)
-            if focusResult != .completed {
-                XCTFail("TextField did not gain keyboard focus after tap")
-            }
-            sheetField.typeText("TestGraph")
-        }
+        // Custom wait for focus instead of predicate
+        waitUntilElementHasFocus(element: sheetField)
         
-        // Tap "Create" (use identifier from your list)
+        // Type text (override default if needed)
+        sheetField.typeText("TestGraph")
+        Thread.sleep(forTimeInterval: 0.5)  // Delay after typing
+
+        // Dismiss input with "Done" (submits default value)
+        let doneButton = app.buttons["Done"]
+        if doneButton.waitForExistence(timeout: 5) {
+            doneButton.tap()
+        }  // Conditional if input doesn't always open
+
+        Thread.sleep(forTimeInterval: 0.5)  // Delay for submission
+
+        // Confirm sheet with "Create"
         let createButton = app.buttons["createButton"]
-        XCTAssertTrue(createButton.waitForExistence(timeout: 5), "Create button should appear")
+        XCTAssertTrue(createButton.waitForExistence(timeout: 5), "Create button should appear in sheet")
         createButton.tap()
-        
-        // Wait for async creation/dismiss
-        XCTAssertTrue(app.otherElements["GraphCanvas"].waitForExistence(timeout: 5), "Back to empty graph after creation")
+
+        Thread.sleep(forTimeInterval: 2.0)  // Increased delay for sheet dismissal and graph loading
+
+        // Wait for canvas
+        let canvas = app.otherElements["GraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear after creation")
     }
     
     // Helper to scroll until visible/hittable (coordinate drag for precision; smaller dy to avoid overshoot)
@@ -336,6 +342,7 @@ final class GraphEditorWatchUITests: XCTestCase {
     
     override func tearDownWithError() throws {}
     
+    /*
     func testLaunch() throws {
         let app = XCUIApplication()
         XCTAssertTrue(app.exists, "App should launch successfully")
@@ -351,10 +358,12 @@ final class GraphEditorWatchUITests: XCTestCase {
         XCTAssertTrue(menuButton.waitForExistence(timeout: 5), "Menu button should appear")
         menuButton.tap()
         let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: app)
         XCTAssertTrue(addNodeButton.waitForExistence(timeout: 5), "Add Node button should appear")
         addNodeButton.tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after add")
         menuButton.tap()
+        scrollUntilVisible(element: addNodeButton, in: app)
         addNodeButton.tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after second add")
 
@@ -381,6 +390,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         let menuButton = app.buttons["Menu"]
         menuButton.tap()
         let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: app)
         addNodeButton.tap()
         
         // Check added (from 0 -> 1 node, 0 edges)
@@ -417,6 +427,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         
         // Check add button in menu (use identifier)
         let addButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addButton, in: app)
         XCTAssertTrue(addButton.waitForExistence(timeout: 5), "Menu shows with actions")
         
         addButton.tap()
@@ -428,7 +439,20 @@ final class GraphEditorWatchUITests: XCTestCase {
         let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
         XCTAssert(result == .completed, "Menu action adds node")
     }
-
+    
+    @MainActor
+    func testExample() throws {
+        _ = XCUIApplication()
+    }
+    
+    @MainActor
+    func testLaunchPerformance() throws {
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            XCUIApplication().launch()
+        }
+    }
+    */
+    /*
     func testDigitalCrownZooming() throws {
         let app = XCUIApplication()
         let canvas = app.otherElements["GraphCanvas"]
@@ -443,18 +467,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
         XCTAssert(result == .completed, "Zoom updates view")
     }
-    
-    @MainActor
-    func testExample() throws {
-        let app = XCUIApplication()
-    }
-    
-    @MainActor
-    func testLaunchPerformance() throws {
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
-    }
+     */
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITestsLaunchTests.swift

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-09 07:56:23
+Current date: 2025-10-10 13:25:47
 Table of Contents:
 1. GraphEditorWatch/Views/GraphUtilities.swift
 2. GraphEditorWatch/Views/InnerView.swift
@@ -523,7 +523,7 @@ struct EditContentSheetTests {
 ----------------------------------------------------------------------------------------------------
 File: GestureTests.swift
 Path: GraphEditorWatchTests/GestureTests.swift
-Last modified: 2025-10-09 07:55:05
+Last modified: 2025-10-10 13:16:11
 
 Contents:
 //
@@ -584,12 +584,12 @@ struct GestureTests {
             } else {
                 if potentialEdgeTarget.id != draggedNode.id {
                     let fromID = draggedNode.id
-                    let toID = potentialEdgeTarget.id
+                    let targetID = potentialEdgeTarget.id
                     let initialEdges = await MainActor.run { viewModel.model.edges }  // Capture initial for comparison on MainActor
-                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == toID } ||
-                                     initialEdges.contains { $0.from == toID && $0.target == fromID }
+                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == targetID } ||
+                                     initialEdges.contains { $0.from == targetID && $0.target == fromID }
                     if !edgeExists {
-                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: targetID)) }
                     } else {
                         await MainActor.run {
                             viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: initialPositionUpdated, velocity: .zero)
@@ -735,7 +735,7 @@ struct GestureTests {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchTests.swift
 Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
-Last modified: 2025-10-07 18:40:34
+Last modified: 2025-10-09 08:04:41
 
 Contents:
 import Testing
@@ -862,12 +862,12 @@ class MockGraphStorage: GraphStorage {
     await model.snapshot()  // Pre-add new (appends [initial])
     model.nodes.append(newNode)  // Add new
     await model.undo()  // Back to 1 node
-    #expect(await model.nodes.count == 1, "Undo removes node")
-    #expect(await model.nodes[0].id == initialNode.id, "Initial state restored")
-    #expect(await model.redoStack.count == 1, "Redo stack populated")
+    #expect(model.nodes.count == 1, "Undo removes node")
+    #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+    #expect(model.redoStack.count == 1, "Redo stack populated")
     await model.redo()  // Forward to 2 nodes
-    #expect(await model.nodes.count == 2, "Redo adds node")
-    #expect(await model.undoStack.count == 2, "Undo stack updated")
+    #expect(model.nodes.count == 2, "Redo adds node")
+    #expect(model.undoStack.count == 2, "Undo stack updated")
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifierTests.swift
