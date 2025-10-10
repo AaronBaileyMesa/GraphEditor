@@ -1,9 +1,14 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import os  // Added for logging
 
 // Reverted: Custom wrapper for reliable crown focus (without crown—handled in ContentView now)
 struct FocusableView<Content: View>: View {
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "focusableview")  // Changed to computed static
+    }
+    
     let content: Content
     @FocusState private var isFocused: Bool
     
@@ -22,7 +27,10 @@ struct FocusableView<Content: View>: View {
                 }
             }
             .onChange(of: isFocused) { oldValue, newValue in
-                print("Canvas focus changed: from \(oldValue) to \(newValue)")
+                #if DEBUG
+                Self.logger.debug("Canvas focus changed: from \(oldValue) to \(newValue)")
+                #endif
+                
                 if !newValue {
                     isFocused = true  // Auto-recover focus loss
                 }
@@ -31,6 +39,10 @@ struct FocusableView<Content: View>: View {
 }
 
 struct GraphCanvasView: View {
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "graphcanvasview")  // Changed to computed static for consistency
+    }
+    
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
     @Binding var offset: CGSize
@@ -116,123 +128,105 @@ struct GraphCanvasView: View {
                 // Define visibleNodes and visibleEdges
                 let visibleNodes = viewModel.model.visibleNodes()
                 let visibleEdges = viewModel.model.visibleEdges()  // Fix: Use visibleEdges() instead of all edges
-                let hiddenIDs = viewModel.model.hiddenNodeIDs.map { $0.uuidString.prefix(8) }
-                print("Visible: \(visibleNodes.count), Hidden IDs: \(hiddenIDs)")
                 
-                if visibleNodes.isEmpty {
-                    print("Warning: No visible nodes")  // Transient; remove if desired
-                    return
+                #if DEBUG
+                Self.logger.debug("Visible: \(visibleNodes.count)")
+                #endif
+                
+                let effectiveCentroid = viewModel.effectiveCentroid
+                
+                // Draw edges (Pass 1: Lines only)
+                drawEdges(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                
+                // Draw nodes
+                for node in visibleNodes {
+                    let nodeScreen = CoordinateTransformer.modelToScreen(
+                        node.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: size
+                    )
+                    let nodeRadius = Constants.App.nodeModelRadius * zoomScale
+                    
+                    let isSelected = node.id == selectedNodeID
+                    let nodeColor: Color = isSelected ? .red : .blue
+                    let nodePath = Circle().path(in: CGRect(center: nodeScreen, size: CGSize(width: nodeRadius * 2, height: nodeRadius * 2)))
+                    context.fill(nodePath, with: .color(nodeColor))
+                    
+                    // Draw label
+                    let labelText = Text("\(node.label)").font(.system(size: 12 * zoomScale))
+                    context.draw(labelText, at: nodeScreen, anchor: .center)
                 }
                 
-                // Compute effectiveCentroid: True model center (fixes panning/offset)
-                let effectiveCentroid = centroid(of: visibleNodes)  // Non-optional CGPoint
+                // Draw arrows (Pass 2: Over lines)
+                drawArrows(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
                 
-                print("Drawing: \(visibleNodes.count) nodes, \(visibleEdges.count) edges | Centroid: \(effectiveCentroid) | Zoom: \(zoomScale) | Offset: \(offset)")  // Debug
-                
-                // Draw elements using helpers
-                drawNodes(in: context, size: size, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
-                drawEdgeLines(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
-                drawEdgeArrows(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                // Draw dragged node and potential edge
                 drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
             }
             .frame(width: viewSize.width, height: viewSize.height)
-            .accessibilityLabel(viewModel.model.graphDescription(selectedID: selectedNodeID, selectedEdgeID: selectedEdgeID))
-            .accessibilityIdentifier("GraphCanvas")  // Add this line
-            .accessibilityHint("Tap menu button on bottom edge.")
+            .accessibilityLabel(accessibilityLabel())
+            .accessibilityIdentifier("GraphCanvas")
             
             if showOverlays {
                 boundingBoxOverlay
             }
-            
-            if let selectedID = selectedNodeID {
-                Text("Selected: \(selectedID.uuidString.prefix(8))")  // Debug label
-                    .position(x: 20, y: 10)
-                    .foregroundColor(.yellow)
-            }
         }
-    }
-    
-    private func centroid(of nodes: [any NodeProtocol]) -> CGPoint {
-        guard !nodes.isEmpty else { return .zero }  // Safe default (no optional)
-        let sumX = nodes.reduce(0.0) { $0 + $1.position.x }
-        let sumY = nodes.reduce(0.0) { $0 + $1.position.y }
-        return CGPoint(x: sumX / CGFloat(nodes.count), y: sumY / CGFloat(nodes.count))
     }
     
     var body: some View {
-        Group {
-            FocusableView {  // Reverted: No crown params
-                accessibleCanvas
-            }
-            .modifier(GraphGesturesModifier(
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
-                selectedEdgeID: $selectedEdgeID,
-                viewSize: viewSize,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                maxZoom: maxZoom,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges,
-                isAddingEdge: $isAddingEdge  // Pass to modifier
-            ))
-        }
-        .onChange(of: selectedNodeID) {
-            do {
-                try viewModel.saveViewState()  // Existing: Triggers view state save on selection change
-            } catch {
-                print("Failed to save view state on selectedNodeID change: \(error)")
-            }
-        }
-        .onChange(of: selectedEdgeID) {
-            do {
-                try viewModel.saveViewState()  // Existing
-            } catch {
-                print("Failed to save view state on selectedEdgeID change: \(error)")
-            }
-        }
-        .onChange(of: offset) {  // NEW: Save on offset/zoom changes for full view persistence
-            do {
-                try viewModel.saveViewState()
-            } catch {
-                print("Failed to save view state on offset change: \(error)")
-            }
-        }
-        .onChange(of: zoomScale) {
-            do {
-                try viewModel.saveViewState()
-            } catch {
-                print("Failed to save view state on zoomScale change: \(error)")
-            }
-        }
-        .ignoresSafeArea()
-    }
-}
-
-extension GraphCanvasView {
-    func drawNodes(in context: GraphicsContext, size: CGSize, visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
-        // Pass 0: Draw nodes FIRST (under edges/arrows)
-        for node in visibleNodes {
-            let screenPos = CoordinateTransformer.modelToScreen(
-                node.position,
-                effectiveCentroid: effectiveCentroid,
-                zoomScale: zoomScale,
-                offset: offset,
-                viewSize: size
-            )
-            let isSelected = (node.id == selectedNodeID)
-            print("Drawing node \(node.label) at screen \(screenPos), selected: \(isSelected)")  // Debug
-            node.draw(in: context, at: screenPos, zoomScale: zoomScale, isSelected: isSelected)
+        FocusableView {
+            accessibleCanvas
+                .modifier(GraphGesturesModifier(
+                    viewModel: viewModel,
+                    zoomScale: $zoomScale,
+                    offset: $offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $selectedNodeID,
+                    selectedEdgeID: $selectedEdgeID,
+                    viewSize: viewSize,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: maxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: onUpdateZoomRanges,
+                    isAddingEdge: $isAddingEdge
+                ))
         }
     }
     
-    func drawEdgeLines(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
-        // Pass 1: Draw edges (lines only)
+    private func accessibilityLabel() -> String {
+        let nodeCount = viewModel.model.nodes.count
+        let edgeCount = viewModel.model.edges.count
+
+        // Selected node label
+        let selectedNodeLabel: String = {
+            guard let id = selectedNodeID,
+                  let node = viewModel.model.nodes.first(where: { $0.id == id })
+            else { return "No node selected" }
+            return "Node \(node.label) selected"
+        }()
+
+        // Selected edge label
+        let selectedEdgeLabel: String = {
+            guard let id = selectedEdgeID,
+                  let edge = viewModel.model.edges.first(where: { $0.id == id })
+            else { return "No edge selected" }
+            let fromLabel = viewModel.model.nodes.first(where: { $0.id == edge.from })?.label
+            let toLabel = viewModel.model.nodes.first(where: { $0.id == edge.target })?.label
+            let fromText = fromLabel.map { String(describing: $0) } ?? "?"
+            let toText = toLabel.map { String(describing: $0) } ?? "?"
+            return "Edge from \(fromText) to \(toText) selected"
+        }()
+
+        return "Graph with \(nodeCount) nodes and \(edgeCount) edges. \(selectedNodeLabel). \(selectedEdgeLabel)."
+    }
+    
+    // Extracted: Draw edges (lines only)
+    func drawEdges(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
         for edge in visibleEdges {
             guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
                   let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
@@ -252,36 +246,25 @@ extension GraphCanvasView {
                 viewSize: size
             )
             
-            let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
-            let length = hypot(direction.dx, direction.dy)
-            if length <= 0 { continue }
-            
-            let unitDx = direction.dx / length
-            let unitDy = direction.dy / length
-            let fromRadiusScreen = fromNode.radius * zoomScale
-            let toRadiusScreen = toNode.radius * zoomScale
-            let margin: CGFloat = 3.0
-            
-            let isSelected = edge.id == selectedEdgeID
-            let lineColor: Color = isSelected ? .red : .gray
-            let lineWidth: CGFloat = 3.0
-            
-            let startPoint = CGPoint(x: fromScreen.x + unitDx * (fromRadiusScreen + margin),
-                                     y: fromScreen.y + unitDy * (fromRadiusScreen + margin))
-            let endPoint = CGPoint(x: toScreen.x - unitDx * (toRadiusScreen + margin),
-                                   y: toScreen.y - unitDy * (toRadiusScreen + margin))
-            
             let linePath = Path { path in
-                path.move(to: startPoint)
-                path.addLine(to: endPoint)
+                path.move(to: fromScreen)
+                path.addLine(to: toScreen)
             }
             
-            context.stroke(linePath, with: .color(lineColor), lineWidth: lineWidth)
-            print("Drawing line for edge \(edge.id.uuidString.prefix(8)) from \(startPoint) to \(endPoint)")  // Debug
+            let isSelected = edge.id == selectedEdgeID
+            let edgeColor: Color = isSelected ? .red : .gray
+            let lineWidth: CGFloat = 2.0
+            
+            context.stroke(linePath, with: .color(edgeColor), lineWidth: lineWidth)
+            
+            #if DEBUG
+            Self.logger.debug("Drawing edge from x=\(fromScreen.x), y=\(fromScreen.y) to x=\(toScreen.x), y=\(toScreen.y) with color \(edgeColor.description)")
+            #endif
         }
     }
     
-    func drawEdgeArrows(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
+    // Extracted: Draw arrows (over lines)
+    func drawArrows(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
         // Pass 2: Draw arrows (over lines)
         for edge in visibleEdges {
             guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
@@ -336,7 +319,10 @@ extension GraphCanvasView {
             let arrowLineWidth: CGFloat = 3.0
             
             context.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
-            print("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary \(boundaryPoint)")  // Debug
+            
+            #if DEBUG
+            Self.logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundaryPoint.x), y=\(boundaryPoint.y)")
+            #endif
         }
     }
     
