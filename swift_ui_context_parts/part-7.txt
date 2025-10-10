@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-08 15:39:33
+Current date: 2025-10-09 07:56:23
 Table of Contents:
 1. GraphEditorWatchTests/GraphModelTests.swift
 2. GraphEditorWatchTests/MenuViewTests.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
 File: GraphModelTests.swift
 Path: GraphEditorWatchTests/GraphModelTests.swift
-Last modified: 2025-10-07 17:31:30
+Last modified: 2025-10-09 07:51:23
 
 Contents:
 //
@@ -71,24 +71,17 @@ struct GraphModelTests {
         return (nodesToAssign, edgesToAssign)
     }
     
-    private func runSimulation(on model: GraphModel, subStepsPerIteration: Int = 20) async {
-        await model.startSimulation()
-        await model.stopSimulation()  // Ensure completion
-        for _ in 0..<Constants.Physics.maxSimulationSteps {
-            var nodes = await model.nodes
-            var activeAccum = false
-            for _ in 0..<subStepsPerIteration {
-                let currentNodes = nodes.map { $0.unwrapped }
-                let physics = await MainActor.run { model.physicsEngine }
-                let edges = await model.edges
-                let (updatedNodes, stepActive) = physics.simulationStep(nodes: currentNodes, edges: edges)
-                nodes = updatedNodes.map(AnyNode.init)
-                activeAccum = activeAccum || stepActive
-                if !stepActive { break }
-            }
-            let updatedNodesForMain = nodes
-            await MainActor.run { model.nodes = updatedNodesForMain }
-            if !activeAccum { break }
+    private func runSimulation(on model: GraphModel) async {
+        let physics = await MainActor.run { model.physicsEngine }
+        physics.resetSimulation()
+        let maxSteps = Constants.Physics.maxSimulationSteps
+        for _ in 0..<maxSteps {
+            var nodes = await model.nodes.map { $0.unwrapped }
+            let edges = await model.edges
+            let (updatedNodes, isActive) = physics.simulationStep(nodes: nodes, edges: edges)
+            await MainActor.run { model.nodes = updatedNodes.map(AnyNode.init) }
+            physics.alpha *= (1 - Constants.Physics.alphaDecay)
+            if !isActive { break }
         }
     }
     
@@ -205,6 +198,10 @@ struct GraphModelTests {
         await model.redo()  // Forward to 2 nodes
         #expect(await model.nodes.count == 2, "Redo adds node")
         #expect(await model.undoStack.count == 2, "Undo stack updated")
+    }
+    
+    internal func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
     }
 }
 ----------------------------------------------------------------------------------------------------

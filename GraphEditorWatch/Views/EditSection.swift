@@ -67,10 +67,10 @@ struct EditSection: View {
             if let selectedEdgeID = selectedEdgeID,
                let selectedEdge = findSelectedEdge() {
                 let fromID = selectedEdge.from
-                let toID = selectedEdge.target
-                let isBi = viewModel.model.isBidirectionalBetween(fromID, toID)
+                let targetID = selectedEdge.target
+                let isBi = viewModel.model.isBidirectionalBetween(fromID, targetID)
                 let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
-                let toLabel = viewModel.model.nodes.first(where: { $0.id == toID })?.label ?? 0
+                let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
                 
                 // Display edge info
                 Text("Edge: \(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
@@ -82,7 +82,7 @@ struct EditSection: View {
                         isProcessing = true
                         await viewModel.model.snapshot()
                         if isBi {
-                            let pair = viewModel.model.edgesBetween(fromID, toID)
+                            let pair = viewModel.model.edgesBetween(fromID, targetID)
                             viewModel.model.edges.removeAll { pair.contains($0) }
                         } else {
                             viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
@@ -103,7 +103,7 @@ struct EditSection: View {
                             isProcessing = true
                             await viewModel.model.snapshot()
                             viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                            viewModel.model.edges.append(GraphEdge(from: toID, target: fromID, type: .hierarchy))
+                            viewModel.model.edges.append(GraphEdge(from: targetID, target: fromID, type: .hierarchy))
                             await viewModel.model.startSimulation()
                             clearSelections()  // NEW: Clear after reverse
                             isProcessing = false

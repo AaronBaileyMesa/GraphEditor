@@ -57,24 +57,17 @@ struct GraphModelTests {
         return (nodesToAssign, edgesToAssign)
     }
     
-    private func runSimulation(on model: GraphModel, subStepsPerIteration: Int = 20) async {
-        await model.startSimulation()
-        await model.stopSimulation()  // Ensure completion
-        for _ in 0..<Constants.Physics.maxSimulationSteps {
-            var nodes = await model.nodes
-            var activeAccum = false
-            for _ in 0..<subStepsPerIteration {
-                let currentNodes = nodes.map { $0.unwrapped }
-                let physics = await MainActor.run { model.physicsEngine }
-                let edges = await model.edges
-                let (updatedNodes, stepActive) = physics.simulationStep(nodes: currentNodes, edges: edges)
-                nodes = updatedNodes.map(AnyNode.init)
-                activeAccum = activeAccum || stepActive
-                if !stepActive { break }
-            }
-            let updatedNodesForMain = nodes
-            await MainActor.run { model.nodes = updatedNodesForMain }
-            if !activeAccum { break }
+    private func runSimulation(on model: GraphModel) async {
+        let physics = await MainActor.run { model.physicsEngine }
+        physics.resetSimulation()
+        let maxSteps = Constants.Physics.maxSimulationSteps
+        for _ in 0..<maxSteps {
+            let nodes = await model.nodes.map { $0.unwrapped }
+            let edges = await model.edges
+            let (updatedNodes, isActive) = physics.simulationStep(nodes: nodes, edges: edges)
+            await MainActor.run { model.nodes = updatedNodes.map(AnyNode.init) }
+            physics.alpha *= (1 - Constants.Physics.alphaDecay)
+            if !isActive { break }
         }
     }
     
@@ -92,38 +85,35 @@ struct GraphModelTests {
         #expect(totalVel < 4.0, "Simulation converged to low velocity for seed \(seed)")
     }
     
-    @Test func testUndoRedoMixedOperations() async throws {
+    @MainActor @Test func testUndoRedoMixedOperations() async throws {
         let storage = MockGraphStorage()
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
+        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await model.load()
         await model.addNode(at: CGPoint.zero)
         await runSimulation(on: model)
         await model.snapshot()  // Explicit snapshot after initial simulation to capture positions
-        let initialNodes = await model.nodes
+        let initialNodes = model.nodes
         let initialNodeCount = initialNodes.count
-        let initialEdgeCount = await model.edges.count
+        let initialEdgeCount = model.edges.count
         let nodeToDelete = initialNodes[0].id
-        let connectedEdges = (await model.edges).filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
+        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
         await model.snapshot()  // Explicit before delete
         await model.deleteNode(withID: nodeToDelete)
         await runSimulation(on: model)
         await model.addNode(at: CGPoint(x: 50, y: 50))
         await runSimulation(on: model)
-        await model.undo(resume: false) // To post-add sim? Wait, undo pops the last snapshot, which is after add? No, snapshot before add in addNode, but explicit after sim no.
-        // Note: Since addNode calls snapshot before add, the last state is pre-add (post-delete sim, 0 nodes)
-        // Then add, sim
-        // So undo sets to pre-add, 0 nodes
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Edges match post-delete")
-        await model.undo(resume: false) // To pre-delete (post-initial sim, 1 node)
-        #expect(await MainActor.run { model.nodes.count } == initialNodeCount, "Second undo restores initial")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount, "Edges restored")
-        let restoredNodes = await model.nodes
+        await model.undo(resume: false)
+        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
+        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
+        await model.undo(resume: false)
+        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
+        #expect(model.edges.count == initialEdgeCount, "Edges restored")
+        let restoredNodes = model.nodes
         #expect(zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) && approximatelyEqual($0.velocity, $1.velocity, accuracy: 1e-5) }, "Positions and velocities restored")
-        await model.redo(resume: false) // To post-delete
-        #expect((await model.nodes).count == initialNodeCount - 1, "Redo applies delete")
-        await model.redo(resume: false) // To post-add
-        #expect((await model.nodes).count == initialNodeCount, "Redo applies add")
+        await model.redo(resume: false)
+        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
+        await model.redo(resume: false)
+        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
     }
     
     @Test func testInitializationWithDefaults() async throws {
@@ -185,11 +175,15 @@ struct GraphModelTests {
         await model.snapshot()  // Pre-add new (appends [initial])
         model.nodes.append(newNode)  // Add new
         await model.undo()  // Back to 1 node
-        #expect(await model.nodes.count == 1, "Undo removes node")
-        #expect(await model.nodes[0].id == initialNode.id, "Initial state restored")
-        #expect(await model.redoStack.count == 1, "Redo stack populated")
+        #expect(model.nodes.count == 1, "Undo removes node")
+        #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+        #expect(model.redoStack.count == 1, "Redo stack populated")
         await model.redo()  // Forward to 2 nodes
-        #expect(await model.nodes.count == 2, "Redo adds node")
-        #expect(await model.undoStack.count == 2, "Undo stack updated")
+        #expect(model.nodes.count == 2, "Redo adds node")
+        #expect(model.undoStack.count == 2, "Undo stack updated")
+    }
+    
+    internal func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
     }
 }

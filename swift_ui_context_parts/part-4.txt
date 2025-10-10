@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-08 15:39:31
+Current date: 2025-10-09 07:56:22
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
 2. GraphEditorWatch/Views/AddSection.swift
@@ -408,7 +408,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-02 10:47:13
+Last modified: 2025-10-08 16:14:01
 
 Contents:
 // ContentView.swift (Reduced version: Extracted utilities, InnerView, and EditContentSheet)
@@ -447,7 +447,7 @@ struct ContentView: View {
             get: { selectedNodeID },
             set: { newValue in
                 selectedNodeID = newValue
-                viewModel.setSelectedNode(newValue)  // Sync to ViewModel
+                viewModel.selectedNodeID = newValue  // Sync to ViewModel
             }
         )
     }
@@ -457,7 +457,7 @@ struct ContentView: View {
             get: { selectedEdgeID },
             set: { newValue in
                 selectedEdgeID = newValue
-                viewModel.setSelectedEdge(newValue)  // Sync to ViewModel
+                viewModel.selectedEdgeID = newValue  // Sync to ViewModel
             }
         )
     }
@@ -575,14 +575,20 @@ struct ContentView: View {
                 isAddingEdge: $isAddingEdge,
                 isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
-            
-            Color.clear
-                .safeAreaInset(edge: .bottom, spacing: -2) {
+        }
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 20) {
+                if wristSide == .left {
                     addNodeButton(in: geo)
                     menuButton(in: geo)
+                } else {
+                    menuButton(in: geo)
+                    addNodeButton(in: geo)
                 }
-                .transition(.move(edge: .bottom))
-                .padding(.horizontal, 15)  // Extra side padding to avoid left/right clipping
+            }
+            .padding(.bottom, 1)
+            .padding(.horizontal, 15)
+            .transition(.move(edge: .bottom))
         }
         // Removed .hidden() to ensure the content renders
     }
@@ -630,31 +636,37 @@ struct ContentView: View {
     // Existing add node button (unchanged, but renamed for clarity)
     private func addNodeButton(in geo: GeometryProxy) -> some View {
         Button(action: {
-            let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))  // Random spread
-            Task { await viewModel.addNode(at: randomPos) }  // Changed to addNode for regular nodes; use addToggleNode if desired
+            WKInterfaceDevice.current().play(.click)  // Haptic feedback
+            print("Add Node button tapped!")  // Console log (check in Xcode)
+            let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))
+            Task { await viewModel.addNode(at: randomPos) }
         }, label: {
             Image(systemName: "plus.circle.fill")
                 .font(.system(size: 30))
                 .foregroundColor(.green)
         })
         .buttonStyle(.plain)
-        .position(x: wristSide == .left ? 20 : geo.size.width - 20, y: geo.size.height - 20)
+        .contentShape(Rectangle())
+        .frame(minWidth: 44, minHeight: 44)
+        .padding(10)
+        .background(Color.blue.opacity(0.2))  // TEMP: Visualize tappable area; remove later
     }
-    
+
     private func menuButton(in geo: GeometryProxy) -> some View {
         Button(action: {
-            if showMenu {
-                showMenu = false  // Back to graph
-            } else {
-                showMenu = true   // Open menu
-            }
+            WKInterfaceDevice.current().play(.click)  // Haptic feedback
+            print("Menu button tapped!")  // Console log
+            showMenu.toggle()
         }, label: {
-            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")  // NEW: Dynamic icon (graph for back, menu for open)
+            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
                 .font(.system(size: 30))
-                .foregroundColor(showMenu ? .green : .blue)  // NEW: Color change for state
+                .foregroundColor(showMenu ? .green : .blue)
         })
         .buttonStyle(.plain)
-        .position(x: wristSide == .left ? 60 : geo.size.width - 60, y: geo.size.height - 20)  // Preserve adjacent positioning
+        .contentShape(Rectangle())
+        .frame(minWidth: 44, minHeight: 44)
+        .padding(10)
+        .background(Color.red.opacity(0.2))  // TEMP: Visualize; different color for distinction
         .accessibilityLabel("Menu")
     }
 }

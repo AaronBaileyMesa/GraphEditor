@@ -108,8 +108,8 @@ import WatchKit  // For WKApplication
         await saveAfterDelay()
     }
     
-    public func addEdge(from fromID: NodeID, to toID: NodeID, type: EdgeType = .association) async {
-        await model.addEdge(from: fromID, target: toID, type: type)
+    public func addEdge(from fromID: NodeID, to targetID: NodeID, type: EdgeType = .association) async {
+        await model.addEdge(from: fromID, target: targetID, type: type)
         await saveAfterDelay()
     }
     

@@ -122,10 +122,10 @@ class MockGraphStorage: GraphStorage {
     await model.snapshot()  // Pre-add new (appends [initial])
     model.nodes.append(newNode)  // Add new
     await model.undo()  // Back to 1 node
-    #expect(await model.nodes.count == 1, "Undo removes node")
-    #expect(await model.nodes[0].id == initialNode.id, "Initial state restored")
-    #expect(await model.redoStack.count == 1, "Redo stack populated")
+    #expect(model.nodes.count == 1, "Undo removes node")
+    #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+    #expect(model.redoStack.count == 1, "Redo stack populated")
     await model.redo()  // Forward to 2 nodes
-    #expect(await model.nodes.count == 2, "Redo adds node")
-    #expect(await model.undoStack.count == 2, "Undo stack updated")
+    #expect(model.nodes.count == 2, "Redo adds node")
+    #expect(model.undoStack.count == 2, "Undo stack updated")
 }

@@ -56,12 +56,12 @@ struct GestureTests {
             } else {
                 if potentialEdgeTarget.id != draggedNode.id {
                     let fromID = draggedNode.id
-                    let toID = potentialEdgeTarget.id
+                    let targetID = potentialEdgeTarget.id
                     let initialEdges = await MainActor.run { viewModel.model.edges }  // Capture initial for comparison on MainActor
-                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == toID } ||
-                                     initialEdges.contains { $0.from == toID && $0.target == fromID }
+                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == targetID } ||
+                                     initialEdges.contains { $0.from == targetID && $0.target == fromID }
                     if !edgeExists {
-                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: targetID)) }
                     } else {
                         await MainActor.run {
                             viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: initialPositionUpdated, velocity: .zero)
@@ -127,6 +127,32 @@ struct GestureTests {
         #expect((await model.edges).count == 1, "Edge exists initially")
         
         let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let params = await prepareDragParameters(model: model)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == params.draggedNode.id }) {
+            await viewModel.model.snapshot()
+            if params.dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped)
+            } else {
+                await performDragAction(viewModel: viewModel, draggedNode: params.draggedNode, potentialEdgeTarget: params.potentialEdgeTarget, dragOffset: params.dragOffset, index: index)
+            }
+        }
+        
+        let finalEdgeCount2 = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount2 == 1, "No new edge created")
+        // OPTIONAL: If you want to verify post-simulation (e.g., position changed but not exactly by offset), add looser checks here
+    }
+    
+    private struct DragParameters {
+        let draggedNode: any NodeProtocol
+        let potentialEdgeTarget: any NodeProtocol
+        let initialPosition: CGPoint
+        let mockTranslation: CGSize
+        let dragOffset: CGPoint
+        let dragDistance: CGFloat
+    }
+    
+    private func prepareDragParameters(model: GraphModel) async -> DragParameters {
         let draggedNode = await model.nodes[0]
         let potentialEdgeTarget = await model.nodes[1]
         let initialPosition = draggedNode.position
@@ -135,41 +161,46 @@ struct GestureTests {
         let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
         let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
         
-        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
-            await viewModel.model.snapshot()
-            if dragDistance < AppConstants.tapThreshold {
-                // Tap logic (skipped)
+        return DragParameters(
+            draggedNode: draggedNode,
+            potentialEdgeTarget: potentialEdgeTarget,
+            initialPosition: initialPosition,
+            mockTranslation: mockTranslation,
+            dragOffset: dragOffset,
+            dragDistance: dragDistance
+        )
+    }
+    
+    private func performDragAction(viewModel: GraphViewModel, draggedNode: any NodeProtocol, potentialEdgeTarget: any NodeProtocol, dragOffset: CGPoint, index: Int) async {
+        if potentialEdgeTarget.id != draggedNode.id {
+            let fromID = draggedNode.id
+            let toID = potentialEdgeTarget.id
+            let edgeExists = await MainActor.run {
+                let edges = viewModel.model.edges
+                let forwardMatch = edges.contains { $0.from == fromID && $0.target == toID }
+                let reverseMatch = edges.contains { $0.from == toID && $0.target == fromID }
+                return forwardMatch || reverseMatch
+            }
+            if !edgeExists {
+                await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
+                await viewModel.model.startSimulation()
+                await viewModel.model.stopSimulation()
             } else {
-                if potentialEdgeTarget.id != draggedNode.id {
-                    let fromID = draggedNode.id
-                    let toID = potentialEdgeTarget.id
-                    let edgeExists = await MainActor.run {
-                        let edges = viewModel.model.edges
-                        let forwardMatch = edges.contains { $0.from == fromID && $0.target == toID }
-                        let reverseMatch = edges.contains { $0.from == toID && $0.target == fromID }
-                        return forwardMatch || reverseMatch
-                    }
-                    if !edgeExists {
-                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
-                        await viewModel.model.startSimulation()
-                        await viewModel.model.stopSimulation()
-                    } else {
-                        await MainActor.run {
-                            let currentPos = viewModel.model.nodes[index].position
-                            viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
-                        }
-                        let posAfterImmediateMove = await MainActor.run { model.nodes[0].position }
-                        #expect(!approximatelyEqual(posAfterImmediateMove, initialPosition, accuracy: 1e-5), "Position changed on move")
-                        #expect(approximatelyEqual(posAfterImmediateMove, CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y), accuracy: 1e-5), "Moved by offset")
-                        await viewModel.model.startSimulation()  // Keep this if needed for side effects, but checks are now before it
-                        await viewModel.model.stopSimulation()
-                    }
+                await MainActor.run {
+                    let currentPos = viewModel.model.nodes[index].position
+                    viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
                 }
+                let posAfterImmediateMove = await MainActor.run { viewModel.model.nodes[0].position }
+                let initialPosition = draggedNode.position
+                #expect(!approximatelyEqual(posAfterImmediateMove, initialPosition, accuracy: 1e-5), "Position changed on move")
+                #expect(approximatelyEqual(posAfterImmediateMove, CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y), accuracy: 1e-5), "Moved by offset")
+                await viewModel.model.startSimulation()  // Keep this if needed for side effects, but checks are now before it
+                await viewModel.model.stopSimulation()
             }
         }
-        
-        let finalEdgeCount2 = await MainActor.run { viewModel.model.edges.count }
-        #expect(finalEdgeCount2 == 1, "No new edge created")
-        // OPTIONAL: If you want to verify post-simulation (e.g., position changed but not exactly by offset), add looser checks here
+    }
+    
+    func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        return hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
     }
 }

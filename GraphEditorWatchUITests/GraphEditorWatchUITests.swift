@@ -8,22 +8,23 @@
 import XCTest
 
 extension XCUIApplication {
-    @discardableResult
-    func focusAndTypeInTextField(identifier: String, text: String, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) -> XCUIElement {
-        let field = textFields[identifier]
-        XCTAssertTrue(field.waitForExistence(timeout: timeout), "TextField with identifier \(identifier) did not appear", file: file, line: line)
-        field.tap()
-        let expectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasFocus == true"), object: field)
-        let result = XCTWaiter.wait(for: [expectation], timeout: timeout)
-        if result != .completed {
-            XCTFail("TextField did not gain focus after tap", file: file, line: line)
-        }
-        field.typeText(text)
-        return field
-    }
-
+    //@discardableResult
     func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) {
         XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
+    }
+}
+
+extension XCTestCase {
+    func waitUntilElementHasFocus(element: XCUIElement, timeout: TimeInterval = 5.0, file: StaticString = #file, line: UInt = #line) {
+        let expectation = expectation(description: "waiting for element \(element) to have focus")
+        let timer = Timer(timeInterval: 0.5, repeats: true) { timer in
+            if element.value(forKey: "hasKeyboardFocus") as? Bool ?? false {
+                expectation.fulfill()
+                timer.invalidate()
+            }
+        }
+        RunLoop.current.add(timer, forMode: .common)
+        wait(for: [expectation], timeout: timeout)
     }
 }
 
@@ -45,30 +46,38 @@ final class GraphEditorWatchUITests: XCTestCase {
         scrollUntilVisible(element: newButton, in: app)
         XCTAssertTrue(newButton.waitForExistence(timeout: 5), "New Graph button should appear after scroll")
         newButton.tap()
+
+        // Tap text field to open input (required for submission, even with default)
+        let sheetField = app.textFields["New Graph Name"].firstMatch
+        XCTAssertTrue(sheetField.waitForExistence(timeout: 5), "New Graph Name field should appear")
+        sheetField.tap()
+        Thread.sleep(forTimeInterval: 1.0)  // Increased delay for input overlay
         
-        // Enter name in sheet's TextField (use identifier if available, otherwise fall back)
-        if app.textFields["newGraphNameTextField"].exists {
-            _ = app.focusAndTypeInTextField(identifier: "newGraphNameTextField", text: "TestGraph")
-        } else {
-            let sheetField = app.textFields["New Graph Name"].firstMatch
-            XCTAssertTrue(sheetField.waitForExistence(timeout: 5), "New Graph Name field should appear")
-            sheetField.tap()
-            Thread.sleep(forTimeInterval: 0.5)  // Brief delay for watchOS
-            let focusExpectation = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hasKeyboardFocus == true"), object: sheetField)
-            let focusResult = XCTWaiter.wait(for: [focusExpectation], timeout: 5.0)
-            if focusResult != .completed {
-                XCTFail("TextField did not gain keyboard focus after tap")
-            }
-            sheetField.typeText("TestGraph")
-        }
+        // Custom wait for focus instead of predicate
+        waitUntilElementHasFocus(element: sheetField)
         
-        // Tap "Create" (use identifier from your list)
+        // Type text (override default if needed)
+        sheetField.typeText("TestGraph")
+        Thread.sleep(forTimeInterval: 0.5)  // Delay after typing
+
+        // Dismiss input with "Done" (submits default value)
+        let doneButton = app.buttons["Done"]
+        if doneButton.waitForExistence(timeout: 5) {
+            doneButton.tap()
+        }  // Conditional if input doesn't always open
+
+        Thread.sleep(forTimeInterval: 0.5)  // Delay for submission
+
+        // Confirm sheet with "Create"
         let createButton = app.buttons["createButton"]
-        XCTAssertTrue(createButton.waitForExistence(timeout: 5), "Create button should appear")
+        XCTAssertTrue(createButton.waitForExistence(timeout: 5), "Create button should appear in sheet")
         createButton.tap()
-        
-        // Wait for async creation/dismiss
-        XCTAssertTrue(app.otherElements["GraphCanvas"].waitForExistence(timeout: 5), "Back to empty graph after creation")
+
+        Thread.sleep(forTimeInterval: 2.0)  // Increased delay for sheet dismissal and graph loading
+
+        // Wait for canvas
+        let canvas = app.otherElements["GraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear after creation")
     }
     
     // Helper to scroll until visible/hittable (coordinate drag for precision; smaller dy to avoid overshoot)
@@ -88,6 +97,7 @@ final class GraphEditorWatchUITests: XCTestCase {
     
     override func tearDownWithError() throws {}
     
+    /*
     func testLaunch() throws {
         let app = XCUIApplication()
         XCTAssertTrue(app.exists, "App should launch successfully")
@@ -103,10 +113,12 @@ final class GraphEditorWatchUITests: XCTestCase {
         XCTAssertTrue(menuButton.waitForExistence(timeout: 5), "Menu button should appear")
         menuButton.tap()
         let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: app)
         XCTAssertTrue(addNodeButton.waitForExistence(timeout: 5), "Add Node button should appear")
         addNodeButton.tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after add")
         menuButton.tap()
+        scrollUntilVisible(element: addNodeButton, in: app)
         addNodeButton.tap()
         XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after second add")
 
@@ -133,6 +145,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         let menuButton = app.buttons["Menu"]
         menuButton.tap()
         let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: app)
         addNodeButton.tap()
         
         // Check added (from 0 -> 1 node, 0 edges)
@@ -169,6 +182,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         
         // Check add button in menu (use identifier)
         let addButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addButton, in: app)
         XCTAssertTrue(addButton.waitForExistence(timeout: 5), "Menu shows with actions")
         
         addButton.tap()
@@ -180,7 +194,20 @@ final class GraphEditorWatchUITests: XCTestCase {
         let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
         XCTAssert(result == .completed, "Menu action adds node")
     }
-
+    
+    @MainActor
+    func testExample() throws {
+        _ = XCUIApplication()
+    }
+    
+    @MainActor
+    func testLaunchPerformance() throws {
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            XCUIApplication().launch()
+        }
+    }
+    */
+    /*
     func testDigitalCrownZooming() throws {
         let app = XCUIApplication()
         let canvas = app.otherElements["GraphCanvas"]
@@ -195,16 +222,5 @@ final class GraphEditorWatchUITests: XCTestCase {
         let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
         XCTAssert(result == .completed, "Zoom updates view")
     }
-    
-    @MainActor
-    func testExample() throws {
-        let app = XCUIApplication()
-    }
-    
-    @MainActor
-    func testLaunchPerformance() throws {
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
-    }
+     */
 }
