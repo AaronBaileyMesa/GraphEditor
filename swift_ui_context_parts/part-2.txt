@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 08:27:19
+Current date: 2025-10-13 08:36:26
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
@@ -11,7 +11,7 @@ Table of Contents:
 6. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift--------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-10-12 09:50:46
+Last modified: 2025-10-13 08:30:52
 
 Contents:
 //
@@ -111,19 +111,14 @@ class GraphSimulator {
     }
     
     internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
-        print("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")
+        print("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")  // NEW: Confirm entry
         var iterations = 0
         let maxIterations = 500
         while !Task.isCancelled && iterations < maxIterations {
-            if physicsEngine.isPaused {  // NEW: Skip if paused, but keep loop alive (aligns with test subclass)
-                try? await Task.sleep(for: .milliseconds(20))  // Short sleep to avoid CPU spin
-                continue
-            }
-            
             let shouldContinue = await performSimulationStep(baseInterval: baseInterval, nodeCount: nodeCount)
-            physicsEngine.alpha *= (1 - Constants.Physics.alphaDecay)
+            physicsEngine.alpha *= (1 - Constants.Physics.alphaDecay)  // New: Decay alpha
             iterations += 1
-            // print("Iteration \(iterations): shouldContinue = \(shouldContinue)")
+            print("Iteration \(iterations): shouldContinue = \(shouldContinue)")  // NEW: Per-iter log
             if !shouldContinue {
                 print("Simulation stabilized after \(iterations) iterations")
                 break
@@ -134,18 +129,18 @@ class GraphSimulator {
         }
         self.onStable?()
     }
-
+    
     internal func performSimulationStep(baseInterval: TimeInterval, nodeCount: Int) async -> Bool {
-    #if os(watchOS)
+#if os(watchOS)
         if await WKApplication.shared().applicationState != .active { return false }
-    #endif
-            
-        // REMOVED: if physicsEngine.isPaused { return false }  // Now handled in loop to skip without breaking
-            
+#endif
+        
+        if physicsEngine.isPaused { return false } // Added: Stop loop if paused to prevent infinite loop
+        
         let result: SimulationStepResult = await Task.detached {
             await self.computeSimulationStep()
         }.value
-        // print("Step: Total velocity = \(result.totalVelocity)")
+        print("Step: Total velocity = \(result.totalVelocity)")
         await self.setNodes(result.updatedNodes)
         
         recentVelocities.append(result.totalVelocity)
@@ -924,7 +919,7 @@ public class PersistenceManager: GraphStorage {
 ----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-10-11 12:15:40
+Last modified: 2025-10-13 08:31:01
 
 Contents:
 //
@@ -943,7 +938,7 @@ import CoreGraphics
 @available(watchOS 9.0, *)
 public class PhysicsEngine {
     private let physicsLogger = OSLog(subsystem: "io.handcart.GraphEditor", category: "physics")
-    public var simulationBounds: CGSize
+    var simulationBounds: CGSize
     private var stepCount: Int = 0
     private let maxNodesForQuadtree = 200
     private let symmetricFactor: CGFloat = 0.5

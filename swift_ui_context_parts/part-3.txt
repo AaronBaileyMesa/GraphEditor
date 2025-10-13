@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 08:27:19
+Current date: 2025-10-13 08:36:26
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
@@ -715,7 +715,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-10-11 12:11:56
+Last modified: 2025-10-13 08:30:54
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)
@@ -739,10 +739,6 @@ public extension CGPoint {
     func normalized() -> CGPoint {
             let len = hypot(x, y)
             return len > 0 ? self / len : .zero
-        }
-    
-    func clamped(toModelBounds bounds: CGSize) -> CGPoint {
-            CGPoint(x: x.clamped(to: 0...bounds.width), y: y.clamped(to: 0...bounds.height))
         }
     
     static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {

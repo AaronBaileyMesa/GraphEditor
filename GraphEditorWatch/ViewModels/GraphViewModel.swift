@@ -11,8 +11,6 @@ import WatchKit  // For WKApplication
 import os  // Added for logging
 
 @MainActor public class GraphViewModel: ObservableObject {
-    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")  // Added for consistent logging
-    
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
@@ -23,6 +21,10 @@ import os  // Added for logging
         
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
+    
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
+    }
     
     var isSelectedToggleNode: Bool {
         guard let id = selectedNodeID else { return false }
@@ -99,8 +101,8 @@ import os  // Added for logging
         let minZoom = max(calculatedMin, 0.5)
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
         
-        #if DEBUG
-        logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
+#if DEBUG
+        GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
         #endif
         
         return (minZoom, maxZoom)
@@ -191,7 +193,7 @@ import os  // Added for logging
         await model.pauseSimulation()
         
         #if DEBUG
-        logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
+        GraphViewModel.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
         #endif
         
         // Efficient hit test with queryNearby
@@ -199,7 +201,7 @@ import os  // Added for logging
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
         
         #if DEBUG
-        logger.debug("Nearby nodes found: \(nearbyNodes.count)")
+        GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
         #endif
         
         // Sort by distance to get closest (if multiple)
@@ -212,7 +214,7 @@ import os  // Added for logging
             selectedEdgeID = nil
             
             #if DEBUG
-            logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
+            GraphViewModel.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
             #endif
             
             model.objectWillChange.send()  // Trigger UI refresh
@@ -222,7 +224,7 @@ import os  // Added for logging
             selectedEdgeID = nil
             
             #if DEBUG
-            logger.debug("Tap missed; cleared selections")
+            GraphViewModel.logger.debug("Tap missed; cleared selections")
             #endif
         }
         
@@ -322,7 +324,7 @@ extension GraphViewModel {
         try model.storage.saveViewState(viewState, for: currentGraphName)
         
         #if DEBUG
-        logger.debug("Saved view state for '\(self.currentGraphName)'")
+        GraphViewModel.logger.debug("Saved view state for '\(self.currentGraphName)'")
         #endif
     }
 }
@@ -339,7 +341,7 @@ extension GraphViewModel {
                     try self?.saveViewState()
                 } catch {
                     #if DEBUG
-                    self?.logger.error("Save failed: \(error.localizedDescription)")
+                    GraphViewModel.logger.error("Save failed: \(error.localizedDescription)")
                     #endif
                 }
             }
