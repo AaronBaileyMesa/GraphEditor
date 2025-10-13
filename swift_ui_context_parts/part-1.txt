@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-10 13:25:45
+Current date: 2025-10-13 08:27:18
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -167,7 +167,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: CoordinateTransformer.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/CoordinateTransformer.swift
-Last modified: 2025-09-26 08:05:37
+Last modified: 2025-10-11 18:46:49
 
 Contents:
 //
@@ -179,9 +179,12 @@ Contents:
 
 import CoreGraphics
 import SwiftUI  // For GeometryProxy if enabled
+import os  // Added for Logger
 
 /// Utility for converting between model (graph) coordinates and screen (view) coordinates.
 public struct CoordinateTransformer {
+    
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "coordinate")  // Added for structured logging
     
     /// Converts a model position to screen coordinates.
     /// - Parameters:
@@ -204,17 +207,7 @@ public struct CoordinateTransformer {
         let relativePos = modelPos - effectiveCentroid
         let scaledPos = relativePos * zoomScale
         let screenPos = viewCenter + scaledPos + CGPoint(x: offset.width, y: offset.height)
-        
-        // Optional: Adjust for safe areas (symmetric to screenToModel)
-        // if let geo = geometry {
-        //     screenPos.x += geo.safeAreaInsets.leading
-        //     screenPos.y += geo.safeAreaInsets.top
-        // }
-        
-        #if DEBUG
-        print("modelToScreen: Model \(modelPos) -> Screen \(screenPos), Zoom \(zoomScale), Offset \(offset), Centroid \(effectiveCentroid), ViewSize \(viewSize)")
-        #endif
-        
+              
         return screenPos
     }
     
@@ -251,7 +244,7 @@ public struct CoordinateTransformer {
         let modelPos = effectiveCentroid + unscaled
         
         #if DEBUG
-        print("screenToModel: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid), ViewSize \(viewSize)")
+        logger.debug("screenToModel: Screen \(screenPos.x), \(screenPos.y) -> Model \(modelPos.x), \(modelPos.y), Zoom \(safeZoom), Offset \(panOffset.x), \(panOffset.y), Centroid \(effectiveCentroid.x), \(effectiveCentroid.y), ViewSize \(viewSize.width), \(viewSize.height)")
         #endif
         
         // Round to 3 decimals to eliminate floating-point drift
@@ -405,7 +398,7 @@ private let logger = OSLog(subsystem: "io.handcart.GraphEditor", category: "stor
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+EdgesNodes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-10-03 14:29:35
+Last modified: 2025-10-11 16:13:22
 
 Contents:
 //
@@ -539,6 +532,18 @@ extension GraphModel {
         objectWillChange.send()
         await resumeSimulation()
     }
+    
+    public func updateNodePosition(id: NodeID, delta: CGPoint) async {
+            // Implementation from docs: Find node, update position, snapshot, resume sim
+            await snapshot()
+            if let index = nodes.firstIndex(where: { $0.id == id }) {
+                var updated = nodes[index].unwrapped
+                updated.position += delta
+                nodes[index] = AnyNode(updated)
+            }
+            objectWillChange.send()
+            await resumeSimulation()
+        }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Helpers.swift
@@ -664,7 +669,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-10-07 16:16:49
+Last modified: 2025-10-12 09:49:31
 
 Contents:
 //
@@ -678,24 +683,30 @@ import Foundation
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
     public func startSimulation() async {
-        await stopSimulation()  // Cancel any ongoing
-        isSimulating = true
-        isStable = false
-        await simulator.startSimulation()
-    }
-    
-    public func pauseSimulation() async {
-        await stopSimulation()
-    }
-    
-    public func resumeSimulation() async {
-        await startSimulation()
-    }
-    
-    public func stopSimulation() async {
-        await simulator.stopSimulation()
-        isSimulating = false
-    }
+            await stopSimulation()  // Cancel any ongoing
+            isSimulating = true
+            isStable = false
+            await simulator.startSimulation()
+        }
+        
+        public func pauseSimulation() async {
+            physicsEngine.isPaused = true  // NEW: Set flag to skip steps in simulator loop (no cancel)
+            isSimulating = false  // Update state (optional: keeps UI consistent)
+        }
+        
+        public func resumeSimulation() async {
+            physicsEngine.isPaused = false  // NEW: Unset flag to resume computations
+            isSimulating = true
+            // NEW: If task ended naturally while paused, restart it
+            if simulator.simulationTask == nil {
+                await startSimulation()
+            }
+        }
+        
+        public func stopSimulation() async {
+            await simulator.stopSimulation()
+            isSimulating = false
+        }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Storage.swift
