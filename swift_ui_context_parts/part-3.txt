@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 08:36:26
+Current date: 2025-10-13 10:45:19
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
@@ -715,13 +715,24 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-10-13 08:30:54
+Last modified: 2025-10-13 10:27:19
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)
 
 import Foundation
 import CoreGraphics
+import os
+
+public struct LogManager {
+    static var isEnabled: Bool {
+#if DEBUG
+        return true
+#else
+        return false
+#endif
+    }
+}
 
 public extension Double {
     func clamped(to range: ClosedRange<Double>) -> Double {
@@ -737,9 +748,9 @@ public extension CGFloat {
 
 public extension CGPoint {
     func normalized() -> CGPoint {
-            let len = hypot(x, y)
-            return len > 0 ? self / len : .zero
-        }
+        let len = hypot(x, y)
+        return len > 0 ? self / len : .zero
+    }
     
     static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
         CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
@@ -778,9 +789,9 @@ public extension CGPoint {
     }
     
     static func /= (lhs: inout CGPoint, rhs: CGFloat) {
-            lhs.x /= rhs
-            lhs.y /= rhs
-        }
+        lhs.x /= rhs
+        lhs.y /= rhs
+    }
     
     var magnitude: CGFloat {
         hypot(x, y)
@@ -822,6 +833,28 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
         (x: acc.x + node.position.x, y: acc.y + node.position.y)
     }
     return CGPoint(x: totals.x / CGFloat(nodes.count), y: totals.y / CGFloat(nodes.count))
+}
+
+extension Logger {
+    static func forCategory(_ category: String) -> Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: category)
+    }
+    
+    func debugLog(_ message: String) {
+        if LogManager.isEnabled {
+            self.debug("\(message)")
+        }
+    }
+    
+    func infoLog(_ message: String) {
+        if LogManager.isEnabled {
+            self.info("\(message)")
+        }
+    }
+    
+    func errorLog(_ message: String) {
+        self.error("\(message)")  // Always log errors
+    }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift

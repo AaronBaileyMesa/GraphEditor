@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 08:36:25
+Current date: 2025-10-13 10:45:18
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -167,7 +167,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: CoordinateTransformer.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/CoordinateTransformer.swift
-Last modified: 2025-10-13 08:30:41
+Last modified: 2025-10-13 10:16:19
 
 Contents:
 //
@@ -269,7 +269,7 @@ private extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-10-07 16:10:09
+Last modified: 2025-10-13 10:16:24
 
 Contents:
 //
@@ -664,7 +664,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-10-13 08:30:47
+Last modified: 2025-10-13 10:44:19
 
 Contents:
 //
@@ -678,18 +678,21 @@ import Foundation
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
     public func startSimulation() async {
-        await stopSimulation()  // Cancel any ongoing
+        // Remove await stopSimulation() to avoid always canceling; caller should stop explicitly if needed
         isSimulating = true
         isStable = false
         await simulator.startSimulation()
     }
     
     public func pauseSimulation() async {
-        await stopSimulation()
+        physicsEngine.isPaused = true  // Set flag to pause loop without canceling task
     }
     
     public func resumeSimulation() async {
-        await startSimulation()
+        physicsEngine.isPaused = false  // Unpause; loop will continue if task exists
+        if simulator.simulationTask == nil {
+            await startSimulation()  // Start new if no task (e.g., after full stop or initial)
+        }
     }
     
     public func stopSimulation() async {

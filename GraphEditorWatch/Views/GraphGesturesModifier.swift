@@ -76,187 +76,42 @@ struct GraphGesturesModifier: ViewModifier {
 
 extension GraphGesturesModifier {
     
-    /*
-    // Screen-space hit test for nodes (consistent usability)
-    func hitTestNodesInScreenSpace(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> (any NodeProtocol)? {
-        var closestNode: (any NodeProtocol)?
-        var minScreenDist: CGFloat = .infinity
-        let minHitRadius: CGFloat = 10.0  // Minimum tappable radius in screen points for small zooms
-        let padding: CGFloat = 5.0  // Extra padding in screen points for forgiveness
-
-    #if DEBUG
-        var nodeDistances: [NodeDistanceInfo] = []  // For logging
-        logger.debug("Using centroid: \(String(describing: context.effectiveCentroid)) for this gesture")
-    #endif
-
+    // Hybrid hit test with screen-space thresholds, model-space for small zooms
+    func hitTest(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> HitType? {
+        let safeZoom = max(context.zoomScale, 0.1)
+        let modelPos = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
+        let minHitScreenRadius: CGFloat = 20.0  // Screen points
+        let minHitModelRadius: CGFloat = minHitScreenRadius / safeZoom
+        
+        // Check nodes first
         for node in visibleNodes {
-            let safeZoom = max(context.zoomScale, 0.1)
-            let nodeScreenPos = CoordinateTransformer.modelToScreen(node.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
-            let dist = distance(screenPos, nodeScreenPos)
-
-            let visibleRadius = node.radius * safeZoom
-            let nodeHitRadius = max(minHitRadius, visibleRadius) + padding  // Matches visible size, with min and padding
-
-    #if DEBUG
-            nodeDistances.append(NodeDistanceInfo(label: node.label, screenPos: nodeScreenPos, dist: dist))
-            // Optional: Log per-node hit radius for debugging
-            logger.debug("Node \(node.label): visibleRadius \(visibleRadius), nodeHitRadius \(nodeHitRadius)")
-    #endif
-
-            if dist <= nodeHitRadius && dist < minScreenDist {
-                minScreenDist = dist
-                closestNode = node
+            let dist = distance(modelPos, node.position)
+            if dist <= max(node.radius, minHitModelRadius) {
+                return .node
             }
         }
-
-    #if DEBUG
-        // Log sorted by distance for verification
-        nodeDistances.sort { $0.dist < $1.dist }
-        logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: screenPos))")
-        for info in nodeDistances.prefix(5) {  // Limit to top 5 closest
-            logger.debug("Node \(info.label): screen pos \(String(describing: info.screenPos)), dist \(info.dist)")
-        }
-        if let closest = closestNode {
-            logger.debug("Hit: Node \(closest.label) (dist \(minScreenDist))")
-        } else {
-            logger.debug("Miss: Closest dist \(nodeDistances.first?.dist ?? .infinity)")
-        }
-    #endif
-        return closestNode
-    }
-    
-    // Screen-space hit test for edges (for consistency with nodes)
-    func hitTestEdgesInScreenSpace(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> GraphEdge? {
-        var closestEdge: GraphEdge?
-        var minScreenDist: CGFloat = .infinity
-        let hitScreenRadius: CGFloat = Constants.App.hitScreenRadius / 2  // Smaller for edges to avoid overlapping node taps
         
-#if DEBUG
-        var edgeDistances: [(id: UUID, dist: CGFloat)] = []  // For logging
-#endif
-        
+        // Check edges
         for edge in visibleEdges {
             guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
                   let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-            
-            let safeZoom = max(context.zoomScale, 0.1)
             let fromScreen = CoordinateTransformer.modelToScreen(fromNode.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
             let toScreen = CoordinateTransformer.modelToScreen(toNode.position, effectiveCentroid: context.effectiveCentroid, zoomScale: safeZoom, offset: context.offset, viewSize: context.viewSize)
             let dist = pointToLineDistance(point: screenPos, from: fromScreen, endPoint: toScreen)
-            
-#if DEBUG
-            edgeDistances.append((edge.id, dist))
-#endif
-            
-            if dist < minScreenDist && dist <= hitScreenRadius {
-                minScreenDist = dist
-                closestEdge = edge
+            if dist <= minHitScreenRadius / 2 {
+                return .edge
             }
         }
-        
-#if DEBUG
-        // Log sorted by distance
-        edgeDistances.sort { $0.dist < $1.dist }
-        logger.debug("Edge Hit Test at screen \(String(describing: screenPos))")
-        for (id, dist) in edgeDistances.prefix(3) {
-            logger.debug("Edge \(id): dist \(dist)")
-        }
-        if let closest = closestEdge {
-            logger.debug("Hit: Edge \(closest.id) (dist \(minScreenDist) <= \(hitScreenRadius))")
-        } else {
-            logger.debug("Miss: Closest dist \(edgeDistances.first?.dist ?? .infinity) > \(hitScreenRadius)")
-        }
-#endif
-        return closestEdge
-    }
-    */
-     
-    private func resetGestureState() {
-        dragStartNode = nil
-        isMovingSelectedNode = false
-        draggedNode = nil
-        dragOffset = .zero
-        potentialEdgeTarget = nil
-        panStartOffset = nil
-        startLocation = nil
-        isAddingEdge = false
-        onUpdateZoomRanges()
-        gestureStartCentroid = .zero
+        return nil
     }
     
-    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
-    #if DEBUG
-        logger.debug("Hit Test Diagnostics: Tap at screen \(String(describing: location))")
-        logger.debug("Visible Nodes Count: \(visibleNodes.count)")
-        logger.debug("--------------------------------")
-    #endif
-      
-        // Pause simulation first (mimics handleTap)
-        Task { await viewModel.model.pauseSimulation() }
-      
-        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-        let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
-        if let node = hitNode {
-            // Node hit: Handle toggle or selection (replicates viewModel.handleTap logic)
-            if let toggleNode = node as? ToggleNode {
-                // Toggle without selection
-                let updated = toggleNode.handlingTap()
-                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == toggleNode.id }) {
-                    viewModel.model.nodes[index] = AnyNode(updated)
-                }
-                selectedNodeID = nil
-                selectedEdgeID = nil
-                logger.debug("Toggled ToggleNode \(toggleNode.label)")
-            } else {
-                // Select regular node (toggle off if already)
-                selectedNodeID = (node.id == selectedNodeID) ? nil : node.id
-                selectedEdgeID = nil
-                logger.debug("Selected regular Node \(node.label)")
-            }
-            // Sync with ViewModel (triggers onChange in ContentView)
-            viewModel.objectWillChange.send()
-          
-            // Resume simulation after delay (mimics handleTap)
-            Task { await viewModel.resumeSimulationAfterDelay() }
-            return true  // Hit occurred
-        } else {
-            // No node: Check edges
-            let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext)
-            if let edge = hitEdge {
-                // Select edge, clear node
-                selectedEdgeID = edge.id
-                selectedNodeID = nil
-                logger.debug("Tap selected Edge \(edge.id.uuidString.prefix(8))")
-              
-                // Sync with ViewModel (triggers onChange in ContentView)
-                viewModel.objectWillChange.send()
-              
-                // Resume simulation after delay (mimics handleTap)
-                Task { await viewModel.resumeSimulationAfterDelay() }
-                return true  // Hit occurred
-            } else {
-                // Miss: Clear all
-                selectedNodeID = nil
-                selectedEdgeID = nil
-                logger.debug("Tap missed; cleared selections")
-              
-                // Sync with ViewModel (triggers onChange in ContentView)
-                viewModel.objectWillChange.send()
-              
-                // Resume simulation after delay (mimics handleTap)
-                Task { await viewModel.resumeSimulationAfterDelay() }
-                return false  // No hit
-            }
-        }
-    }
-  
     private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
         let location = value.location
         let translation = value.translation
         let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
-      
-        // Initial hit if no dragStartNode (start of drag)
-        if dragStartNode == nil {
+        
+        // Initial drag: Check for node hit
+        if draggedNode == nil && dragStartNode == nil {
             let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
             let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             if let node = hitNode {
@@ -366,6 +221,46 @@ extension GraphGesturesModifier {
             print("Moved node \(unwrapped.label) to new position \(newPos)")
             Task { await viewModel.model.startSimulation() }
         }
+    }
+    
+    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        if let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) {
+            if selectedNodeID == hitNode.id {
+                selectedNodeID = nil  // Deselect on second tap
+                logger.debug("Deselected Node \(hitNode.label)")
+            } else {
+                selectedNodeID = hitNode.id
+                selectedEdgeID = nil  // Clear edge selection
+                logger.debug("Selected Node \(hitNode.label)")
+            }
+            return true
+        } else if let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext) {
+            if selectedEdgeID == hitEdge.id {
+                selectedEdgeID = nil  // Deselect on second tap
+                logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
+            } else {
+                selectedEdgeID = hitEdge.id
+                selectedNodeID = nil  // Clear node selection
+                logger.debug("Selected Edge \(String(describing: hitEdge.id))")
+            }
+            return true
+        }
+        // Miss: Deselect both
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        logger.debug("Tap miss: Deselected all")
+        return false
+    }
+    
+    private func resetGestureState() {
+        draggedNode = nil
+        dragStartNode = nil
+        dragOffset = .zero
+        potentialEdgeTarget = nil
+        panStartOffset = nil
+        startLocation = nil
+        isAddingEdge = false  // Reset edge mode
     }
 }
 extension GraphGesturesModifier {
