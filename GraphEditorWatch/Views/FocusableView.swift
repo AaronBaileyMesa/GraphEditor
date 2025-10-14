@@ -1,3 +1,15 @@
+//
+//  FocusableView.swift
+//  GraphEditor
+//
+//  Created by handcart on 10/14/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+import os  // Added for logging
+
 struct FocusableView<Content: View>: View {
     private static var logger: Logger {
         Logger(subsystem: "io.handcart.GraphEditor", category: "focusableview")  // Changed to computed static

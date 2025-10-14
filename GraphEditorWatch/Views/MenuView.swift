@@ -8,6 +8,7 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import os
 
 struct MenuView: View {
     let viewModel: GraphViewModel
@@ -21,6 +22,8 @@ struct MenuView: View {
     @FocusState private var isMenuFocused: Bool
     @State private var showEditSheet: Bool = false
     @State private var isAddingEdge: Bool = false
+    
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
         List {
@@ -71,10 +74,10 @@ struct MenuView: View {
                 isMenuFocused = true
             }
             // NEW: Debug log for selections
-            print("Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
+            MenuView.logger.debug("Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
         }
         .onChange(of: isMenuFocused) { _, newValue in
-            print("Menu focus: \(newValue)") // Debug (fixed typo)
+            MenuView.logger.debug("Menu focus: \(newValue)")
             if !newValue {
                 isMenuFocused = true // Auto-recover
             }

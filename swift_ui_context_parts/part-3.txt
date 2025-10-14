@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 10:45:19
+Current date: 2025-10-14 08:14:26
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
 2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
@@ -715,7 +715,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-10-13 10:27:19
+Last modified: 2025-10-14 08:12:24
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)
@@ -835,25 +835,40 @@ public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
     return CGPoint(x: totals.x / CGFloat(nodes.count), y: totals.y / CGFloat(nodes.count))
 }
 
+extension CGSize: CustomStringConvertible {
+    public var description: String {
+        "(\(width), \(height))"
+    }
+}
+
+extension CGPoint: CustomStringConvertible {
+    public var description: String {
+        "(\(x), \(y))"
+    }
+}
+
 extension Logger {
+    static let subsystem = "io.handcart.GraphEditor"
+    
     static func forCategory(_ category: String) -> Logger {
-        Logger(subsystem: "io.handcart.GraphEditor", category: category)
+        Logger(subsystem: subsystem, category: category)
     }
     
     func debugLog(_ message: String) {
-        if LogManager.isEnabled {
-            self.debug("\(message)")
-        }
+#if DEBUG
+        self.debug("\(message)")
+#endif
     }
     
     func infoLog(_ message: String) {
-        if LogManager.isEnabled {
-            self.info("\(message)")
-        }
+#if DEBUG
+        self.info("\(message)")
+#endif
     }
     
-    func errorLog(_ message: String) {
-        self.error("\(message)")  // Always log errors
+    func errorLog(_ message: String, error: Error? = nil) {
+        let errorDesc = error?.localizedDescription ?? ""
+        self.error("\(message) \(errorDesc)")
     }
 }
 ----------------------------------------------------------------------------------------------------

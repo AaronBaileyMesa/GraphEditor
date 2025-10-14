@@ -7,7 +7,7 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
-import os.log  // Added for optimized logging
+import os  // Added for optimized logging
 
 enum HitType {
     case node
@@ -52,7 +52,7 @@ struct GraphGesturesModifier: ViewModifier {
     private let dragStartThreshold: CGFloat = 10.0  // Increased for better tap vs. drag distinction
     
     // Optimized logger
-    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
@@ -119,7 +119,7 @@ extension GraphGesturesModifier {
                 draggedNode = node
                 dragOffset = .zero
                 isAddingEdge = true  // Enter edge creation mode
-                logger.debug("Drag of \(dragMagnitude) started from Node \(node.label)")
+                GraphGesturesModifier.logger.debug("Drag of \(dragMagnitude) started from Node \(node.label)")
             } else {
                 // Pan the canvas instead
                 if panStartOffset == nil {
@@ -132,7 +132,7 @@ extension GraphGesturesModifier {
             gestureStartCentroid = context.effectiveCentroid
             return
         }
-      
+        
         // Ongoing drag: Update drag offset and check for potential target
         if let node = draggedNode {
             dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
@@ -140,7 +140,7 @@ extension GraphGesturesModifier {
             let potential = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
             potentialEdgeTarget = (potential?.id != node.id) ? potential : nil  // Avoid self-edges
             if let target = potentialEdgeTarget {
-                logger.debug("Potential edge target: Node \(target.label)")
+                GraphGesturesModifier.logger.debug("Potential edge target: Node \(target.label)")
             }
         }
     }
@@ -162,12 +162,12 @@ extension GraphGesturesModifier {
             return  // Exit early
         }
         
-        print("Processing as drag: magnitude \(dragMagnitude), translation \(translation)")
+        GraphGesturesModifier.logger.debug("Processing as drag: magnitude \(dragMagnitude), translation (\(translation.width), \(translation.height))")
         
         if let dragged = draggedNode {
             Task { await viewModel.model.snapshot() }
             let modelDragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-            print("Drag offset in model: \(modelDragOffset)")
+            GraphGesturesModifier.logger.debug("Drag offset in model: (\(modelDragOffset.x), \(modelDragOffset.y))")
             
             if let target = potentialEdgeTarget, target.id != dragged.id, isAddingEdge {
                 handleEdgeCreation(from: dragged, to: target, translation: translation)
@@ -186,17 +186,17 @@ extension GraphGesturesModifier {
             (edge.from == dragged.id && edge.target == target.id) || (edge.from == target.id && edge.target == dragged.id)
         }
         if !exists {
-            print("No duplicate; adding edge")
+            GraphGesturesModifier.logger.debug("No duplicate; adding edge")
             // Heuristic: Downward = hierarchy
             let type = (translation.height > 0) ? .hierarchy : viewModel.pendingEdgeType
             viewModel.pendingEdgeType = type  // Update for UI
             Task {
                 await viewModel.addEdge(from: dragged.id, to: target.id, type: type)  // Async call
             }
-            print("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
+            GraphGesturesModifier.logger.debug("Created edge of type \(type.rawValue) from node \(dragged.label) to \(target.label)")
             isAddingEdge = false
         } else {
-            print("Duplicate edge ignored between \(dragged.label) and \(target.label)")
+            GraphGesturesModifier.logger.debug("Duplicate edge ignored between \(dragged.label) and \(target.label)")
         }
     }
     
@@ -214,7 +214,7 @@ extension GraphGesturesModifier {
                 let concreteUpdated = concrete.with(position: newPos, velocity: .zero)
                 updatedNode = AnyNode(concreteUpdated)
             } else {
-                logger.error("Unsupported node type for move: \(type(of: unwrapped))")
+                GraphGesturesModifier.logger.error("Unsupported node type for move: \(type(of: unwrapped))")
                 return
             }
             viewModel.model.nodes[index] = updatedNode
@@ -228,28 +228,28 @@ extension GraphGesturesModifier {
         if let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) {
             if selectedNodeID == hitNode.id {
                 selectedNodeID = nil  // Deselect on second tap
-                logger.debug("Deselected Node \(hitNode.label)")
+                GraphGesturesModifier.logger.debug("Deselected Node \(hitNode.label)")
             } else {
                 selectedNodeID = hitNode.id
                 selectedEdgeID = nil  // Clear edge selection
-                logger.debug("Selected Node \(hitNode.label)")
+                GraphGesturesModifier.logger.debug("Selected Node \(hitNode.label)")
             }
             return true
         } else if let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext) {
             if selectedEdgeID == hitEdge.id {
                 selectedEdgeID = nil  // Deselect on second tap
-                logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
+                GraphGesturesModifier.logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
             } else {
                 selectedEdgeID = hitEdge.id
                 selectedNodeID = nil  // Clear node selection
-                logger.debug("Selected Edge \(String(describing: hitEdge.id))")
+                GraphGesturesModifier.logger.debug("Selected Edge \(String(describing: hitEdge.id))")
             }
             return true
         }
         // Miss: Deselect both
         selectedNodeID = nil
         selectedEdgeID = nil
-        logger.debug("Tap miss: Deselected all")
+        GraphGesturesModifier.logger.debug("Tap miss: Deselected all")
         return false
     }
     
