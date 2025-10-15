@@ -70,10 +70,19 @@ struct GraphGesturesModifier: ViewModifier {
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
+        // Update longPressGesture in GraphGesturesModifier.swift
         let longPressGesture = LongPressGesture(minimumDuration: 3.0, maximumDistance: 10.0)
+            .onChanged { pressing in  // Changed from .onEnded to full gesture for onPressingChanged
+                if pressing {
+                    print("Long press started...")
+                    WKInterfaceDevice.current().play(.start)  // Haptic on start
+                }
+            }
             .onEnded { _ in
-                if !isSimulating {  
-                    showMenu = true  // Trigger menu
+                if !isSimulating {
+                    selectedNodeID = nil  // Optional: Deselect on menu open
+                    selectedEdgeID = nil
+                    showMenu = true
                     print("Long press: Showing menu!")
                     WKInterfaceDevice.current().play(.success)
                 }

@@ -194,7 +194,21 @@ struct ContentView: View {
             .padding(.horizontal, 15)
             .transition(.move(edge: .bottom))
         }
-        // Removed .hidden() to ensure the content renders
+        .sheet(isPresented: $showMenu) {
+            MenuView(
+                viewModel: viewModel,
+                isSimulatingBinding: $isSimulating,  // Pass your bindings
+                onCenterGraph: centerGraph,
+                showMenu: $showMenu,  // For dismissal
+                showOverlays: $showOverlays,
+                selectedNodeID: $selectedNodeID,
+                selectedEdgeID: $selectedEdgeID
+            )
+            .onDisappear {
+                print("Menu sheet dismissed")
+                showMenu = false  // Reset
+            }
+        }
     }
     
     private func handleCrownRotation(newValue: Double) {

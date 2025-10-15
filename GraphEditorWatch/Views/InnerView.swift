@@ -45,20 +45,6 @@ struct InnerView: View {
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
             .focusable()
-        
-        if config.showMenu.wrappedValue {
-            MenuView(
-                viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulating,
-                onCenterGraph: config.onCenterGraph,
-                showMenu: config.showMenu,
-                showOverlays: config.showOverlays,
-                selectedNodeID: config.selectedNodeID,    // NEW: Pass binding
-                selectedEdgeID: config.selectedEdgeID     // NEW: Pass binding
-            )
-            .navigationTitle("Menu")
-        } else {
-            canvasView
-        }
+        canvasView
     }
 }
