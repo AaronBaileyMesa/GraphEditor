@@ -100,5 +100,9 @@ struct GraphCanvasView: View {
                 isSimulating: $isSimulating
             ))
         }
+        
+        .id("GraphCanvas")  // Add stable ID for crown sequencer
+        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high)
+        
     }
 }
