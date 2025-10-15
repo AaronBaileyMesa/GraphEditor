@@ -69,8 +69,14 @@ struct GraphGesturesModifier: ViewModifier {
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
+        let longPressGesture = LongPressGesture(minimumDuration: 2.0, maximumDistance: 10.0)
+                .onEnded { _ in
+                    print("Long press detected after 2 seconds!")
+                    WKInterfaceDevice.current().play(.success)  // Haptic feedback
+                }
         content
             .highPriorityGesture(dragGesture)
+            .simultaneousGesture(longPressGesture)  // Add this: Allows long press alongside drag
     }
 }
 

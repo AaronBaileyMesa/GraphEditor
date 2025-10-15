@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-14 08:14:25
+Current date: 2025-10-15 09:11:50
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -168,7 +168,7 @@ public enum Constants {
 ----------------------------------------------------------------------------------------------------
 File: CoordinateTransformer.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/CoordinateTransformer.swift
-Last modified: 2025-10-13 13:12:06
+Last modified: 2025-10-14 09:11:42
 
 Contents:
 //
@@ -180,9 +180,11 @@ Contents:
 
 import CoreGraphics
 import SwiftUI  // For GeometryProxy if enabled
+import os
 
 /// Utility for converting between model (graph) coordinates and screen (view) coordinates.
 public struct CoordinateTransformer {
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "coordinatetransformer")
     
     /// Converts a model position to screen coordinates.
     /// - Parameters:
@@ -212,9 +214,9 @@ public struct CoordinateTransformer {
         //     screenPos.y += geo.safeAreaInsets.top
         // }
         
-        #if DEBUG
-        print("modelToScreen: Model \(modelPos) -> Screen \(screenPos), Zoom \(zoomScale), Offset \(offset), Centroid \(effectiveCentroid), ViewSize \(viewSize)")
-        #endif
+#if DEBUG
+        Self.logger.debug("modelToScreen: Model (\(modelPos.x), \(modelPos.y)) -> Screen (\(screenPos.x), \(screenPos.y)), Zoom \(zoomScale), Offset (\(offset.width), \(offset.height)), Centroid (\(effectiveCentroid.x), \(effectiveCentroid.y)), ViewSize (\(viewSize.width), \(viewSize.height))")
+#endif
         
         return screenPos
     }
@@ -251,20 +253,12 @@ public struct CoordinateTransformer {
         let unscaled = translated / safeZoom
         let modelPos = effectiveCentroid + unscaled
         
-        #if DEBUG
-        print("screenToModel: Screen \(screenPos) -> Model \(modelPos), Zoom \(safeZoom), Offset \(panOffset), Centroid \(effectiveCentroid), ViewSize \(viewSize)")
-        #endif
+#if DEBUG
+        Self.logger.debug("screenToModel: Screen (\(screenPos.x), \(screenPos.y)) -> Model (\(modelPos.x), \(modelPos.y)), Zoom \(safeZoom), Offset (\(panOffset.x), \(panOffset.y)), Centroid (\(effectiveCentroid.x), \(effectiveCentroid.y)), ViewSize (\(viewSize.width), \(viewSize.height))")
+#endif
         
         // Round to 3 decimals to eliminate floating-point drift
         return CGPoint(x: modelPos.x.rounded(to: 3), y: modelPos.y.rounded(to: 3))
-    }
-}
-
-// Extension for rounding (if not already in Utilities.swift)
-private extension CGFloat {
-    func rounded(to decimalPlaces: Int) -> CGFloat {
-        let divisor = pow(10.0, CGFloat(decimalPlaces))
-        return (self * divisor).rounded() / divisor
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -300,7 +294,7 @@ public enum GraphError: Error, LocalizedError {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-10-13 21:03:35
+Last modified: 2025-10-14 09:19:26
 
 Contents:
 //
@@ -328,7 +322,8 @@ import WatchKit
     @Published public var isStable: Bool = false
     @Published public var simulationError: Error?
 
-    internal let logger = Logger.forCategory("graphmodel-storage")  // Added: Consistent logger
+    // CHANGED: Made static for consistency; use Self.logger
+    private static let logger = Logger.forCategory("graphmodel-storage")
 
     var simulationTimer: Timer?
     var undoStack: [UndoGraphState] = []
@@ -394,7 +389,8 @@ import WatchKit
                 guard let self = self, !self.isStable else { return }
                 let velocities = self.nodes.map { hypot($0.velocity.x, $0.velocity.y) }
                 if velocities.allSatisfy({ $0 < 0.001 }) {
-                    self.logger.infoLog("Simulation stable: Centering nodes")  // Replaced print
+                    // CHANGED: Qualified static logger
+                    Self.logger.infoLog("Simulation stable: Centering nodes")  // Replaced print
                     let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes.map { $0.unwrapped })
                     self.nodes = centeredNodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
                     self.isStable = true
@@ -422,7 +418,8 @@ import WatchKit
     public init(storage: GraphStorage, physicsEngine: PhysicsEngine) {
         self.storage = storage
         self.physicsEngine = physicsEngine
-        logger.infoLog("GraphModel initialized with storage: \(type(of: storage))")  // Existing, already good
+        // CHANGED: Qualified static logger
+        Self.logger.infoLog("GraphModel initialized with storage: \(type(of: storage))")  // Existing, already good
     }
     
     func buildAdjacencyList(for type: EdgeType) -> [NodeID: [NodeID]] {
@@ -436,7 +433,7 @@ import WatchKit
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+EdgesNodes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-10-13 20:57:24
+Last modified: 2025-10-14 09:31:53
 
 Contents:
 //
@@ -446,9 +443,13 @@ Contents:
 //  Created by handcart on 9/19/25.
 //
 import Foundation
+import os  // ADDED: For Logger
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
+    // NEW: Add static logger for this extension
+    private static let logger = Logger.forCategory("graphmodel_edgesnodes")
+
     public func wouldCreateCycle(withNewEdgeFrom from: NodeID, target: NodeID, type: EdgeType) -> Bool {
         guard type == .hierarchy else { return false }
         var tempEdges = edges.filter { $0.type == .hierarchy }
@@ -479,7 +480,8 @@ extension GraphModel {
 
     public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
         if wouldCreateCycle(withNewEdgeFrom: from, target: target, type: type) {
-            logger.warning("Cannot add edge: Would create cycle in hierarchy")  // Replaced print with warning log
+            // CHANGED: Qualified static logger
+            Self.logger.warning("Cannot add edge: Would create cycle in hierarchy")  // Replaced print with warning log
             return
         }
         pushUndo()
@@ -489,7 +491,8 @@ extension GraphModel {
     }
 
     public func deleteEdge(withID id: UUID) async {
-        logger.debugLog("Deleting edge with ID: \(id.uuidString.prefix(8))")  // Added debug log
+        // CHANGED: Qualified
+        Self.logger.debugLog("Deleting edge with ID: \(id.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         edges.removeAll { $0.id == id }
         objectWillChange.send()
@@ -497,7 +500,8 @@ extension GraphModel {
     }
 
     public func addNode(at position: CGPoint) async {
-        logger.debugLog("Adding node at position: x=\(position.x), y=\(position.y)")  // Added debug log
+        // CHANGED: Qualified; manual CGPoint formatting
+        Self.logger.debugLog("Adding node at position: x=\(position.x), y=\(position.y)")  // Added debug log
         pushUndo()
         let newLabel = nextNodeLabel
         nextNodeLabel += 1
@@ -508,7 +512,7 @@ extension GraphModel {
     }
 
     public func addToggleNode(at position: CGPoint) async {
-        logger.debugLog("Adding toggle node at position: x=\(position.x), y=\(position.y)")  // Added debug log
+        Self.logger.debugLog("Adding toggle node at position: x=\(position.x), y=\(position.y)")  // Added debug log
         pushUndo()
         let newLabel = nextNodeLabel
         nextNodeLabel += 1
@@ -519,7 +523,7 @@ extension GraphModel {
     }
 
     public func addChild(to parentID: NodeID) async {
-        logger.debugLog("Adding child to parent ID: \(parentID.uuidString.prefix(8))")  // Added debug log
+        Self.logger.debugLog("Adding child to parent ID: \(parentID.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         let newLabel = nextNodeLabel
         nextNodeLabel += 1
@@ -536,7 +540,8 @@ extension GraphModel {
     }
 
     public func deleteNode(withID id: NodeID) async {
-        logger.debugLog("Deleting node with ID: \(id.uuidString.prefix(8))")  // Added debug log
+        // CHANGED: Qualified
+        Self.logger.debugLog("Deleting node with ID: \(id.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         nodes.removeAll { $0.id == id }
         edges.removeAll { $0.from == id || $0.target == id }
@@ -545,7 +550,8 @@ extension GraphModel {
     }
 
     public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
-        logger.debugLog("Updating content for node ID: \(id.uuidString.prefix(8))")  // Added debug log
+        // CHANGED: Qualified
+        Self.logger.debugLog("Updating content for node ID: \(id.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         if let index = nodes.firstIndex(where: { $0.id == id }) {
             var updated = nodes[index].unwrapped
@@ -557,7 +563,8 @@ extension GraphModel {
     }
 
     public func deleteSelected(selectedNodeID: NodeID?, selectedEdgeID: UUID?) async {
-        logger.debugLog("Deleting selected: node=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), edge=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")  // Added debug log
+        // CHANGED: Qualified
+        Self.logger.debugLog("Deleting selected: node=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), edge=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")  // Added debug log
         pushUndo()
         if let id = selectedEdgeID {
             edges.removeAll { $0.id == id }
@@ -570,7 +577,8 @@ extension GraphModel {
     }
 
     public func toggleExpansion(for nodeID: NodeID) async {
-        logger.debugLog("Toggling expansion for node ID: \(nodeID.uuidString.prefix(8))")  // Added debug log
+        // CHANGED: Qualified
+        Self.logger.debugLog("Toggling expansion for node ID: \(nodeID.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         guard let idx = nodes.firstIndex(where: { $0.id == nodeID }), let toggle = nodes[idx].unwrapped as? ToggleNode else { return }
         let updated = toggle.handlingTap()
@@ -703,7 +711,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Simulation.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-10-13 20:57:24
+Last modified: 2025-10-14 10:01:11
 
 Contents:
 //
@@ -713,23 +721,26 @@ Contents:
 //  Created by handcart on 9/19/25.
 //
 import Foundation
+import os  // ADDED: For Logger
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
+    private static let logger = Logger.forCategory("graphmodel-simulation")  // ADDED: Local static logger for this extension
+
     public func startSimulation() async {
-        logger.infoLog("Starting simulation")  // Added info log
+        Self.logger.infoLog("Starting simulation")  // Qualified with Self
         isSimulating = true
         isStable = false
         await simulator.startSimulation()
     }
 
     public func pauseSimulation() async {
-        logger.debugLog("Pausing simulation")  // Added debug log
+        Self.logger.debugLog("Pausing simulation")  // Qualified with Self
         physicsEngine.isPaused = true
     }
 
     public func resumeSimulation() async {
-        logger.debugLog("Resuming simulation")  // Added debug log
+        Self.logger.debugLog("Resuming simulation")  // Qualified with Self
         physicsEngine.isPaused = false
         if simulator.simulationTask == nil {
             await startSimulation()
@@ -737,7 +748,7 @@ extension GraphModel {
     }
 
     public func stopSimulation() async {
-        logger.infoLog("Stopping simulation")  // Added info log
+        Self.logger.infoLog("Stopping simulation")  // Qualified with Self
         await simulator.stopSimulation()
         isSimulating = false
     }
@@ -745,7 +756,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Storage.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
-Last modified: 2025-10-13 21:02:54
+Last modified: 2025-10-14 10:03:53
 
 Contents:
 //
@@ -760,6 +771,8 @@ import os  // Added for Logger
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
+    private static let logger = Logger.forCategory("graphmodel-storage")  // ADDED: Define local static logger for this extension
+
     private func syncCollapsedPositions() {
         for parentIndex in 0..<nodes.count {
             if let toggle = nodes[parentIndex].unwrapped as? ToggleNode, !toggle.isExpanded {
@@ -780,54 +793,54 @@ extension GraphModel {
     }
 
     private func loadFromStorage(for name: String) async throws {
-        logger.infoLog("loadFromStorage started for \(name)")
+        Self.logger.infoLog("loadFromStorage started for \(name)")
         do {
             let (loadedNodes, loadedEdges) = try await storage.load(for: name)
-            logger.infoLog("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges for \(name)")
+            Self.logger.infoLog("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges for \(name)")
             self.nodes = loadedNodes.map { AnyNode($0) }
             self.edges = loadedEdges
             self.nextNodeLabel = (nodes.map { $0.unwrapped.label }.max() ?? 0) + 1
         } catch {
-            logger.errorLog("loadFromStorage failed for \(name)", error: error)
+            Self.logger.errorLog("loadFromStorage failed for \(name)", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation with custom error
         }
     }
     
     public func load() async {
-        logger.infoLog("GraphModel.load() called")
+        Self.logger.infoLog("GraphModel.load() called")
         do {
             try await loadFromStorage(for: currentGraphName)
             syncCollapsedPositions()
             if let viewState = try storage.loadViewState(for: currentGraphName) {
-                logger.infoLog("Loaded view state: offset \(viewState.offset), zoom \(viewState.zoomScale)")
+                Self.logger.infoLog("Loaded view state: offset \(viewState.offset), zoom \(viewState.zoomScale)")
             }
-            logger.infoLog("GraphModel.load() succeeded; nodes: \(nodes.count), edges: \(edges.count)")
+            Self.logger.infoLog("GraphModel.load() succeeded; nodes: \(nodes.count), edges: \(edges.count)")
         } catch {
-            logger.errorLog("GraphModel.load() failed: \(error.localizedDescription)", error: error)
+            Self.logger.errorLog("GraphModel.load() failed: \(error.localizedDescription)", error: error)
         }
     }
     
     public func save() async throws {
-        logger.infoLog("GraphModel.save() called; nodes: \(nodes.count), edges: \(edges.count)")
+        Self.logger.infoLog("GraphModel.save() called; nodes: \(nodes.count), edges: \(edges.count)")
         do {
             try await storage.save(nodes: nodes.map { $0.unwrapped }, edges: edges, for: currentGraphName)
-            logger.infoLog("GraphModel.save() succeeded")
+            Self.logger.infoLog("GraphModel.save() succeeded")
         } catch {
-            logger.errorLog("GraphModel.save() failed: \(error.localizedDescription)", error: error)
+            Self.logger.errorLog("GraphModel.save() failed: \(error.localizedDescription)", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
 
     public func clearGraph() async {
-        logger.infoLog("clearGraph called")
+        Self.logger.infoLog("clearGraph called")
         nodes = []
         edges = []
         nextNodeLabel = 1
         do {
             try await storage.deleteGraph(name: currentGraphName)
-            logger.infoLog("clearGraph succeeded")
+            Self.logger.infoLog("clearGraph succeeded")
         } catch {
-            logger.errorLog("clearGraph failed: \(error.localizedDescription)", error: error)
+            Self.logger.errorLog("clearGraph failed: \(error.localizedDescription)", error: error)
         }
         objectWillChange.send()
     }
@@ -837,14 +850,14 @@ extension GraphModel {
     public func loadGraph() async throws {
         do {
             try await loadFromStorage(for: currentGraphName)
-            logger.infoLog("Loaded graph '\(self.currentGraphName)' with \(self.nodes.count) nodes and \(self.edges.count) edges")
+            Self.logger.infoLog("Loaded graph '\(self.currentGraphName)' with \(self.nodes.count) nodes and \(self.edges.count) edges")
             objectWillChange.send()
         } catch GraphStorageError.graphNotFound(_) {
             nodes = []
             edges = []
-            logger.warning("Graph '\(self.currentGraphName)' not found; starting empty")
+            Self.logger.warning("Graph '\(self.currentGraphName)' not found; starting empty")
         } catch {
-            logger.errorLog("Failed to load graph '\(self.currentGraphName)'", error: error)
+            Self.logger.errorLog("Failed to load graph '\(self.currentGraphName)'", error: error)
             nodes = []
             throw GraphError.storageFailure(error.localizedDescription)
         }
@@ -854,9 +867,9 @@ extension GraphModel {
     public func saveGraph() async throws {
         do {
             try await save()
-            logger.infoLog("Saved graph '\(self.currentGraphName)'")
+            Self.logger.infoLog("Saved graph '\(self.currentGraphName)'")
         } catch {
-            logger.errorLog("Failed to save graph '\(self.currentGraphName)'", error: error)
+            Self.logger.errorLog("Failed to save graph '\(self.currentGraphName)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)
         }
     }
@@ -872,9 +885,9 @@ extension GraphModel {
             undoStack = []
             redoStack = []
             objectWillChange.send()
-            logger.infoLog("Created and switched to new graph '\(name)'")
+            Self.logger.infoLog("Created and switched to new graph '\(name)'")
         } catch {
-            logger.errorLog("Failed to create graph '\(name)'", error: error)
+            Self.logger.errorLog("Failed to create graph '\(name)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
@@ -893,9 +906,9 @@ extension GraphModel {
                 currentGraphName = "default"
                 try await loadGraph()
             }
-            logger.infoLog("Deleted graph '\(name)'")
+            Self.logger.infoLog("Deleted graph '\(name)'")
         } catch {
-            logger.errorLog("Failed to delete graph '\(name)'", error: error)
+            Self.logger.errorLog("Failed to delete graph '\(name)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
@@ -905,7 +918,7 @@ extension GraphModel {
         do {
             return try await storage.listGraphNames()
         } catch {
-            logger.errorLog("Failed to list graph names", error: error)
+            Self.logger.errorLog("Failed to list graph names", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
@@ -915,7 +928,7 @@ extension GraphModel {
         do {
             try storage.saveViewState(viewState, for: currentGraphName)
         } catch {
-            logger.errorLog("Failed to save view state for '\(currentGraphName)'", error: error)
+            Self.logger.errorLog("Failed to save view state for '\(currentGraphName)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
@@ -924,7 +937,7 @@ extension GraphModel {
         do {
             return try storage.loadViewState(for: currentGraphName)
         } catch {
-            logger.errorLog("Failed to load view state for '\(currentGraphName)'", error: error)
+            Self.logger.errorLog("Failed to load view state for '\(currentGraphName)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
     }
@@ -932,7 +945,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-10-14 07:56:03
+Last modified: 2025-10-14 09:27:58
 
 Contents:
 //
@@ -991,7 +1004,7 @@ extension GraphModel {
     }
     
     public func snapshot() async {
-        logger.debug("snapshot() called from: \(#function), nodes: \(self.nodes.count), edges: \(self.edges.count)")  // Use debug for transient info
+        Self.logger.debug("snapshot() called from: \(#function), nodes: \(self.nodes.count), edges: \(self.edges.count)")  // Use debug for transient info
         let state = UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
         undoStack.append(state)
         if undoStack.count > maxUndo { undoStack.removeFirst() }
@@ -1006,7 +1019,7 @@ extension GraphModel {
             // Optional: If you want user feedback, set viewModel.errorMessage here (e.g., via NotificationCenter)
         }
         
-        logger.debug("snapshot() completed; undoStack size: \(self.undoStack.count)")
+        Self.logger.debug("snapshot() completed; undoStack size: \(self.undoStack.count)")
     }
 }
 ----------------------------------------------------------------------------------------------------

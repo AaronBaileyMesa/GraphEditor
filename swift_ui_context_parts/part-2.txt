@@ -1,17 +1,16 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-14 08:14:26
+Current date: 2025-10-15 09:11:50
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
 3. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
 4. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-5. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
-6. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift--------------------------------------------------
+5. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift--------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-Last modified: 2025-10-14 07:59:10
+Last modified: 2025-10-15 03:54:44
 
 Contents:
 //
@@ -22,7 +21,7 @@ Contents:
 //
 
 import Foundation
-import os  // For logging if needed
+import os  // For logging and signposts
 
 #if os(watchOS)
 import WatchKit  // Only if using haptics; otherwise remove
@@ -32,6 +31,14 @@ import WatchKit  // Only if using haptics; otherwise remove
 /// Manages physics simulation loops for graph updates.
 class GraphSimulator {
     private let logger = Logger.forCategory("graphsimulator")  // Added: Define logger instance
+    
+    // NEW: Signposter for performance tracing
+    #if DEBUG
+    private let signposter: OSSignposter = {
+        let subsystem = "io.handcart.GraphEditor"  // Match your app's subsystem
+        return OSSignposter(subsystem: subsystem, category: "graphsimulator")
+    }()
+    #endif
 
     var simulationTask: Task<Void, Never>?  // Exposed for testing
     internal var recentVelocities: [CGFloat] = []  // Explicit internal for test access
@@ -113,6 +120,10 @@ class GraphSimulator {
     }
     
     internal func runSimulationLoop(baseInterval: TimeInterval, nodeCount: Int) async {
+        #if DEBUG
+        let loopState = signposter.beginInterval("SimulationLoop", "Nodes: \(nodeCount)")
+        #endif
+        
         let startTime = Date()  // Added for perf logging
         logger.debug("Starting sim loop with nodeCount: \(nodeCount), maxIterations: 500")
         var iterations = 0
@@ -128,12 +139,19 @@ class GraphSimulator {
             logger.debug("Iteration \(iterations): shouldContinue = \(shouldContinue)")
             if !shouldContinue {
                 logger.info("Simulation stabilized after \(iterations) iterations")
+                #if DEBUG
+                signposter.endInterval("SimulationLoop", loopState, "Stabilized after \(iterations) iterations")
+                #endif
                 break
             }
         }
         let duration = Date().timeIntervalSince(startTime)  // Added for perf
         if iterations >= maxIterations {
             logger.warning("Simulation timed out after \(iterations) iterations; recent velocities: \(self.recentVelocities); duration: \(duration)s")
+            #if DEBUG
+            signposter.endInterval("SimulationLoop", loopState, "Timed out after \(iterations) iterations")
+            signposter.emitEvent("SimulationTimeout", "Recent velocities: \(self.recentVelocities)")
+            #endif
         }
         self.onStable?()
     }
@@ -144,6 +162,10 @@ class GraphSimulator {
     #endif
         
         if physicsEngine.isPaused { return false }
+        
+        #if DEBUG
+        let stepState = signposter.beginInterval("SimulationStep", "Nodes: \(nodeCount)")
+        #endif
         
         let result: SimulationStepResult = await Task.detached {
             await self.computeSimulationStep()
@@ -158,6 +180,10 @@ class GraphSimulator {
         
         let velocityChange = recentVelocities.max()! - recentVelocities.min()!
         let isStable = velocityChange < velocityChangeThreshold && recentVelocities.allSatisfy { $0 < 0.5 }
+        
+        #if DEBUG
+        signposter.endInterval("SimulationStep", stepState, "Total velocity: \(result.totalVelocity), Stable: \(isStable)")
+        #endif
         
         return !isStable
     }
@@ -456,13 +482,14 @@ public struct HitTestHelper {
 ----------------------------------------------------------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-10-13 13:12:16
+Last modified: 2025-10-14 09:14:21
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
 
 import SwiftUI
 import Foundation
+import os
 
 @available(iOS 15.0, *)
 private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
@@ -475,6 +502,8 @@ private var insertionOrder: [String] = []  // New: Track order
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)
 public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
+    // REMOVED: Logger declaration here (invalid in protocols)
+    
     /// Unique identifier for the node.
     var id: NodeID { get }
     
@@ -542,7 +571,7 @@ public enum NodeContent: Codable, Equatable {
     case string(String)
     case date(Date)
     case number(Double)
-
+    
     public var displayText: String {
         switch self {
         case .string(let str): return str.prefix(10) + (str.count > 10 ? "…" : "")
@@ -638,6 +667,9 @@ extension NodeProtocol {
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)
 public struct AnyNode: NodeProtocol {
+    // NEW: Add the static logger here (moved from protocol)
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodeprotocol")
+    
     private var base: any NodeProtocol  // var for mutability
     
     public var content: NodeContent? {
@@ -707,9 +739,9 @@ public struct AnyNode: NodeProtocol {
     @available(iOS 15.0, *)
     @available(watchOS 9.0, *)
     public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        #if DEBUG
-        print("Drawing node \(label) at \(position), isSelected: \(isSelected), zoom: \(zoomScale)")
-        #endif
+#if DEBUG
+        Self.logger.debug("Drawing node \(label) at (\(position.x), \(position.y)), isSelected: \(isSelected), zoom: \(zoomScale)")
+#endif
         base.draw(in: context, at: position, zoomScale: zoomScale, isSelected: isSelected)
     }
     
@@ -922,156 +954,6 @@ public class PersistenceManager: GraphStorage {
         let decoded = try JSONDecoder().decode(ViewState.self, from: data)
         logger.debug("Loaded view state for '\(name)'")
         return decoded
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: PhysicsEngine.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-10-13 10:34:19
-
-Contents:
-//
-//  PhysicsEngine.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 8/1/25.
-//
-
-import os
-import SwiftUI
-import Foundation
-import CoreGraphics
-
-@available(iOS 16.0, *)
-@available(watchOS 9.0, *)
-public class PhysicsEngine {
-    private static let logger = Logger.forCategory("physics")
-    var simulationBounds: CGSize
-    private var stepCount: Int = 0
-    private let maxNodesForQuadtree = 200
-    private let symmetricFactor: CGFloat = 0.5
-    internal let repulsionCalculator: RepulsionCalculator
-    private var dampingBoostSteps: Int = 0
-    internal let attractionCalculator: AttractionCalculator
-    internal let centeringCalculator: CenteringCalculator
-    internal let positionUpdater: PositionUpdater
-    public var useAsymmetricAttraction: Bool = false
-    public var alpha: CGFloat = 1.0  // New: Cooling parameter
-    
-    public init(simulationBounds: CGSize) {
-        self.simulationBounds = simulationBounds
-        self.repulsionCalculator = RepulsionCalculator(maxNodesForQuadtree: 200, simulationBounds: simulationBounds)
-        self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor, useAsymmetric: useAsymmetricAttraction)
-        self.centeringCalculator = CenteringCalculator(simulationBounds: simulationBounds)
-        self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)
-    }
-    
-    public func temporaryDampingBoost(steps: Int = 20) {
-        dampingBoostSteps = steps
-    }
-     
-    private var simulationSteps = 0
-    
-    public func resetSimulation() {
-        simulationSteps = 0
-        stepCount = 0
-        alpha = 1.0  // New: Reset alpha
-    }
-    
-    public var isPaused: Bool = false
-    
-    @discardableResult
-    public func simulationStep(nodes: [any NodeProtocol], edges: [GraphEdge]) -> ([any NodeProtocol], Bool) {
-        if isPaused || stepCount > Constants.Physics.maxSimulationSteps { return (nodes, false) }
-        stepCount += 1
-        
-        let (forces, quadtree) = repulsionCalculator.computeRepulsions(nodes: nodes)
-        var updatedForces = attractionCalculator.applyAttractions(forces: forces, edges: edges, nodes: nodes)
-        updatedForces = centeringCalculator.applyCentering(forces: updatedForces, nodes: nodes)
-        
-        // New: Scale forces by alpha
-        for id in updatedForces.keys {
-            updatedForces[id]! *= alpha
-        }
-        
-        let (tempNodes, isActive) = positionUpdater.updatePositionsAndVelocities(nodes: nodes, forces: updatedForces, edges: edges, quadtree: quadtree)
-       
-        let updatedNodes = tempNodes.map { node in
-            var clamped = node
-            if hypot(clamped.velocity.x, clamped.velocity.y) < 0.001 {
-                clamped.velocity = .zero
-            }
-            return clamped
-        }
-
-        // New: Reset velocities if stable
-        var resetNodes = isActive ? updatedNodes : updatedNodes.map { $0.with(position: $0.position, velocity: CGPoint.zero) }
-
-        // NEW: Apply boosted damping if active
-        if dampingBoostSteps > 0 {
-            let extraDamping = Constants.Physics.damping * 1.2
-            resetNodes = resetNodes.map { node in
-                var boostedNode = node
-                boostedNode.velocity *= extraDamping
-                return boostedNode
-            }
-            dampingBoostSteps -= 1
-        }
-        
-        if stepCount % 10 == 0 {  // Reduced logging frequency
-            let totalVel = resetNodes.reduce(0.0) { $0 + $1.velocity.magnitude }
-            Self.logger.debugLog("Step \(stepCount): Total velocity = \(String(format: "%.2f", totalVel))")
-        }
-        
-        return (resetNodes, isActive)
-    }
-    
-    // Add to PhysicsEngine class
-    public func runSimulation(steps: Int, nodes: [any NodeProtocol], edges: [GraphEdge]) -> [any NodeProtocol] {
-        var currentNodes = nodes
-        for _ in 0..<steps {
-            let (updatedNodes, isActive) = simulationStep(nodes: currentNodes, edges: edges)
-            currentNodes = updatedNodes
-            if !isActive { break }  // Early exit if stable
-        }
-        return currentNodes
-    }
-    
-    public func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard !nodes.isEmpty else { return .zero }
-        var minX = nodes[0].position.x, minY = nodes[0].position.y
-        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
-        for node in nodes {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
-        }
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-    
-    public func centerNodes(nodes: [any NodeProtocol], around center: CGPoint? = nil) -> [any NodeProtocol] {
-        guard !nodes.isEmpty else { return [] }
-        let targetCenter = center ?? CGPoint(x: simulationBounds.width / 2, y: simulationBounds.height / 2)
-        
-        // Compute current centroid
-        let totalX = nodes.reduce(0.0) { $0 + $1.position.x }
-        let totalY = nodes.reduce(0.0) { $0 + $1.position.y }
-        let centroid = CGPoint(x: totalX / CGFloat(nodes.count), y: totalY / CGFloat(nodes.count))
-        
-        // Create updated nodes with translation
-        let deltaX = targetCenter.x - centroid.x
-        let deltaY = targetCenter.y - centroid.y
-        return nodes.map { node in
-            let newPosition = CGPoint(x: node.position.x + deltaX, y: node.position.y + deltaY)
-            return node.with(position: newPosition, velocity: node.velocity)
-        }
-    }
-    
-    public func queryNearby(position: CGPoint, radius: CGFloat, nodes: [any NodeProtocol]) -> [any NodeProtocol] {
-        guard !nodes.isEmpty else { return [] }
-        let quadtree = repulsionCalculator.buildQuadtree(nodes: nodes)
-        return quadtree.queryNearby(position: position, radius: radius)
     }
 }
 --------------------------------------------------

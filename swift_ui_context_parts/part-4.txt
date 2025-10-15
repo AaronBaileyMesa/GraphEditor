@@ -1,14 +1,268 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-14 08:14:27
+Current date: 2025-10-15 09:11:51
 Table of Contents:
-1. GraphEditorWatch/ViewModels/GraphViewModel.swift
-2. GraphEditorWatch/Views/AddSection.swift
-3. GraphEditorWatch/Views/ContentView.swift
-4. GraphEditorWatch/Views/EditContentSheet.swift
-5. GraphEditorWatch/Views/EditSection.swift
-6. GraphEditorWatch/Views/GestureUtils.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+2. GraphEditorWatch/GraphEditorWatch.swift
+3. GraphEditorWatch/Models/AppConstants.swift
+4. GraphEditorWatch/ViewModels/GraphViewModel.swift
+5. GraphEditorWatch/Views/AddSection.swift
+6. GraphEditorWatch/Views/ContentView.swift
+7. GraphEditorWatch/Views/EditContentSheet.swift
+8. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+File: Utilities.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+Last modified: 2025-10-14 09:10:51
+
+Contents:
+// Utilities.swift (Updated with rounding in screenToModel)
+
+import Foundation
+import CoreGraphics
+import os
+
+public struct LogManager {
+    static var isEnabled: Bool {
+#if DEBUG
+        return true
+#else
+        return false
+#endif
+    }
+}
+
+public extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        max(range.lowerBound, min(self, range.upperBound))
+    }
+}
+
+public extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
+}
+
+public extension CGPoint {
+    func normalized() -> CGPoint {
+        let len = hypot(x, y)
+        return len > 0 ? self / len : .zero
+    }
+    
+    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
+    }
+    
+    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
+    }
+    
+    static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        CGPoint(x: lhs.x * rhs, y: lhs.y * rhs)
+    }
+    
+    static func / (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
+    }
+    
+    static func += (lhs: inout CGPoint, rhs: CGPoint) {
+        lhs = lhs + rhs
+    }
+    
+    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
+        lhs = lhs - rhs
+    }
+    
+    static func *= (lhs: inout CGPoint, rhs: CGFloat) {
+        lhs = lhs * rhs
+    }
+    
+    static func + (lhs: CGPoint, rhs: CGSize) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.width, y: lhs.y + rhs.height)
+    }
+    
+    static func += (lhs: inout CGPoint, rhs: CGSize) {
+        lhs = lhs + rhs
+    }
+    
+    static func /= (lhs: inout CGPoint, rhs: CGFloat) {
+        lhs.x /= rhs
+        lhs.y /= rhs
+    }
+    
+    var magnitude: CGFloat {
+        hypot(x, y)
+    }
+}
+
+public extension CGSize {
+    static func / (lhs: CGSize, rhs: CGFloat) -> CGSize {
+        CGSize(width: lhs.width / rhs, height: lhs.height / rhs)
+    }
+    
+    static func + (lhs: CGSize, rhs: CGSize) -> CGSize {
+        CGSize(width: lhs.width + rhs.width, height: lhs.height + rhs.height)
+    }
+    
+    static func += (lhs: inout CGSize, rhs: CGSize) {
+        lhs = lhs + rhs
+    }
+}
+
+// Shared utility functions
+public func distance(_ fromPoint: CGPoint, _ targetPoint: CGPoint) -> CGFloat {
+    hypot(fromPoint.x - targetPoint.x, fromPoint.y - targetPoint.y)
+}
+
+public extension Array where Element: NodeProtocol {
+    func centroid() -> CGPoint? {
+        guard !isEmpty else { return nil }
+        let totals = reduce((x: 0.0, y: 0.0)) { acc, node in
+            (x: acc.x + node.position.x, y: acc.y + node.position.y)
+        }
+        return CGPoint(x: totals.x / CGFloat(count), y: totals.y / CGFloat(count))
+    }
+}
+
+public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
+    guard !nodes.isEmpty else { return nil }
+    let totals = nodes.reduce((x: 0.0, y: 0.0)) { acc, node in
+        (x: acc.x + node.position.x, y: acc.y + node.position.y)
+    }
+    return CGPoint(x: totals.x / CGFloat(nodes.count), y: totals.y / CGFloat(nodes.count))
+}
+
+extension Logger {
+    static let subsystem = "io.handcart.GraphEditor"
+    
+    static func forCategory(_ category: String) -> Logger {
+        Logger(subsystem: subsystem, category: category)
+    }
+    
+    func debugLog(_ message: String) {
+#if DEBUG
+        self.debug("\(message)")
+#endif
+    }
+    
+    func infoLog(_ message: String) {
+#if DEBUG
+        self.info("\(message)")
+#endif
+    }
+    
+    func errorLog(_ message: String, error: Error? = nil) {
+        let errorDesc = error?.localizedDescription ?? ""
+        self.error("\(message) \(errorDesc)")
+    }
+}
+
+// Add any other shared helpers here (e.g., the CGFloat rounding extension if not already placed)
+extension CGFloat {
+    func rounded(to decimalPlaces: Int) -> CGFloat {
+        let divisor = pow(10.0, CGFloat(decimalPlaces))
+        return (self * divisor).rounded() / divisor
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphEditorWatch.swift
+Path: GraphEditorWatch/GraphEditorWatch.swift
+Last modified: 2025-10-07 15:20:23
+
+Contents:
+//
+//  GraphEditorWatch.swift
+//  GraphEditorWatch Watch App
+//
+//  Created by handcart on 8/1/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+
+// In GraphEditorWatch.swift
+@main
+struct GraphEditorWatch: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentLoaderView()
+        }
+    }
+}
+
+struct ContentLoaderView: View {
+    @State private var viewModel: GraphViewModel?
+    
+    var body: some View {
+        if let viewModel = viewModel {
+            ContentView(
+                viewModel: viewModel
+            )
+        } else {
+            Text("Loading...")
+                .task {
+                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let storage = PersistenceManager()
+                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                    do {
+                        try await model.loadGraph()
+                        
+                        model.nodes = model.nodes.map { anyNode in
+                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                            return AnyNode(updated)
+                        }
+                        
+                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
+                            // Note: Create viewModel first to set properties
+                            let tempViewModel = GraphViewModel(model: model)
+                            tempViewModel.offset = viewState.offset
+                            tempViewModel.zoomScale = viewState.zoomScale
+                            tempViewModel.selectedNodeID = viewState.selectedNodeID
+                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                            print("Loaded view state for '\(model.currentGraphName)'")
+                            self.viewModel = tempViewModel
+                        } else {
+                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } catch {
+                        print("Failed to load graph or view state: \(error)")
+                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    }
+                }
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: AppConstants.swift
+Path: GraphEditorWatch/Models/AppConstants.swift
+Last modified: 2025-09-19 10:58:36
+
+Contents:
+//
+//  AppConstants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/3/25.
+//
+
+import CoreGraphics
+
+struct AppConstants {
+    // Graph visuals
+    static let nodeModelRadius: CGFloat = 10.0
+    static let hitScreenRadius: CGFloat = 30.0
+    static let tapThreshold: CGFloat = 10.0
+    
+    // Zooming
+    static let numZoomLevels = 10
+    static let defaultMinZoom: CGFloat = 0.2
+    static let defaultMaxZoom: CGFloat = 5.0
+    public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
+    public static let crownZoomSteps: Int = 20  // Smooth steps for crown
+}
+----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
 Last modified: 2025-10-13 13:11:52
@@ -932,113 +1186,5 @@ struct EditSection: View {
         .accessibilityLabel("Edit section")  // NEW: Accessibility
         .foregroundColor(isProcessing ? .gray : .primary)  // NEW: Visual feedback for processing
     }
-}
-----------------------------------------------------------------------------------------------------
-File: GestureUtils.swift
-Path: GraphEditorWatch/Views/GestureUtils.swift
-Last modified: 2025-10-11 19:40:27
-
-Contents:
-// GestureUtils.swift
-// Extracted utilities for hit testing and distance calculations
-
-import SwiftUI
-import GraphEditorShared
-
-struct GestureUtils {
-    static func closestNode(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GraphEditorShared.HitTestContext) -> (any NodeProtocol)? {
-        var closest: (any NodeProtocol)?
-        var minDist: CGFloat = .infinity
-        let adjustedRadius = AppConstants.hitScreenRadius / max(1.0, context.zoomScale) * 2.0  // Double boost at zoom >1; tune to 3.0 if needed
-        #if os(watchOS)
-        let boostedRadius = adjustedRadius * 2.0  // Extra for watch touch (fingers obscure)
-        #endif
-        for node in visibleNodes {
-            let nodeScreen = CoordinateTransformer.modelToScreen(
-                node.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            let dist = hypot(screenPos.x - nodeScreen.x, screenPos.y - nodeScreen.y)
-            if dist < boostedRadius && dist < minDist {
-                minDist = dist
-                closest = node
-            }
-        }
-        return closest
-    }
-    
-    static func closestEdge(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: HitTestContext) -> GraphEdge? {
-        var closestEdge: GraphEdge?
-        var minDist: CGFloat = .infinity
-        for edge in visibleEdges {
-            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                  let targetNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-            
-            let fromScreen = CoordinateTransformer.modelToScreen(
-                fromNode.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            let toScreen = CoordinateTransformer.modelToScreen(
-                targetNode.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            
-            let dist = pointToLineDistance(point: screenPos, from: fromScreen, to: toScreen)
-            let hitThreshold: CGFloat = 20.0
-            if dist < hitThreshold && dist < minDist {
-                minDist = dist
-                closestEdge = edge
-            }
-        }
-        return closestEdge
-    }
-    
-    static func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, to endPoint: CGPoint) -> CGFloat {
-        let pointX = Double(point.x), pointY = Double(point.y)
-        let startX = Double(startPoint.x), startY = Double(startPoint.y)
-        let endX = Double(endPoint.x), endY = Double(endPoint.y)
-        
-        let lineVecX = endX - startX
-        let lineVecY = endY - startY
-        let lineLen = hypot(lineVecX, lineVecY)
-        
-        if lineLen == 0 {
-            return hypot(point.x - startPoint.x, point.y - startPoint.y)
-        }
-        
-        let pointVecX = pointX - startX
-        let pointVecY = pointY - startY
-        let dot = pointVecX * lineVecX + pointVecY * lineVecY
-        let denom = lineLen * lineLen
-        let projectionParam = dot / denom
-        let clampedParam = max(0.0, min(1.0, projectionParam))
-        
-        let projX = startX + lineVecX * clampedParam
-        let projY = startY + lineVecY * clampedParam
-        
-        let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
-        return hypot(point.x - proj.x, point.y - proj.y)
-    }
-    
-    static func modelToScreen(_ modelPos: CGPoint, context: HitTestContext) -> CGPoint {
-        return CoordinateTransformer.modelToScreen(
-            modelPos,
-            effectiveCentroid: context.effectiveCentroid,
-            zoomScale: context.zoomScale,
-            offset: context.offset,
-            viewSize: context.viewSize
-        )
-    }
-    
-    // Add any other utility functions extracted from the original file here
 }
 --------------------------------------------------
