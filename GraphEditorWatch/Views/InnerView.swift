@@ -11,7 +11,7 @@ import SwiftUI
 import GraphEditorShared
 
 struct InnerView: View {
-    let config: InnerViewConfig
+    let config: InnerViewConfig  // This now references the one from GraphUtilities.swift
     
     var body: some View {
         let draggedNodeBinding = Binding<(any NodeProtocol)?>(
@@ -40,7 +40,8 @@ struct InnerView: View {
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,
             isAddingEdge: config.isAddingEdge,
-            isSimulating: config.isSimulating
+            isSimulating: config.isSimulating,
+            saturation: config.saturation  // NEW: Pass the binding here
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)

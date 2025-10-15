@@ -43,7 +43,8 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     @Binding var isAddingEdge: Bool
-    @Binding var isSimulating: Bool  // New binding
+    @Binding var isSimulating: Bool
+    @Binding var saturation: Double  // NEW: Already present, but confirm
     
     @State private var dragStartNode: (any NodeProtocol)?
     @State private var isMovingSelectedNode: Bool = false
@@ -70,12 +71,23 @@ struct GraphGesturesModifier: ViewModifier {
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
-        // Update longPressGesture in GraphGesturesModifier.swift
-        let longPressGesture = LongPressGesture(minimumDuration: 3.0, maximumDistance: 10.0)
-            .onChanged { pressing in  // Changed from .onEnded to full gesture for onPressingChanged
+        
+        // NEW: Updated long press with animation (use onChanged for pressing state)
+        let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 10.0)
+            .onChanged { pressing in
                 if pressing {
                     print("Long press started...")
-                    WKInterfaceDevice.current().play(.start)  // Haptic on start
+                    WKInterfaceDevice.current().play(.click)  // Haptic on start
+                    
+                    // NEW: Animate desaturation over the full duration
+                    withAnimation(.linear(duration: AppConstants.menuLongPressDuration)) {
+                        saturation = 0.0  // Fade to grayscale
+                    }
+                } else {
+                    // NEW: Quick reset if cancelled
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        saturation = 1.0  // Back to full color
+                    }
                 }
             }
             .onEnded { _ in
@@ -84,9 +96,10 @@ struct GraphGesturesModifier: ViewModifier {
                     selectedEdgeID = nil
                     showMenu = true
                     print("Long press: Showing menu!")
-                    WKInterfaceDevice.current().play(.success)
+                    WKInterfaceDevice.current().play(.click)
                 }
             }
+        
         content
             .highPriorityGesture(dragGesture)
             .simultaneousGesture(longPressGesture)  // Add this: Allows long press alongside drag

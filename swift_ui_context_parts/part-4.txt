@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-15 09:11:51
+Current date: 2025-10-15 14:47:28
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 2. GraphEditorWatch/GraphEditorWatch.swift
@@ -168,7 +168,7 @@ extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-10-07 15:20:23
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -206,30 +206,23 @@ struct ContentLoaderView: View {
                     let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
                     let storage = PersistenceManager()
                     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-                    do {
-                        try await model.loadGraph()
-                        
-                        model.nodes = model.nodes.map { anyNode in
-                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
-                            return AnyNode(updated)
-                        }
-                        
-                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
-                            // Note: Create viewModel first to set properties
-                            let tempViewModel = GraphViewModel(model: model)
-                            tempViewModel.offset = viewState.offset
-                            tempViewModel.zoomScale = viewState.zoomScale
-                            tempViewModel.selectedNodeID = viewState.selectedNodeID
-                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
-                            print("Loaded view state for '\(model.currentGraphName)'")
-                            self.viewModel = tempViewModel
-                        } else {
-                            self.viewModel = GraphViewModel(model: model)
-                        }
-                    } catch {
-                        print("Failed to load graph or view state: \(error)")
-                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    await model.loadGraph()
+                    
+                    model.nodes = model.nodes.map { anyNode in
+                        let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                        return AnyNode(updated)
                     }
+                    
+                    let tempViewModel = GraphViewModel(model: model)
+                    if let viewState = try? model.storage.loadViewState(for: model.currentGraphName) {
+                        tempViewModel.offset = viewState.offset
+                        tempViewModel.zoomScale = viewState.zoomScale
+                        tempViewModel.selectedNodeID = viewState.selectedNodeID
+                        tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                        print("Loaded view state for '\(model.currentGraphName)'")
+                    }
+                    self.viewModel = tempViewModel
+                    await tempViewModel.model.startSimulation()
                 }
         }
     }
@@ -265,7 +258,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-13 13:11:52
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -689,7 +682,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-13 08:30:15
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 import SwiftUI
@@ -871,7 +864,7 @@ struct ContentView: View {
                 canvasFocus: _canvasFocus,
                 onCenterGraph: centerGraph,
                 isAddingEdge: $isAddingEdge,
-                isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
+                isSimulating: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
         }
         .overlay(alignment: .bottom) {
@@ -888,7 +881,21 @@ struct ContentView: View {
             .padding(.horizontal, 15)
             .transition(.move(edge: .bottom))
         }
-        // Removed .hidden() to ensure the content renders
+        .sheet(isPresented: $showMenu) {
+            MenuView(
+                viewModel: viewModel,
+                isSimulatingBinding: $isSimulating,  // Pass your bindings
+                onCenterGraph: centerGraph,
+                showMenu: $showMenu,  // For dismissal
+                showOverlays: $showOverlays,
+                selectedNodeID: $selectedNodeID,
+                selectedEdgeID: $selectedEdgeID
+            )
+            .onDisappear {
+                print("Menu sheet dismissed")
+                showMenu = false  // Reset
+            }
+        }
     }
     
     private func handleCrownRotation(newValue: Double) {

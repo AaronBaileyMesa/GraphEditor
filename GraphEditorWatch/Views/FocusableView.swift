@@ -90,6 +90,7 @@ struct AccessibleCanvas: View {
     let viewSize: CGSize
     let selectedEdgeID: UUID?
     let showOverlays: Bool
+    let saturation: Double  // NEW: Add this
     
     var body: some View {
         ZStack {
@@ -104,180 +105,209 @@ struct AccessibleCanvas: View {
                 
                 let effectiveCentroid = viewModel.effectiveCentroid
                 
-                // Draw edges (Pass 1: Lines only)
-                drawEdges(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                // NEW: Compute selected/non-selected sets
+                let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
+                let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
+                let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
+                let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
                 
-                // Draw nodes
-                for node in visibleNodes {
-                    let nodeScreen = CoordinateTransformer.modelToScreen(
-                        node.position,
-                        effectiveCentroid: effectiveCentroid,
-                        zoomScale: zoomScale,
-                        offset: offset,
-                        viewSize: size
-                    )
-                    let nodeRadius = Constants.App.nodeModelRadius * zoomScale
-                    
-                    let isSelected = node.id == selectedNodeID
-                    let nodeColor: Color = isSelected ? .red : .blue
-                    let nodePath = Circle().path(in: CGRect(center: nodeScreen, size: CGSize(width: nodeRadius * 2, height: nodeRadius * 2)))
-                    context.fill(nodePath, with: .color(nodeColor))
-                    
-                    // Draw label
-                    let labelText = Text("\(node.label)").font(.system(size: 12 * zoomScale))
-                    context.draw(labelText, at: nodeScreen, anchor: .center)
+                // Draw non-selected edges (lines) with desaturated color
+                drawEdges(in: context, size: size, visibleEdges: nonSelectedEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: saturation, isSelected: false)
+                
+                // Draw selected edge (line) with full color if any
+                if let edge = selectedEdge {
+                    drawSingleEdgeLine(in: context, size: size, edge: edge, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: 1.0, isSelected: true)
                 }
                 
-                // Draw arrows (Pass 2: Over lines)
-                drawArrows(in: context, size: size, visibleEdges: visibleEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid)
+                // Draw non-selected nodes with desaturated color
+                for node in nonSelectedNodes {
+                    drawSingleNode(in: context, size: size, node: node, effectiveCentroid: effectiveCentroid, saturation: saturation, isSelected: false)
+                }
                 
-                // Draw dragged node and potential edge
+                // Draw selected node with full color if any
+                if let node = selectedNode {
+                    drawSingleNode(in: context, size: size, node: node, effectiveCentroid: effectiveCentroid, saturation: 1.0, isSelected: true)
+                }
+                
+                // Draw non-selected arrows with desaturated color
+                drawArrows(in: context, size: size, visibleEdges: nonSelectedEdges, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: saturation, isSelected: false)
+                
+                // Draw selected arrow with full color if any
+                if let edge = selectedEdge {
+                    drawSingleArrow(in: context, size: size, edge: edge, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: 1.0, isSelected: true)
+                }
+                
+                // Draw dragged node and potential edge (keep full color)
                 drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
             }
-            .frame(width: viewSize.width, height: viewSize.height)
-            .accessibilityLabel(accessibilityLabel())
-            .accessibilityIdentifier("GraphCanvas")
             
             if showOverlays {
-                BoundingBoxOverlay(
-                    viewModel: viewModel,
-                    zoomScale: zoomScale,
-                    offset: offset,
-                    viewSize: viewSize
-                )
+                BoundingBoxOverlay(viewModel: viewModel, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(graphAccessibilityLabel())
+        .accessibilityHint("Double tap to select node or edge. Long press for menu.")
+        .accessibilityAddTraits(.isButton)  // Makes it tappable for VoiceOver
     }
     
-    private func accessibilityLabel() -> String {
+    private func graphAccessibilityLabel() -> String {
         let nodeCount = viewModel.model.nodes.count
         let edgeCount = viewModel.model.edges.count
-
-        // Selected node label
-        let selectedNodeLabel: String = {
-            guard let id = selectedNodeID,
-                  let node = viewModel.model.nodes.first(where: { $0.id == id })
-            else { return "No node selected" }
-            return "Node \(node.label) selected"
-        }()
-
-        // Selected edge label
-        let selectedEdgeLabel: String = {
-            guard let id = selectedEdgeID,
-                  let edge = viewModel.model.edges.first(where: { $0.id == id })
-            else { return "No edge selected" }
-            let fromLabel = viewModel.model.nodes.first(where: { $0.id == edge.from })?.label
-            let toLabel = viewModel.model.nodes.first(where: { $0.id == edge.target })?.label
-            let fromText = fromLabel.map { String(describing: $0) } ?? "?"
-            let toText = toLabel.map { String(describing: $0) } ?? "?"
-            return "Edge from \(fromText) to \(toText) selected"
-        }()
-
-        return "Graph with \(nodeCount) nodes and \(edgeCount) edges. \(selectedNodeLabel). \(selectedEdgeLabel)."
+        let selectedNodeLabel = selectedNodeID.flatMap { id in viewModel.model.nodes.first { $0.id == id }?.label }?.map { "Node \($0) selected." } ?? ""
+        let selectedEdgeLabel = selectedEdgeID.flatMap { id in viewModel.model.edges.first { $0.id == id } }.map { edge in
+            let fromLabel = viewModel.model.nodes.first { $0.id == edge.from }?.label ?? 0
+            let toLabel = viewModel.model.nodes.first { $0.id == edge.target }?.label ?? 0
+            return "Edge from \(fromLabel) to \(toLabel) selected."
+        } ?? ""
+        let selectionInfo = selectedNodeLabel + selectedEdgeLabel
+        let defaultInfo = selectionInfo.isEmpty ? "No node or edge selected." : ""
+        return "Graph with \(nodeCount) nodes and \(edgeCount) edges. \(selectionInfo)\(defaultInfo)"
     }
     
-    // Extracted: Draw edges (lines only)
-    func drawEdges(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
+    // Helper to desaturate a color
+    private func desaturatedColor(_ color: Color, saturation: Double) -> Color {
+        var hue: CGFloat = 0
+        var sat: CGFloat = 0
+        var brightness: CGFloat = 0
+        var alpha: CGFloat = 0
+        UIColor(color).getHue(&hue, saturation: &sat, brightness: &brightness, alpha: &alpha)
+        return Color(hue: Double(hue), saturation: saturation * Double(sat), brightness: Double(brightness), opacity: Double(alpha))
+    }
+    
+    // NEW: Updated single node draw with saturation param
+    private func drawSingleNode(in context: GraphicsContext, size: CGSize, node: any NodeProtocol, effectiveCentroid: CGPoint, saturation: Double, isSelected: Bool) {
+        let nodeScreen = CoordinateTransformer.modelToScreen(
+            node.position,
+            effectiveCentroid: effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: size
+        )
+        let nodeRadius = Constants.App.nodeModelRadius * zoomScale
+        
+        let baseColor: Color = isSelected ? .red : .blue
+        let nodeColor = desaturatedColor(baseColor, saturation: saturation)
+        let nodePath = Circle().path(in: CGRect(center: nodeScreen, size: CGSize(width: nodeRadius * 2, height: nodeRadius * 2)))
+        context.fill(nodePath, with: .color(nodeColor))
+        
+        // Draw label with desaturated color
+        let labelColor = desaturatedColor(.black, saturation: saturation)  // Assuming labels are black; adjust if needed
+        let labelText = Text("\(node.label)").foregroundColor(labelColor).font(.system(size: 12 * zoomScale))
+        context.draw(labelText, at: nodeScreen, anchor: .center)
+    }
+    
+    // NEW: Updated single edge line draw with saturation param
+    private func drawSingleEdgeLine(in context: GraphicsContext, size: CGSize, edge: GraphEdge, visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, saturation: Double, isSelected: Bool) {
+        guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+              let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        
+        let fromScreen = CoordinateTransformer.modelToScreen(
+            fromNode.position,
+            effectiveCentroid: effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: size
+        )
+        let toScreen = CoordinateTransformer.modelToScreen(
+            toNode.position,
+            effectiveCentroid: effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: size
+        )
+        
+        let linePath = Path { path in
+            path.move(to: fromScreen)
+            path.addLine(to: toScreen)
+        }
+        
+        let baseColor: Color = isSelected ? .red : .gray
+        let edgeColor = desaturatedColor(baseColor, saturation: saturation)
+        let lineWidth: CGFloat = 2.0
+        
+        context.stroke(linePath, with: .color(edgeColor), lineWidth: lineWidth)
+        
+        #if DEBUG
+        Self.logger.debug("Drawing edge from x=\(fromScreen.x), y=\(fromScreen.y) to x=\(toScreen.x), y=\(toScreen.y) with color \(edgeColor.description)")
+        #endif
+    }
+    
+    // NEW: Updated single arrow draw with saturation param
+    private func drawSingleArrow(in context: GraphicsContext, size: CGSize, edge: GraphEdge, visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, saturation: Double, isSelected: Bool) {
+        guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+              let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        
+        let fromScreen = CoordinateTransformer.modelToScreen(
+            fromNode.position,
+            effectiveCentroid: effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: size
+        )
+        let toScreen = CoordinateTransformer.modelToScreen(
+            toNode.position,
+            effectiveCentroid: effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: size
+        )
+        
+        let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+        let length = hypot(direction.dx, direction.dy)
+        if length <= 0 { return }
+        
+        let unitDx = direction.dx / length
+        let unitDy = direction.dy / length
+        let toRadiusScreen = toNode.radius * zoomScale
+        let boundaryPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
+                                    y: toScreen.y - unitDy * toRadiusScreen)
+        
+        let lineAngle = atan2(unitDy, unitDx)
+        let arrowLength: CGFloat = 10.0
+        let arrowAngle: CGFloat = .pi / 6
+        let arrowPoint1 = CGPoint(
+            x: boundaryPoint.x - arrowLength * cos(lineAngle - arrowAngle),
+            y: boundaryPoint.y - arrowLength * sin(lineAngle - arrowAngle)
+        )
+        let arrowPoint2 = CGPoint(
+            x: boundaryPoint.x - arrowLength * cos(lineAngle + arrowAngle),
+            y: boundaryPoint.y - arrowLength * sin(lineAngle + arrowAngle)
+        )
+        
+        let arrowPath = Path { path in
+            path.move(to: boundaryPoint)
+            path.addLine(to: arrowPoint1)
+            path.move(to: boundaryPoint)
+            path.addLine(to: arrowPoint2)
+        }
+        
+        let baseColor: Color = isSelected ? .red : .gray
+        let arrowColor = desaturatedColor(baseColor, saturation: saturation)
+        let arrowLineWidth: CGFloat = 3.0
+        
+        context.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
+        
+        #if DEBUG
+        Self.logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundaryPoint.x), y=\(boundaryPoint.y)")
+        #endif
+    }
+    
+    // Updated drawEdges to accept saturation and isSelected
+    private func drawEdges(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, saturation: Double, isSelected: Bool) {
         for edge in visibleEdges {
-            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                  let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-            
-            let fromScreen = CoordinateTransformer.modelToScreen(
-                fromNode.position,
-                effectiveCentroid: effectiveCentroid,
-                zoomScale: zoomScale,
-                offset: offset,
-                viewSize: size
-            )
-            let toScreen = CoordinateTransformer.modelToScreen(
-                toNode.position,
-                effectiveCentroid: effectiveCentroid,
-                zoomScale: zoomScale,
-                offset: offset,
-                viewSize: size
-            )
-            
-            let linePath = Path { path in
-                path.move(to: fromScreen)
-                path.addLine(to: toScreen)
-            }
-            
-            let isSelected = edge.id == selectedEdgeID
-            let edgeColor: Color = isSelected ? .red : .gray
-            let lineWidth: CGFloat = 2.0
-            
-            context.stroke(linePath, with: .color(edgeColor), lineWidth: lineWidth)
-            
-            #if DEBUG
-            Self.logger.debug("Drawing edge from x=\(fromScreen.x), y=\(fromScreen.y) to x=\(toScreen.x), y=\(toScreen.y) with color \(edgeColor.description)")
-            #endif
+            drawSingleEdgeLine(in: context, size: size, edge: edge, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: saturation, isSelected: isSelected)
         }
     }
     
-    // Extracted: Draw arrows (over lines)
-    func drawArrows(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint) {
-        // Pass 2: Draw arrows (over lines)
+    // Updated drawArrows to accept saturation and isSelected
+    private func drawArrows(in context: GraphicsContext, size: CGSize, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], effectiveCentroid: CGPoint, saturation: Double, isSelected: Bool) {
         for edge in visibleEdges {
-            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                  let toNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-            
-            let fromScreen = CoordinateTransformer.modelToScreen(
-                fromNode.position,
-                effectiveCentroid: effectiveCentroid,
-                zoomScale: zoomScale,
-                offset: offset,
-                viewSize: size
-            )
-            let toScreen = CoordinateTransformer.modelToScreen(
-                toNode.position,
-                effectiveCentroid: effectiveCentroid,
-                zoomScale: zoomScale,
-                offset: offset,
-                viewSize: size
-            )
-            
-            let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
-            let length = hypot(direction.dx, direction.dy)
-            if length <= 0 { continue }
-            
-            let unitDx = direction.dx / length
-            let unitDy = direction.dy / length
-            let toRadiusScreen = toNode.radius * zoomScale
-            let boundaryPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
-                                        y: toScreen.y - unitDy * toRadiusScreen)
-            
-            let lineAngle = atan2(unitDy, unitDx)
-            let arrowLength: CGFloat = 10.0
-            let arrowAngle: CGFloat = .pi / 6
-            let arrowPoint1 = CGPoint(
-                x: boundaryPoint.x - arrowLength * cos(lineAngle - arrowAngle),
-                y: boundaryPoint.y - arrowLength * sin(lineAngle - arrowAngle)
-            )
-            let arrowPoint2 = CGPoint(
-                x: boundaryPoint.x - arrowLength * cos(lineAngle + arrowAngle),
-                y: boundaryPoint.y - arrowLength * sin(lineAngle + arrowAngle)
-            )
-            
-            let arrowPath = Path { path in
-                path.move(to: boundaryPoint)
-                path.addLine(to: arrowPoint1)
-                path.move(to: boundaryPoint)
-                path.addLine(to: arrowPoint2)
-            }
-            
-            let isSelected = edge.id == selectedEdgeID
-            let arrowColor: Color = isSelected ? .red : .gray
-            let arrowLineWidth: CGFloat = 3.0
-            
-            context.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
-            
-            #if DEBUG
-            Self.logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundaryPoint.x), y=\(boundaryPoint.y)")
-            #endif
+            drawSingleArrow(in: context, size: size, edge: edge, visibleNodes: visibleNodes, effectiveCentroid: effectiveCentroid, saturation: saturation, isSelected: isSelected)
         }
     }
     
-    func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, size: CGSize, effectiveCentroid: CGPoint) {
+    private func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, size: CGSize, effectiveCentroid: CGPoint) {
         // Draw dragged node and potential edge
         if let dragged = draggedNode {
             let draggedScreen = CoordinateTransformer.modelToScreen(

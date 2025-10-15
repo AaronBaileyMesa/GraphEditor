@@ -28,6 +28,8 @@ struct GraphCanvasView: View {
     @Binding var showOverlays: Bool
     @Binding var isAddingEdge: Bool
     @Binding var isSimulating: Bool
+    @Binding var saturation: Double
+    
     
     init(
         viewModel: GraphViewModel,
@@ -46,7 +48,8 @@ struct GraphCanvasView: View {
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
         isAddingEdge: Binding<Bool>,
-        isSimulating: Binding<Bool>
+        isSimulating: Binding<Bool>,
+        saturation: Binding<Double>  // NEW: Add to init params
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -64,7 +67,8 @@ struct GraphCanvasView: View {
         self._selectedEdgeID = selectedEdgeID
         self._showOverlays = showOverlays
         self._isAddingEdge = isAddingEdge
-        self._isSimulating = isSimulating  // Assign new binding
+        self._isSimulating = isSimulating
+        self._saturation = saturation
     }
     
     var body: some View {
@@ -79,7 +83,8 @@ struct GraphCanvasView: View {
                 selectedNodeID: selectedNodeID,
                 viewSize: viewSize,
                 selectedEdgeID: selectedEdgeID,
-                showOverlays: showOverlays
+                showOverlays: showOverlays,
+                saturation: saturation  // NEW: Pass the value here (draw reads it)
             )
             .modifier(GraphGesturesModifier(
                 viewModel: viewModel,
@@ -97,7 +102,8 @@ struct GraphCanvasView: View {
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
                 isAddingEdge: $isAddingEdge,
-                isSimulating: $isSimulating
+                isSimulating: $isSimulating,
+                saturation: $saturation  // NEW: Pass binding to modifier for mutation during gesture
             ))
         }
         

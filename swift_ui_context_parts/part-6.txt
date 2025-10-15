@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-15 09:11:52
+Current date: 2025-10-15 14:47:29
 Table of Contents:
 1. GraphEditorWatch/Views/GraphUtilities.swift
 2. GraphEditorWatch/Views/InnerView.swift
@@ -16,7 +16,7 @@ Table of Contents:
 11. GraphEditorWatchTests/GraphGesturesModifierTests.swift--------------------------------------------------
 File: GraphUtilities.swift
 Path: GraphEditorWatch/Views/GraphUtilities.swift
-Last modified: 2025-10-13 08:30:23
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 // GraphUtilities.swift
@@ -68,7 +68,7 @@ struct InnerViewConfig {
     let canvasFocus: FocusState<Bool>
     let onCenterGraph: () -> Void
     let isAddingEdge: Binding<Bool>
-    let isSimulatingBinding: Binding<Bool>
+    let isSimulating: Binding<Bool>
     
     init(
         geo: GeometryProxy,
@@ -89,7 +89,7 @@ struct InnerViewConfig {
         canvasFocus: FocusState<Bool>,
         onCenterGraph: @escaping () -> Void,
         isAddingEdge: Binding<Bool>,
-        isSimulatingBinding: Binding<Bool>  // NEW: Add this param
+        isSimulating: Binding<Bool>  // NEW: Add this param
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -109,13 +109,13 @@ struct InnerViewConfig {
         self.canvasFocus = canvasFocus
         self.onCenterGraph = onCenterGraph
         self.isAddingEdge = isAddingEdge
-        self.isSimulatingBinding = isSimulatingBinding  // NEW: Assign it
+        self.isSimulating = isSimulating
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: InnerView.swift
 Path: GraphEditorWatch/Views/InnerView.swift
-Last modified: 2025-10-13 09:29:24
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -159,32 +159,19 @@ struct InnerView: View {
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge
+            isAddingEdge: config.isAddingEdge,
+            isSimulating: config.isSimulating
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
             .focusable()
-        
-        if config.showMenu.wrappedValue {
-            MenuView(
-                viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulatingBinding,
-                onCenterGraph: config.onCenterGraph,
-                showMenu: config.showMenu,
-                showOverlays: config.showOverlays,
-                selectedNodeID: config.selectedNodeID,    // NEW: Pass binding
-                selectedEdgeID: config.selectedEdgeID     // NEW: Pass binding
-            )
-            .navigationTitle("Menu")
-        } else {
-            canvasView
-        }
+        canvasView
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-10-14 08:12:24
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -875,7 +862,7 @@ class MockGraphStorage: GraphStorage {
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifierTests.swift
 Path: GraphEditorWatchTests/GraphGesturesModifierTests.swift
-Last modified: 2025-10-13 11:07:39
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -915,7 +902,8 @@ struct GraphGesturesModifierTests {
             maxZoom: 5.0,
             crownPosition: .constant(0.0),
             onUpdateZoomRanges: {},
-            isAddingEdge: .constant(false)
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true)
         )
     }
     

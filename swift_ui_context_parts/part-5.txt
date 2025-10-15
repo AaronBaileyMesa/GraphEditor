@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-15 09:11:51
+Current date: 2025-10-15 14:47:28
 Table of Contents:
 1. GraphEditorWatch/Views/FocusableView.swift
 2. GraphEditorWatch/Views/GestureUtils.swift
@@ -10,7 +10,7 @@ Table of Contents:
 5. GraphEditorWatch/Views/GraphSection.swift--------------------------------------------------
 File: FocusableView.swift
 Path: GraphEditorWatch/Views/FocusableView.swift
-Last modified: 2025-10-14 08:38:11
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -458,7 +458,7 @@ struct GestureUtils {
 ----------------------------------------------------------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
-Last modified: 2025-10-14 08:38:34
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 import SwiftUI
@@ -490,6 +490,7 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     @Binding var isAddingEdge: Bool
+    @Binding var isSimulating: Bool
     
     init(
         viewModel: GraphViewModel,
@@ -507,7 +508,8 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping () -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
-        isAddingEdge: Binding<Bool>
+        isAddingEdge: Binding<Bool>,
+        isSimulating: Binding<Bool>
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -525,6 +527,7 @@ struct GraphCanvasView: View {
         self._selectedEdgeID = selectedEdgeID
         self._showOverlays = showOverlays
         self._isAddingEdge = isAddingEdge
+        self._isSimulating = isSimulating  // Assign new binding
     }
     
     var body: some View {
@@ -556,15 +559,20 @@ struct GraphCanvasView: View {
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
-                isAddingEdge: $isAddingEdge
+                isAddingEdge: $isAddingEdge,
+                isSimulating: $isSimulating
             ))
         }
+        
+        .id("GraphCanvas")  // Add stable ID for crown sequencer
+        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high)
+        
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-10-14 08:22:35
+Last modified: 2025-10-15 13:36:46
 
 Contents:
 //
@@ -612,6 +620,7 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     @Binding var isAddingEdge: Bool
+    @Binding var isSimulating: Bool  // New binding
     
     @State private var dragStartNode: (any NodeProtocol)?
     @State private var isMovingSelectedNode: Bool = false
@@ -638,8 +647,26 @@ struct GraphGesturesModifier: ViewModifier {
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
+        // Update longPressGesture in GraphGesturesModifier.swift
+        let longPressGesture = LongPressGesture(minimumDuration: 3.0, maximumDistance: 10.0)
+            .onChanged { pressing in  // Changed from .onEnded to full gesture for onPressingChanged
+                if pressing {
+                    print("Long press started...")
+                    WKInterfaceDevice.current().play(.start)  // Haptic on start
+                }
+            }
+            .onEnded { _ in
+                if !isSimulating {
+                    selectedNodeID = nil  // Optional: Deselect on menu open
+                    selectedEdgeID = nil
+                    showMenu = true
+                    print("Long press: Showing menu!")
+                    WKInterfaceDevice.current().play(.success)
+                }
+            }
         content
             .highPriorityGesture(dragGesture)
+            .simultaneousGesture(longPressGesture)  // Add this: Allows long press alongside drag
     }
 }
 
