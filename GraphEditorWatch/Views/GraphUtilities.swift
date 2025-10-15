@@ -47,7 +47,7 @@ struct InnerViewConfig {
     let canvasFocus: FocusState<Bool>
     let onCenterGraph: () -> Void
     let isAddingEdge: Binding<Bool>
-    let isSimulatingBinding: Binding<Bool>
+    let isSimulating: Binding<Bool>
     
     init(
         geo: GeometryProxy,
@@ -68,7 +68,7 @@ struct InnerViewConfig {
         canvasFocus: FocusState<Bool>,
         onCenterGraph: @escaping () -> Void,
         isAddingEdge: Binding<Bool>,
-        isSimulatingBinding: Binding<Bool>  // NEW: Add this param
+        isSimulating: Binding<Bool>  // NEW: Add this param
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -88,6 +88,6 @@ struct InnerViewConfig {
         self.canvasFocus = canvasFocus
         self.onCenterGraph = onCenterGraph
         self.isAddingEdge = isAddingEdge
-        self.isSimulatingBinding = isSimulatingBinding  // NEW: Assign it
+        self.isSimulating = isSimulating
     }
 }

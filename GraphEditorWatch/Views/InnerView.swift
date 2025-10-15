@@ -39,25 +39,12 @@ struct InnerView: View {
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge
+            isAddingEdge: config.isAddingEdge,
+            isSimulating: config.isSimulating
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
             .focusable()
-        
-        if config.showMenu.wrappedValue {
-            MenuView(
-                viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulatingBinding,
-                onCenterGraph: config.onCenterGraph,
-                showMenu: config.showMenu,
-                showOverlays: config.showOverlays,
-                selectedNodeID: config.selectedNodeID,    // NEW: Pass binding
-                selectedEdgeID: config.selectedEdgeID     // NEW: Pass binding
-            )
-            .navigationTitle("Menu")
-        } else {
-            canvasView
-        }
+        canvasView
     }
 }

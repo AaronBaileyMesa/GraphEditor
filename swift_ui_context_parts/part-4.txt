@@ -1,17 +1,271 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-13 08:27:20
+Current date: 2025-10-15 09:11:51
 Table of Contents:
-1. GraphEditorWatch/ViewModels/GraphViewModel.swift
-2. GraphEditorWatch/Views/AddSection.swift
-3. GraphEditorWatch/Views/ContentView.swift
-4. GraphEditorWatch/Views/EditContentSheet.swift
-5. GraphEditorWatch/Views/EditSection.swift
-6. GraphEditorWatch/Views/GestureUtils.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+2. GraphEditorWatch/GraphEditorWatch.swift
+3. GraphEditorWatch/Models/AppConstants.swift
+4. GraphEditorWatch/ViewModels/GraphViewModel.swift
+5. GraphEditorWatch/Views/AddSection.swift
+6. GraphEditorWatch/Views/ContentView.swift
+7. GraphEditorWatch/Views/EditContentSheet.swift
+8. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+File: Utilities.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+Last modified: 2025-10-14 09:10:51
+
+Contents:
+// Utilities.swift (Updated with rounding in screenToModel)
+
+import Foundation
+import CoreGraphics
+import os
+
+public struct LogManager {
+    static var isEnabled: Bool {
+#if DEBUG
+        return true
+#else
+        return false
+#endif
+    }
+}
+
+public extension Double {
+    func clamped(to range: ClosedRange<Double>) -> Double {
+        max(range.lowerBound, min(self, range.upperBound))
+    }
+}
+
+public extension CGFloat {
+    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
+        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
+    }
+}
+
+public extension CGPoint {
+    func normalized() -> CGPoint {
+        let len = hypot(x, y)
+        return len > 0 ? self / len : .zero
+    }
+    
+    static func + (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.x, y: lhs.y + rhs.y)
+    }
+    
+    static func - (lhs: CGPoint, rhs: CGPoint) -> CGPoint {
+        CGPoint(x: lhs.x - rhs.x, y: lhs.y - rhs.y)
+    }
+    
+    static func * (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        CGPoint(x: lhs.x * rhs, y: lhs.y * rhs)
+    }
+    
+    static func / (lhs: CGPoint, rhs: CGFloat) -> CGPoint {
+        CGPoint(x: lhs.x / rhs, y: lhs.y / rhs)
+    }
+    
+    static func += (lhs: inout CGPoint, rhs: CGPoint) {
+        lhs = lhs + rhs
+    }
+    
+    static func -= (lhs: inout CGPoint, rhs: CGPoint) {
+        lhs = lhs - rhs
+    }
+    
+    static func *= (lhs: inout CGPoint, rhs: CGFloat) {
+        lhs = lhs * rhs
+    }
+    
+    static func + (lhs: CGPoint, rhs: CGSize) -> CGPoint {
+        CGPoint(x: lhs.x + rhs.width, y: lhs.y + rhs.height)
+    }
+    
+    static func += (lhs: inout CGPoint, rhs: CGSize) {
+        lhs = lhs + rhs
+    }
+    
+    static func /= (lhs: inout CGPoint, rhs: CGFloat) {
+        lhs.x /= rhs
+        lhs.y /= rhs
+    }
+    
+    var magnitude: CGFloat {
+        hypot(x, y)
+    }
+}
+
+public extension CGSize {
+    static func / (lhs: CGSize, rhs: CGFloat) -> CGSize {
+        CGSize(width: lhs.width / rhs, height: lhs.height / rhs)
+    }
+    
+    static func + (lhs: CGSize, rhs: CGSize) -> CGSize {
+        CGSize(width: lhs.width + rhs.width, height: lhs.height + rhs.height)
+    }
+    
+    static func += (lhs: inout CGSize, rhs: CGSize) {
+        lhs = lhs + rhs
+    }
+}
+
+// Shared utility functions
+public func distance(_ fromPoint: CGPoint, _ targetPoint: CGPoint) -> CGFloat {
+    hypot(fromPoint.x - targetPoint.x, fromPoint.y - targetPoint.y)
+}
+
+public extension Array where Element: NodeProtocol {
+    func centroid() -> CGPoint? {
+        guard !isEmpty else { return nil }
+        let totals = reduce((x: 0.0, y: 0.0)) { acc, node in
+            (x: acc.x + node.position.x, y: acc.y + node.position.y)
+        }
+        return CGPoint(x: totals.x / CGFloat(count), y: totals.y / CGFloat(count))
+    }
+}
+
+public func centroid(of nodes: [any NodeProtocol]) -> CGPoint? {
+    guard !nodes.isEmpty else { return nil }
+    let totals = nodes.reduce((x: 0.0, y: 0.0)) { acc, node in
+        (x: acc.x + node.position.x, y: acc.y + node.position.y)
+    }
+    return CGPoint(x: totals.x / CGFloat(nodes.count), y: totals.y / CGFloat(nodes.count))
+}
+
+extension Logger {
+    static let subsystem = "io.handcart.GraphEditor"
+    
+    static func forCategory(_ category: String) -> Logger {
+        Logger(subsystem: subsystem, category: category)
+    }
+    
+    func debugLog(_ message: String) {
+#if DEBUG
+        self.debug("\(message)")
+#endif
+    }
+    
+    func infoLog(_ message: String) {
+#if DEBUG
+        self.info("\(message)")
+#endif
+    }
+    
+    func errorLog(_ message: String, error: Error? = nil) {
+        let errorDesc = error?.localizedDescription ?? ""
+        self.error("\(message) \(errorDesc)")
+    }
+}
+
+// Add any other shared helpers here (e.g., the CGFloat rounding extension if not already placed)
+extension CGFloat {
+    func rounded(to decimalPlaces: Int) -> CGFloat {
+        let divisor = pow(10.0, CGFloat(decimalPlaces))
+        return (self * divisor).rounded() / divisor
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphEditorWatch.swift
+Path: GraphEditorWatch/GraphEditorWatch.swift
+Last modified: 2025-10-07 15:20:23
+
+Contents:
+//
+//  GraphEditorWatch.swift
+//  GraphEditorWatch Watch App
+//
+//  Created by handcart on 8/1/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+
+// In GraphEditorWatch.swift
+@main
+struct GraphEditorWatch: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentLoaderView()
+        }
+    }
+}
+
+struct ContentLoaderView: View {
+    @State private var viewModel: GraphViewModel?
+    
+    var body: some View {
+        if let viewModel = viewModel {
+            ContentView(
+                viewModel: viewModel
+            )
+        } else {
+            Text("Loading...")
+                .task {
+                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let storage = PersistenceManager()
+                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                    do {
+                        try await model.loadGraph()
+                        
+                        model.nodes = model.nodes.map { anyNode in
+                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                            return AnyNode(updated)
+                        }
+                        
+                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
+                            // Note: Create viewModel first to set properties
+                            let tempViewModel = GraphViewModel(model: model)
+                            tempViewModel.offset = viewState.offset
+                            tempViewModel.zoomScale = viewState.zoomScale
+                            tempViewModel.selectedNodeID = viewState.selectedNodeID
+                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                            print("Loaded view state for '\(model.currentGraphName)'")
+                            self.viewModel = tempViewModel
+                        } else {
+                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } catch {
+                        print("Failed to load graph or view state: \(error)")
+                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    }
+                }
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: AppConstants.swift
+Path: GraphEditorWatch/Models/AppConstants.swift
+Last modified: 2025-09-19 10:58:36
+
+Contents:
+//
+//  AppConstants.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/3/25.
+//
+
+import CoreGraphics
+
+struct AppConstants {
+    // Graph visuals
+    static let nodeModelRadius: CGFloat = 10.0
+    static let hitScreenRadius: CGFloat = 30.0
+    static let tapThreshold: CGFloat = 10.0
+    
+    // Zooming
+    static let numZoomLevels = 10
+    static let defaultMinZoom: CGFloat = 0.2
+    static let defaultMaxZoom: CGFloat = 5.0
+    public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
+    public static let crownZoomSteps: Int = 20  // Smooth steps for crown
+}
+----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-11 16:07:42
+Last modified: 2025-10-13 13:11:52
 
 Contents:
 //
@@ -27,8 +281,6 @@ import WatchKit  // For WKApplication
 import os  // Added for logging
 
 @MainActor public class GraphViewModel: ObservableObject {
-    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")  // Added for consistent logging
-    
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
@@ -39,6 +291,10 @@ import os  // Added for logging
         
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
+    
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
+    }
     
     var isSelectedToggleNode: Bool {
         guard let id = selectedNodeID else { return false }
@@ -115,8 +371,8 @@ import os  // Added for logging
         let minZoom = max(calculatedMin, 0.5)
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
         
-        #if DEBUG
-        logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
+#if DEBUG
+        GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
         #endif
         
         return (minZoom, maxZoom)
@@ -172,16 +428,31 @@ import os  // Added for logging
     public func deleteNode(withID id: NodeID) async {
         await model.deleteNode(withID: id)
         if selectedNodeID == id { selectedNodeID = nil }
+        // Deleting a node may also invalidate an edge selection
+        selectedEdgeID = nil
         await saveAfterDelay()
+    }
+    
+    public func clearGraph() async {
+        await model.clearGraph()
+        await saveAfterDelay()
+    }
+    
+    public func pauseSimulation() async {
+        await model.pauseSimulation()
+    }
+    
+    public func resumeSimulation() async {
+        await model.resumeSimulation()
     }
     
     public func resumeSimulationAfterDelay() async {
         resumeTimer?.invalidate()
         resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
+            Task { @MainActor in  // Hop to main for safe access
+                guard let self = self else { return }
                 if WKApplication.shared().applicationState == .active {
-                    await self.model.resumeSimulation()
+                    await self.model.resumeSimulation()  // Consistent async call
                 }
             }
         }
@@ -192,7 +463,7 @@ import os  // Added for logging
         await model.pauseSimulation()
         
         #if DEBUG
-        self.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
+        GraphViewModel.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
         #endif
         
         // Efficient hit test with queryNearby
@@ -200,22 +471,20 @@ import os  // Added for logging
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
         
         #if DEBUG
-        self.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
+        GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
         #endif
         
         // Sort by distance to get closest (if multiple)
-        let distances = nearbyNodes.map { node in
-            hypot(node.position.x - modelPos.x, node.position.y - modelPos.y)
+        let sortedNearby = nearbyNodes.sorted {
+            hypot($0.position.x - modelPos.x, $0.position.y - modelPos.y) < hypot($1.position.x - modelPos.x, $1.position.y - modelPos.y)
         }
-        let sortedIndices = distances.indices.sorted { distances[$0] < distances[$1] }
-        let sortedNearby = sortedIndices.map { nearbyNodes[$0] }
         
         if let tappedNode = sortedNearby.first {
             selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
             selectedEdgeID = nil
             
             #if DEBUG
-            self.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
+            GraphViewModel.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
             #endif
             
             model.objectWillChange.send()  // Trigger UI refresh
@@ -225,7 +494,7 @@ import os  // Added for logging
             selectedEdgeID = nil
             
             #if DEBUG
-            self.logger.debug("Tap missed; cleared selections")
+            GraphViewModel.logger.debug("Tap missed; cleared selections")
             #endif
         }
         
@@ -253,41 +522,6 @@ import os  // Added for logging
         zoomScale = minZoom
         offset = .zero
         objectWillChange.send()
-    }
-    
-    public func moveDraggedNode(dragOffset: CGPoint, draggedID: NodeID) async {
-        guard let index = model.nodes.firstIndex(where: { $0.id == draggedID }) else { return }
-        let oldNode = model.nodes[index]
-        let unwrapped = oldNode.unwrapped
-        // FIXED: Clamp new position to simulation bounds for consistent offsets
-        let unclampedPos = unwrapped.position + dragOffset
-        let bounds = model.physicsEngine.simulationBounds
-        let newPos = CGPoint(
-            x: unclampedPos.x.clamped(to: 0...bounds.width),
-            y: unclampedPos.y.clamped(to: 0...bounds.height)
-        )
-        let updatedNode: AnyNode
-        if let concrete = unwrapped as? Node {
-            updatedNode = AnyNode(concrete.with(position: newPos, velocity: .zero))
-        } else if let concrete = unwrapped as? ToggleNode {
-            updatedNode = AnyNode(concrete.with(position: newPos, velocity: .zero))
-        } else {
-            logger.error("Unsupported node type for move: \(type(of: unwrapped))")
-            return
-        }
-        model.nodes[index] = updatedNode
-        
-        #if DEBUG
-        logger.debug("Clamped new position to x=\(newPos.x), y=\(newPos.y) within bounds \(bounds.width)x\(bounds.height)")
-        logger.debug("Moved node \(unwrapped.label) to new position x=\(newPos.x), y=\(newPos.y)")
-        #endif
-        
-        await model.startSimulation()
-    }
-    
-    public func clearGraph() async {
-        await model.clearGraph()
-        await saveAfterDelay()
     }
 }
 
@@ -360,7 +594,7 @@ extension GraphViewModel {
         try model.storage.saveViewState(viewState, for: currentGraphName)
         
         #if DEBUG
-        logger.debug("Saved view state for '\(self.currentGraphName)'")
+        GraphViewModel.logger.debug("Saved view state for '\(self.currentGraphName)'")
         #endif
     }
 }
@@ -377,15 +611,11 @@ extension GraphViewModel {
                     try self?.saveViewState()
                 } catch {
                     #if DEBUG
-                    self?.logger.error("Save failed: \(error.localizedDescription)")
+                    GraphViewModel.logger.error("Save failed: \(error.localizedDescription)")
                     #endif
                 }
             }
         }
-    }
-    
-    public func resumeSimulation() async {
-        await model.resumeSimulation()
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -459,7 +689,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-13 08:25:04
+Last modified: 2025-10-13 08:30:15
 
 Contents:
 import SwiftUI
@@ -492,9 +722,6 @@ struct ContentView: View {
     @State private var isAddingEdge: Bool = false
     @State private var viewSize: CGSize = .zero
     @State private var isSimulating: Bool = false
-    @State private var isDragging: Bool = false  // Add this for drag state
-    @State private var isSyncingCrown: Bool = false  // (From previous fix; keep)
-    @State private var lastZoomRanges: (min: CGFloat, max: CGFloat)? = nil  // NEW: Cache to avoid redundant recalcs (minimal addition)
     
     // NEW: Custom Bindings to sync @State with ViewModel (two-way)
     private var selectedNodeIDBinding: Binding<NodeID?> {
@@ -518,7 +745,7 @@ struct ContentView: View {
     }
     
     var body: some View {
-        GeometryReader { geo in
+        let geoView = GeometryReader { geo in
             let baseView = mainContent(in: geo)
                 .onAppear {
                     Task { await viewModel.resumeSimulation() }
@@ -546,6 +773,13 @@ struct ContentView: View {
                 .onChange(of: viewModel.model.edges) { _, _ in
                     updateZoomRanges(for: viewSize)  // New: Use viewSize
                 }
+                .onChange(of: crownPosition) { oldValue, newValue in
+                    #if DEBUG
+                    logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
+                    #endif
+                    
+                    handleCrownRotation(newValue: newValue)
+                }
                 .onChange(of: canvasFocus) { oldValue, newValue in
                     #if DEBUG
                     logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
@@ -556,88 +790,108 @@ struct ContentView: View {
             
             let intermediateView = baseView
                 .onChange(of: zoomScale) { oldValue, newValue in
-                    guard !isSyncingCrown else { return }  // (From previous)
-                    
                     let normalized = (newValue - minZoom) / (maxZoom - minZoom)
                     let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
-                    if abs(targetCrown - crownPosition) > 0.05 {  // NEW: Increased threshold to 0.05 for more anti-jitter (was 0.01)
-                        isSyncingCrown = true
+                    if abs(targetCrown - crownPosition) > 0.01 {
                         crownPosition = targetCrown
                         
                         #if DEBUG
                         logger.debug("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(self.crownPosition)")
                         #endif
+                    }
+                }
+                .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
+                    #if DEBUG
+                    logger.debug("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #endif
+                    
+                    selectedNodeID = newValue  // Sync to local @State
+                    viewModel.objectWillChange.send()  // Force re-render if needed
+                }
+                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
+                    #if DEBUG
+                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+                    #endif
+                    
+                    selectedEdgeID = newValue
+                    viewModel.objectWillChange.send()
+                }
+                .onReceive(viewModel.model.$isStable) { isStable in
+                    if isStable {
+                        #if DEBUG
+                        logger.debug("Simulation stable: Centering nodes")
+                        #endif
                         
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {  // NEW: Slightly longer delay (0.1s) to let settle
-                            self.isSyncingCrown = false
-                        }
+                        centerGraph()
+                    }
+                }
+                .onReceive(viewModel.model.$simulationError) { error in
+                    if let error = error {
+                        #if DEBUG
+                        logger.error("Simulation error: \(error.localizedDescription)")
+                        #endif
                     }
                 }
             
             intermediateView
-                .overlay(alignment: .bottom) {
-                    HStack(spacing: 20) {
-                        if wristSide == .left {
-                            addNodeButton(in: geo)
-                            menuButton(in: geo)
-                        } else {
-                            menuButton(in: geo)
-                            addNodeButton(in: geo)
-                        }
-                    }
-                    .padding(.bottom, 1)
-                    .padding(.horizontal, 15)
-                    .transition(.move(edge: .bottom))
-                }
         }
-        .digitalCrownRotation(  // NEW: Add this modifier to geoView for native crown handling (replaces custom onChange)
-            $crownPosition,
-            from: 0,
-            through: Double(AppConstants.crownZoomSteps),
-            sensitivity: .low,  // Low sensitivity to reduce jitter from small rotations
-            isContinuous: true,
-            isHapticFeedbackEnabled: true,
-            onChange: { event in
-                let newValue = event.offset
-                #if DEBUG
-                logger.debug("Crown position changed in ContentView to \(newValue)")
-                #endif
-                handleCrownRotation(newValue: newValue)  // Reuse your existing handler
-            }
-        )
-        // Removed .hidden() to ensure the content renders
+        
+        let finalView = geoView
+            .ignoresSafeArea()
+            .focusable(true)  // Make the whole view focusable for crown
+            .focused($canvasFocus)  // Bind focus state
+            .digitalCrownRotation(  // Restored: Put back here for root-level handling
+                $crownPosition,
+                from: 0,
+                through: Double(AppConstants.crownZoomSteps),
+                sensitivity: .medium
+            )
+        
+        finalView
     }
     
     private func mainContent(in geo: GeometryProxy) -> some View {
         ZStack {
-            GraphCanvasView(
+            InnerView(config: InnerViewConfig(
+                geo: geo,
                 viewModel: viewModel,
                 zoomScale: $zoomScale,
                 offset: $offset,
-                draggedNode: Binding(get: { draggedNode.node }, set: { draggedNode = NodeWrapper(node: $0) }),
+                draggedNode: $draggedNode,
                 dragOffset: $dragOffset,
-                potentialEdgeTarget: Binding(get: { potentialEdgeTarget.node }, set: { potentialEdgeTarget = NodeWrapper(node: $0) }),
-                selectedNodeID: selectedNodeIDBinding,
-                viewSize: geo.size,
+                potentialEdgeTarget: $potentialEdgeTarget,
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
+                showOverlays: $showOverlays,
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
-                onUpdateZoomRanges: { updateZoomRanges(for: geo.size) },
-                selectedEdgeID: selectedEdgeIDBinding,
-                showOverlays: $showOverlays,
+                updateZoomRangesHandler: { size in updateZoomRanges(for: size) },
+                selectedNodeID: $selectedNodeID,
+                selectedEdgeID: $selectedEdgeID,
+                canvasFocus: _canvasFocus,
+                onCenterGraph: centerGraph,
                 isAddingEdge: $isAddingEdge,
-                isDragging: $isDragging
-            )
+                isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
+            ))
         }
-        .focused($canvasFocus)
+        .overlay(alignment: .bottom) {
+            HStack(spacing: 20) {
+                if wristSide == .left {
+                    addNodeButton(in: geo)
+                    menuButton(in: geo)
+                } else {
+                    menuButton(in: geo)
+                    addNodeButton(in: geo)
+                }
+            }
+            .padding(.bottom, 1)
+            .padding(.horizontal, 15)
+            .transition(.move(edge: .bottom))
+        }
+        // Removed .hidden() to ensure the content renders
     }
     
     private func handleCrownRotation(newValue: Double) {
-        if isDragging { return }  // Ignore crown during drag to prevent zoom interference
-        
-        guard abs(newValue - crownPosition) > 0.2 else { return }  // NEW: Higher threshold (0.2) for even more anti-jitter; adjust down if too insensitive
-        
         #if DEBUG
         logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
         #endif
@@ -645,12 +899,11 @@ struct ContentView: View {
         let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
         let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
         
+        // New: Animate the zoom change for smoothness
         withAnimation(.easeInOut(duration: 0.1)) {
             zoomScale = targetZoom
         }
-        
-        // TEMP: Comment out to test if this reduces jiggle (it may trigger node changes -> zoom recalcs)
-        // viewModel.centerGraph()  // Direct call  // <-- Comment this line for now; re-enable if centering is essential during zoom
+        viewModel.centerGraph()  // Direct call
         
         #if DEBUG
         logger.debug("Updated zoomScale to: \(self.zoomScale)")
@@ -659,13 +912,8 @@ struct ContentView: View {
     
     private func updateZoomRanges(for viewSize: CGSize) {
         let ranges = viewModel.calculateZoomRanges(for: viewSize)
-        // NEW: Only update if meaningfully different (anti-recalc spam; epsilon for FP precision)
-        if let last = lastZoomRanges, abs(ranges.min - last.min) < 0.001 && abs(ranges.max - last.max) < 0.001 {
-            return  // Skip if unchanged
-        }
         minZoom = ranges.min
         maxZoom = ranges.max
-        lastZoomRanges = (min: minZoom, max: maxZoom)  // Cache
         zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
     }
     
@@ -938,113 +1186,5 @@ struct EditSection: View {
         .accessibilityLabel("Edit section")  // NEW: Accessibility
         .foregroundColor(isProcessing ? .gray : .primary)  // NEW: Visual feedback for processing
     }
-}
-----------------------------------------------------------------------------------------------------
-File: GestureUtils.swift
-Path: GraphEditorWatch/Views/GestureUtils.swift
-Last modified: 2025-10-11 19:40:27
-
-Contents:
-// GestureUtils.swift
-// Extracted utilities for hit testing and distance calculations
-
-import SwiftUI
-import GraphEditorShared
-
-struct GestureUtils {
-    static func closestNode(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GraphEditorShared.HitTestContext) -> (any NodeProtocol)? {
-        var closest: (any NodeProtocol)?
-        var minDist: CGFloat = .infinity
-        let adjustedRadius = AppConstants.hitScreenRadius / max(1.0, context.zoomScale) * 2.0  // Double boost at zoom >1; tune to 3.0 if needed
-        #if os(watchOS)
-        let boostedRadius = adjustedRadius * 2.0  // Extra for watch touch (fingers obscure)
-        #endif
-        for node in visibleNodes {
-            let nodeScreen = CoordinateTransformer.modelToScreen(
-                node.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            let dist = hypot(screenPos.x - nodeScreen.x, screenPos.y - nodeScreen.y)
-            if dist < boostedRadius && dist < minDist {
-                minDist = dist
-                closest = node
-            }
-        }
-        return closest
-    }
-    
-    static func closestEdge(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: HitTestContext) -> GraphEdge? {
-        var closestEdge: GraphEdge?
-        var minDist: CGFloat = .infinity
-        for edge in visibleEdges {
-            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
-                  let targetNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
-            
-            let fromScreen = CoordinateTransformer.modelToScreen(
-                fromNode.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            let toScreen = CoordinateTransformer.modelToScreen(
-                targetNode.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            
-            let dist = pointToLineDistance(point: screenPos, from: fromScreen, to: toScreen)
-            let hitThreshold: CGFloat = 20.0
-            if dist < hitThreshold && dist < minDist {
-                minDist = dist
-                closestEdge = edge
-            }
-        }
-        return closestEdge
-    }
-    
-    static func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, to endPoint: CGPoint) -> CGFloat {
-        let pointX = Double(point.x), pointY = Double(point.y)
-        let startX = Double(startPoint.x), startY = Double(startPoint.y)
-        let endX = Double(endPoint.x), endY = Double(endPoint.y)
-        
-        let lineVecX = endX - startX
-        let lineVecY = endY - startY
-        let lineLen = hypot(lineVecX, lineVecY)
-        
-        if lineLen == 0 {
-            return hypot(point.x - startPoint.x, point.y - startPoint.y)
-        }
-        
-        let pointVecX = pointX - startX
-        let pointVecY = pointY - startY
-        let dot = pointVecX * lineVecX + pointVecY * lineVecY
-        let denom = lineLen * lineLen
-        let projectionParam = dot / denom
-        let clampedParam = max(0.0, min(1.0, projectionParam))
-        
-        let projX = startX + lineVecX * clampedParam
-        let projY = startY + lineVecY * clampedParam
-        
-        let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
-        return hypot(point.x - proj.x, point.y - proj.y)
-    }
-    
-    static func modelToScreen(_ modelPos: CGPoint, context: HitTestContext) -> CGPoint {
-        return CoordinateTransformer.modelToScreen(
-            modelPos,
-            effectiveCentroid: context.effectiveCentroid,
-            zoomScale: context.zoomScale,
-            offset: context.offset,
-            viewSize: context.viewSize
-        )
-    }
-    
-    // Add any other utility functions extracted from the original file here
 }
 --------------------------------------------------

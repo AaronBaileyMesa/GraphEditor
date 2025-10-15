@@ -33,30 +33,23 @@ struct ContentLoaderView: View {
                     let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
                     let storage = PersistenceManager()
                     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-                    do {
-                        try await model.loadGraph()
-                        
-                        model.nodes = model.nodes.map { anyNode in
-                            let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
-                            return AnyNode(updated)
-                        }
-                        
-                        if let viewState = try model.storage.loadViewState(for: model.currentGraphName) {
-                            // Note: Create viewModel first to set properties
-                            let tempViewModel = GraphViewModel(model: model)
-                            tempViewModel.offset = viewState.offset
-                            tempViewModel.zoomScale = viewState.zoomScale
-                            tempViewModel.selectedNodeID = viewState.selectedNodeID
-                            tempViewModel.selectedEdgeID = viewState.selectedEdgeID
-                            print("Loaded view state for '\(model.currentGraphName)'")
-                            self.viewModel = tempViewModel
-                        } else {
-                            self.viewModel = GraphViewModel(model: model)
-                        }
-                    } catch {
-                        print("Failed to load graph or view state: \(error)")
-                        self.viewModel = GraphViewModel(model: model)  // Fallback
+                    await model.loadGraph()
+                    
+                    model.nodes = model.nodes.map { anyNode in
+                        let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
+                        return AnyNode(updated)
                     }
+                    
+                    let tempViewModel = GraphViewModel(model: model)
+                    if let viewState = try? model.storage.loadViewState(for: model.currentGraphName) {
+                        tempViewModel.offset = viewState.offset
+                        tempViewModel.zoomScale = viewState.zoomScale
+                        tempViewModel.selectedNodeID = viewState.selectedNodeID
+                        tempViewModel.selectedEdgeID = viewState.selectedEdgeID
+                        print("Loaded view state for '\(model.currentGraphName)'")
+                    }
+                    self.viewModel = tempViewModel
+                    await tempViewModel.model.startSimulation()
                 }
         }
     }
