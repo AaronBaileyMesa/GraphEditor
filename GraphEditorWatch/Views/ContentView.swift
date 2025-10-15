@@ -177,7 +177,7 @@ struct ContentView: View {
                 canvasFocus: _canvasFocus,
                 onCenterGraph: centerGraph,
                 isAddingEdge: $isAddingEdge,
-                isSimulatingBinding: $isSimulating  // FIXED: Pass actual binding instance from @State
+                isSimulating: $isSimulating  // FIXED: Pass actual binding instance from @State
             ))
         }
         .overlay(alignment: .bottom) {

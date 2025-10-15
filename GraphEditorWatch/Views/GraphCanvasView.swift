@@ -27,6 +27,7 @@ struct GraphCanvasView: View {
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     @Binding var isAddingEdge: Bool
+    @Binding var isSimulating: Bool
     
     init(
         viewModel: GraphViewModel,
@@ -44,7 +45,8 @@ struct GraphCanvasView: View {
         onUpdateZoomRanges: @escaping () -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
-        isAddingEdge: Binding<Bool>
+        isAddingEdge: Binding<Bool>,
+        isSimulating: Binding<Bool>
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -62,6 +64,7 @@ struct GraphCanvasView: View {
         self._selectedEdgeID = selectedEdgeID
         self._showOverlays = showOverlays
         self._isAddingEdge = isAddingEdge
+        self._isSimulating = isSimulating  // Assign new binding
     }
     
     var body: some View {
@@ -93,7 +96,8 @@ struct GraphCanvasView: View {
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
                 onUpdateZoomRanges: onUpdateZoomRanges,
-                isAddingEdge: $isAddingEdge
+                isAddingEdge: $isAddingEdge,
+                isSimulating: $isSimulating
             ))
         }
     }

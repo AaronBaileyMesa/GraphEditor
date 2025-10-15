@@ -39,7 +39,8 @@ struct InnerView: View {
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge
+            isAddingEdge: config.isAddingEdge,
+            isSimulating: config.isSimulating
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)
@@ -48,7 +49,7 @@ struct InnerView: View {
         if config.showMenu.wrappedValue {
             MenuView(
                 viewModel: config.viewModel,
-                isSimulatingBinding: config.isSimulatingBinding,
+                isSimulatingBinding: config.isSimulating,
                 onCenterGraph: config.onCenterGraph,
                 showMenu: config.showMenu,
                 showOverlays: config.showOverlays,

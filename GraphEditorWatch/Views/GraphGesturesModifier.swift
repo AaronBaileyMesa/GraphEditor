@@ -43,6 +43,7 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
     @Binding var isAddingEdge: Bool
+    @Binding var isSimulating: Bool  // New binding
     
     @State private var dragStartNode: (any NodeProtocol)?
     @State private var isMovingSelectedNode: Bool = false
@@ -69,11 +70,14 @@ struct GraphGesturesModifier: ViewModifier {
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
-        let longPressGesture = LongPressGesture(minimumDuration: 2.0, maximumDistance: 10.0)
-                .onEnded { _ in
-                    print("Long press detected after 2 seconds!")
-                    WKInterfaceDevice.current().play(.success)  // Haptic feedback
+        let longPressGesture = LongPressGesture(minimumDuration: 3.0, maximumDistance: 10.0)
+            .onEnded { _ in
+                if !isSimulating {  
+                    showMenu = true  // Trigger menu
+                    print("Long press: Showing menu!")
+                    WKInterfaceDevice.current().play(.success)
                 }
+            }
         content
             .highPriorityGesture(dragGesture)
             .simultaneousGesture(longPressGesture)  // Add this: Allows long press alongside drag
