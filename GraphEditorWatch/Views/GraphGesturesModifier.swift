@@ -50,6 +50,9 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var isMovingSelectedNode: Bool = false
     @State private var gestureStartCentroid: CGPoint = .zero
     @State private var startLocation: CGPoint?
+    @GestureState private var isLongPressing: Bool = false
+    @State private var longPressTimer: Timer? = nil
+    @State private var pressProgress: Double = 0.0  // For progressive desaturation
     
     private let dragStartThreshold: CGFloat = 10.0  // Increased for better tap vs. drag distinction
     
@@ -72,37 +75,52 @@ struct GraphGesturesModifier: ViewModifier {
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
             }
         
-        // NEW: Updated long press with animation (use onChanged for pressing state)
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 10.0)
-            .onChanged { pressing in
-                if pressing {
-                    print("Long press started...")
-                    WKInterfaceDevice.current().play(.click)  // Haptic on start
-                    
-                    // NEW: Animate desaturation over the full duration
-                    withAnimation(.linear(duration: AppConstants.menuLongPressDuration)) {
-                        saturation = 0.0  // Fade to grayscale
-                    }
-                } else {
-                    // NEW: Quick reset if cancelled
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        saturation = 1.0  // Back to full color
-                    }
-                }
+            .updating($isLongPressing) { currentState, gestureState, transaction in
+                gestureState = currentState  // Track if actively pressing
             }
             .onEnded { _ in
                 if !isSimulating {
-                    selectedNodeID = nil  // Optional: Deselect on menu open
+                    selectedNodeID = nil
                     selectedEdgeID = nil
                     showMenu = true
-                    print("Long press: Showing menu!")
-                    WKInterfaceDevice.current().play(.click)
+                    WKInterfaceDevice.current().play(.click)  // Better haptic for completion
+                    withAnimation(.easeInOut(duration: 0.1)) {
+                        saturation = 1.0  // Immediate reset on success
+                    }
+                    pressProgress = 0.0
+                    longPressTimer?.invalidate()
+                    longPressTimer = nil
+                    Self.logger.debug("Long press completed: Menu shown, saturation reset")
                 }
             }
         
         content
             .highPriorityGesture(dragGesture)
-            .simultaneousGesture(longPressGesture)  // Add this: Allows long press alongside drag
+            .simultaneousGesture(longPressGesture)
+            .onChange(of: isLongPressing) { oldValue, newValue in
+                if newValue {  // Press started
+                    Self.logger.debug("Long press detected: Starting desaturation")
+                    WKInterfaceDevice.current().play(.click)  // Initial haptic
+                    longPressTimer?.invalidate()
+                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+                        pressProgress += 0.05 / AppConstants.menuLongPressDuration
+                        saturation = 1.0 - pressProgress  // Progressive desaturation (1.0 -> 0.0)
+                        if pressProgress >= 1.0 {
+                            longPressTimer?.invalidate()
+                            longPressTimer = nil
+                        }
+                    }
+                } else {  // Press cancelled (e.g., moved too far)
+                    Self.logger.debug("Long press cancelled: Resetting saturation")
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        saturation = 1.0
+                    }
+                    pressProgress = 0.0
+                    longPressTimer?.invalidate()
+                    longPressTimer = nil
+                }
+            }
     }
 }
 
@@ -295,6 +313,7 @@ extension GraphGesturesModifier {
         isAddingEdge = false  // Reset edge mode
     }
 }
+
 extension GraphGesturesModifier {
     public func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
         let pointX = Double(point.x), pointY = Double(point.y)

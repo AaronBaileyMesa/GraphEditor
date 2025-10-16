@@ -182,7 +182,7 @@ struct ContentView: View {
                 saturation: $saturation  // NEW: Pass the binding here
             ))
         }
-        .overlay(alignment: .bottom) {
+        /*.overlay(alignment: .bottom) {
             HStack(spacing: 20) {
                 if wristSide == .left {
                     addNodeButton(in: geo)
@@ -195,7 +195,7 @@ struct ContentView: View {
             .padding(.bottom, 1)
             .padding(.horizontal, 15)
             .transition(.move(edge: .bottom))
-        }
+        }*/
         .sheet(isPresented: $showMenu) {
             MenuView(
                 viewModel: viewModel,
@@ -208,7 +208,10 @@ struct ContentView: View {
             )
             .onDisappear {
                 print("Menu sheet dismissed")
-                showMenu = false  // Reset
+                showMenu = false
+                withAnimation(.easeInOut(duration: 0.2)) {
+                                saturation = 1.0  // Ensure reset on dismiss
+                            }
             }
         }
     }
