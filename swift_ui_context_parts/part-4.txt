@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-16 07:49:11
+Current date: 2025-10-17 17:38:35
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 2. GraphEditorWatch/GraphEditorWatch.swift
@@ -230,7 +230,7 @@ struct ContentLoaderView: View {
 ----------------------------------------------------------------------------------------------------
 File: AppConstants.swift
 Path: GraphEditorWatch/Models/AppConstants.swift
-Last modified: 2025-10-15 15:15:03
+Last modified: 2025-10-16 09:34:11
 
 Contents:
 //
@@ -260,7 +260,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-15 13:36:46
+Last modified: 2025-10-16 13:25:57
 
 Contents:
 //
@@ -310,6 +310,7 @@ import os  // Added for logging
     private var resumeTimer: Timer?
     
     public var effectiveCentroid: CGPoint {
+        /*
         let visibleNodes = model.visibleNodes()
         if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
             return node.position
@@ -319,6 +320,8 @@ import os  // Added for logging
             return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
         }
         return centroid(of: visibleNodes) ?? .zero  // Fix unwrap
+         */
+        return model.centroid ?? .zero
     }
     
     public enum AppFocusState: Equatable {
@@ -616,7 +619,7 @@ extension GraphViewModel {
 ----------------------------------------------------------------------------------------------------
 File: AddSection.swift
 Path: GraphEditorWatch/Views/AddSection.swift
-Last modified: 2025-10-06 20:26:05
+Last modified: 2025-10-17 08:08:27
 
 Contents:
 //
@@ -684,7 +687,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-15 17:13:20
+Last modified: 2025-10-16 12:40:03
 
 Contents:
 import SwiftUI
@@ -871,8 +874,7 @@ struct ContentView: View {
                 saturation: $saturation  // NEW: Pass the binding here
             ))
         }
-        /*
-        .overlay(alignment: .bottom) {
+        /*.overlay(alignment: .bottom) {
             HStack(spacing: 20) {
                 if wristSide == .left {
                     addNodeButton(in: geo)
@@ -885,9 +887,7 @@ struct ContentView: View {
             .padding(.bottom, 1)
             .padding(.horizontal, 15)
             .transition(.move(edge: .bottom))
-        }
-         */
-        
+        }*/
         .sheet(isPresented: $showMenu) {
             MenuView(
                 viewModel: viewModel,
@@ -900,10 +900,10 @@ struct ContentView: View {
             )
             .onDisappear {
                 print("Menu sheet dismissed")
-                showMenu = false  // Reset
-                withAnimation(.easeInOut(duration: 0.3)) {  // Smooth reversal
-                    saturation = 1.0
-                }
+                showMenu = false
+                withAnimation(.easeInOut(duration: 0.2)) {
+                                saturation = 1.0  // Ensure reset on dismiss
+                            }
             }
         }
     }

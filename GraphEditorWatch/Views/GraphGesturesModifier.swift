@@ -51,7 +51,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var gestureStartCentroid: CGPoint = .zero
     @State private var startLocation: CGPoint?
     @GestureState private var isLongPressing: Bool = false
-    @State private var longPressTimer: Timer? = nil
+    @State private var longPressTimer: Timer?
     @State private var pressProgress: Double = 0.0  // For progressive desaturation
     
     private let dragStartThreshold: CGFloat = 10.0  // Increased for better tap vs. drag distinction

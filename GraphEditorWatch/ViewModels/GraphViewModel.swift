@@ -45,6 +45,7 @@ import os  // Added for logging
     private var resumeTimer: Timer?
     
     public var effectiveCentroid: CGPoint {
+        /*
         let visibleNodes = model.visibleNodes()
         if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
             return node.position
@@ -54,6 +55,8 @@ import os  // Added for logging
             return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
         }
         return centroid(of: visibleNodes) ?? .zero  // Fix unwrap
+         */
+        return model.centroid ?? .zero
     }
     
     public enum AppFocusState: Equatable {

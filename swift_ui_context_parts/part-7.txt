@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-16 07:49:13
+Current date: 2025-10-17 17:38:36
 Table of Contents:
 1. GraphEditorWatchTests/GraphGesturesModifierTests.swift
 2. GraphEditorWatchTests/GraphModelTests.swift
@@ -10,7 +10,7 @@ Table of Contents:
 5. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
 File: GraphGesturesModifierTests.swift
 Path: GraphEditorWatchTests/GraphGesturesModifierTests.swift
-Last modified: 2025-10-15 13:36:46
+Last modified: 2025-10-17 07:44:45
 
 Contents:
 //
@@ -51,7 +51,8 @@ struct GraphGesturesModifierTests {
             crownPosition: .constant(0.0),
             onUpdateZoomRanges: {},
             isAddingEdge: .constant(false),
-            isSimulating: .constant(true)
+            isSimulating: .constant(true),
+            saturation: .constant(1.0)  // Add this line
         )
     }
     
@@ -344,7 +345,7 @@ struct MenuViewTests {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITests.swift
 Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-10-10 14:04:57
+Last modified: 2025-10-17 16:23:50
 
 Contents:
 //
@@ -378,199 +379,284 @@ extension XCTestCase {
 
 final class GraphEditorWatchUITests: XCTestCase {
     override func setUpWithError() throws {
+        continueAfterFailure = false
         let app = XCUIApplication()
+        app.terminate()
         app.launch()
+        Thread.sleep(forTimeInterval: 2.0)  // Settle time
         
-        // Open menu
-        let menuButton = app.buttons["Menu"]  // Matches label (identifier is symbol name)
-        XCTAssertTrue(menuButton.waitForExistence(timeout: 5), "Menu button should appear")
-        menuButton.tap()
+        print("Post-launch hierarchy: \(app.debugDescription)")
         
-        // Debug: Print full hierarchy (remove after fixing)
-        print(app.debugDescription)
+        let canvas = app.buttons["GraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")
         
-        // Tap "New Graph" (use identifier from your list)
-        let newButton = app.buttons["newGraphButton"]
-        scrollUntilVisible(element: newButton, in: app)
-        XCTAssertTrue(newButton.waitForExistence(timeout: 5), "New Graph button should appear after scroll")
-        newButton.tap()
-
-        // Tap text field to open input (required for submission, even with default)
-        let sheetField = app.textFields["New Graph Name"].firstMatch
-        XCTAssertTrue(sheetField.waitForExistence(timeout: 5), "New Graph Name field should appear")
-        sheetField.tap()
-        Thread.sleep(forTimeInterval: 1.0)  // Increased delay for input overlay
+        // Deselect any selected items by tapping center multiple times (to ensure no selection for full menu)
+        let centerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        centerCoord.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        centerCoord.tap()
+        Thread.sleep(forTimeInterval: 0.5)
         
-        // Custom wait for focus instead of predicate
-        waitUntilElementHasFocus(element: sheetField)
+        // Pan once with negative offsets (drag left/up to move graph right/down)
+        let endCoordRight = centerCoord.withOffset(CGVector(dx: -1000, dy: 0))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordRight)
+        Thread.sleep(forTimeInterval: 0.3)
+        let endCoordDown = centerCoord.withOffset(CGVector(dx: 0, dy: -1000))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordDown)
+        Thread.sleep(forTimeInterval: 0.3)
         
-        // Type text (override default if needed)
-        sheetField.typeText("TestGraph")
-        Thread.sleep(forTimeInterval: 0.5)  // Delay after typing
-
-        // Dismiss input with "Done" (submits default value)
-        let doneButton = app.buttons["Done"]
-        if doneButton.waitForExistence(timeout: 5) {
-            doneButton.tap()
-        }  // Conditional if input doesn't always open
-
-        Thread.sleep(forTimeInterval: 0.5)  // Delay for submission
-
-        // Confirm sheet with "Create"
+        // Retry long press up to 2x, with pre-tap for focus and 5s duration
+        let menuList = app.scrollViews["menuList"]
+        var menuOpened = false
+        let cornerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))  // Center
+        for attempt in 1...2 {
+            print("Attempt \(attempt) to open menu via long press in setUp")
+            cornerCoord.tap()  // Pre-tap for focus
+            Thread.sleep(forTimeInterval: 0.3)
+            cornerCoord.press(forDuration: 5.0)
+            Thread.sleep(forTimeInterval: 2.0)  // Increased post-press sleep
+            
+            print("Canvas label after long press (attempt \(attempt)): \(canvas.label)")
+            print("Post-long press hierarchy (attempt \(attempt)): \(app.debugDescription)")
+            
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Post-long-press-setUp-attempt-\(attempt)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            
+            if menuList.waitForExistence(timeout: 5.0) {
+                menuOpened = true
+                break
+            }
+            // Tap to dismiss if stuck
+            centerCoord.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(menuOpened, "Menu list should appear after long press (after retries) in setUp")
+        
+        // Dismiss any unexpected sheets (use firstMatch for multiple matches)
+        let closeButton = app.buttons["close-sheet"].firstMatch
+        if closeButton.waitForExistence(timeout: 2.0) {
+            closeButton.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        
+        let newGraphButton = app.buttons["newGraphButton"]
+        scrollUntilVisible(element: newGraphButton, in: menuList, maxAttempts: 20)
+        XCTAssertTrue(newGraphButton.waitForExistence(timeout: 5), "New Graph button should appear after menu open")
+        newGraphButton.tap()
+        Thread.sleep(forTimeInterval: 1.0)
+        print("Post-newGraph tap hierarchy: \(app.debugDescription)")
+        
+        let newGraphNameField = app.textFields["newGraphNameTextField"]
+        XCTAssertTrue(newGraphNameField.waitForExistence(timeout: 3), "New Graph Name field should appear")
+        newGraphNameField.tap()
+        waitUntilElementHasFocus(element: newGraphNameField, timeout: 3)
+        newGraphNameField.typeText("TestGraph")
+        Thread.sleep(forTimeInterval: 0.5)
+        
         let createButton = app.buttons["createButton"]
-        XCTAssertTrue(createButton.waitForExistence(timeout: 5), "Create button should appear in sheet")
+        XCTAssertTrue(createButton.waitForExistence(timeout: 3), "Create button should appear")
         createButton.tap()
-
-        Thread.sleep(forTimeInterval: 2.0)  // Increased delay for sheet dismissal and graph loading
-
-        // Wait for canvas
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear after creation")
+        Thread.sleep(forTimeInterval: 1.0)
+        
+        print("Post-create hierarchy: \(app.debugDescription)")
+        
+        // Verify reset with waiter
+        let emptyLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
+        let emptyPredicate = NSPredicate(format: "label == %@", emptyLabel)
+        let emptyExpectation = expectation(for: emptyPredicate, evaluatedWith: canvas)
+        let emptyResult = XCTWaiter.wait(for: [emptyExpectation], timeout: 5.0)
+        XCTAssert(emptyResult == .completed, "Graph should be empty after reset in setUp")
+        
+        app.terminate()  // Ensure clean state
     }
     
-    // Helper to scroll until visible/hittable (coordinate drag for precision; smaller dy to avoid overshoot)
-    private func scrollUntilVisible(element: XCUIElement, in app: XCUIApplication, maxAttempts: Int = 10) {
+    // Helper to scroll until visible/hittable (swipeUp and swipeDown alternately)
+    private func scrollUntilVisible(element: XCUIElement, in container: XCUIElement, maxAttempts: Int = 20) {
         var attempts = 0
         while !element.isHittable && attempts < maxAttempts {
-            // Coordinate-based drag (upward to reveal bottom items)
-            let startCoord = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))  // Near bottom
-            let endCoord = startCoord.withOffset(CGVector(dx: 0.0, dy: -50))  // Drag up, smaller offset
-            startCoord.press(forDuration: 0.1, thenDragTo: endCoord)
+            if attempts % 2 == 0 {
+                container.swipeUp()
+            } else {
+                container.swipeDown()
+            }
+            Thread.sleep(forTimeInterval: 0.5)
             attempts += 1
         }
-        if !element.isHittable {
-            XCTFail("Element not visible after \(maxAttempts) attempts")
-        }
+        XCTAssertLessThan(attempts, maxAttempts, "Failed to make element visible after \(maxAttempts) attempts")
     }
     
-    override func tearDownWithError() throws {}
-    
-    /*
-    func testLaunch() throws {
-        let app = XCUIApplication()
-        XCTAssertTrue(app.exists, "App should launch successfully")
-    }
-    
-    func testDragToCreateEdge() throws {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear")
-
-        // Open menu and add two nodes (use identifier from your list)
-        let menuButton = app.buttons["Menu"]
-        XCTAssertTrue(menuButton.waitForExistence(timeout: 5), "Menu button should appear")
-        menuButton.tap()
-        let addNodeButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addNodeButton, in: app)
-        XCTAssertTrue(addNodeButton.waitForExistence(timeout: 5), "Add Node button should appear")
-        addNodeButton.tap()
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after add")
-        menuButton.tap()
-        scrollUntilVisible(element: addNodeButton, in: app)
-        addNodeButton.tap()
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Back to canvas after second add")
-
-        // Pre-tap start to ensure hit/select
-        let startPoint = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
-        startPoint.tap()
-        let endPoint = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
-        startPoint.press(forDuration: 0.2, thenDragTo: endPoint)
-        
-        // Check updated label (adjust for empty start: 2 nodes, 1 edge)
-        let expectedLabel = "Graph with 2 nodes and 1 edge. No node or edge selected."
-        let predicate = NSPredicate(format: "label == %@", expectedLabel)
-        let expectation = self.expectation(for: predicate, evaluatedWith: canvas)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
-        XCTAssert(result == .completed, "Directed edge created, updating graph description")
-    }
-
-    func testUndoAfterAddNode() throws {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
-        
-        // Open menu and add node (use identifier)
-        let menuButton = app.buttons["Menu"]
-        menuButton.tap()
-        let addNodeButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addNodeButton, in: app)
-        addNodeButton.tap()
-        
-        // Check added (from 0 -> 1 node, 0 edges)
-        let addedLabel = "Graph with 1 node and 0 edges. No node or edge selected."
-        let addedPredicate = NSPredicate(format: "label == %@", addedLabel)
-        let addedExpectation = self.expectation(for: addedPredicate, evaluatedWith: canvas)
-        let addedResult = XCTWaiter.wait(for: [addedExpectation], timeout: 10.0)
-        XCTAssert(addedResult == .completed, "Node added")
-        
-        // Open menu and undo (use identifier)
-        menuButton.tap()
-        let undoButton = app.buttons["undoButton"]
-        scrollUntilVisible(element: undoButton, in: app)
-        XCTAssertTrue(undoButton.waitForExistence(timeout: 5), "Undo button should appear")
-        undoButton.tap()
-        
-        // Check reverted (back to 0 nodes, 0 edges)
-        let revertedLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
-        let revertedPredicate = NSPredicate(format: "label == %@", revertedLabel)
-        let revertedExpectation = self.expectation(for: revertedPredicate, evaluatedWith: canvas)
-        let revertedResult = XCTWaiter.wait(for: [revertedExpectation], timeout: 10.0)
-        XCTAssert(revertedResult == .completed, "Undo reverts add")
-    }
-
     func testMenuDisplayAndAction() throws {
         let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let canvas = app.buttons["GraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear after reset")
         
-        // Tap menu button
-        let menuButton = app.buttons["Menu"]
-        XCTAssertTrue(menuButton.waitForExistence(timeout: 5), "Menu button should appear")
-        menuButton.tap()
+        let emptyLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
+        XCTAssertEqual(canvas.label, emptyLabel, "Graph should start empty")
         
-        // Check add button in menu (use identifier)
-        let addButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addButton, in: app)
-        XCTAssertTrue(addButton.waitForExistence(timeout: 5), "Menu shows with actions")
+        // Pan once
+        let centerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let endCoordRight = centerCoord.withOffset(CGVector(dx: -1000, dy: 0))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordRight)
+        Thread.sleep(forTimeInterval: 0.3)
+        let endCoordDown = centerCoord.withOffset(CGVector(dx: 0, dy: -1000))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordDown)
+        Thread.sleep(forTimeInterval: 0.3)
         
-        addButton.tap()
+        // Long press with 2 retries, pre-tap, 5s duration
+        let menuList = app.scrollViews["menuList"]
+        var menuOpened = false
+        let cornerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))  // Center
+        for attempt in 1...2 {
+            print("Attempt \(attempt) to open menu for testMenuDisplayAndAction")
+            cornerCoord.tap()  // Pre-tap
+            Thread.sleep(forTimeInterval: 0.3)
+            cornerCoord.press(forDuration: 5.0)
+            Thread.sleep(forTimeInterval: 2.0)  // Increased post-press sleep
+            
+            print("Canvas label after long press (attempt \(attempt)): \(canvas.label)")
+            print("Post-long press hierarchy (attempt \(attempt)): \(app.debugDescription)")
+            
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Post-long-press-testMenu-attempt-\(attempt)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            
+            if menuList.waitForExistence(timeout: 5.0) {
+                menuOpened = true
+                break
+            }
+            // Tap to dismiss if stuck
+            centerCoord.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(menuOpened, "Menu list should appear after long press")
         
-        // Check updated label (from 0 -> 1 node, 0 edges)
+        let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: menuList, maxAttempts: 20)
+        XCTAssertTrue(addNodeButton.waitForExistence(timeout: 3), "Add Node button should appear")
+        addNodeButton.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        
+        // Check updated label
         let updatedLabel = "Graph with 1 node and 0 edges. No node or edge selected."
         let predicate = NSPredicate(format: "label == %@", updatedLabel)
         let expectation = self.expectation(for: predicate, evaluatedWith: canvas)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
+        let result = XCTWaiter.wait(for: [expectation], timeout: 5.0)
         XCTAssert(result == .completed, "Menu action adds node")
     }
     
-    @MainActor
-    func testExample() throws {
-        _ = XCUIApplication()
-    }
-    
-    @MainActor
-    func testLaunchPerformance() throws {
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
-    }
-    */
-    /*
-    func testDigitalCrownZooming() throws {
+    func testUndoAfterAddNode() throws {
         let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 5))
+        let canvas = app.buttons["GraphCanvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 5), "Graph canvas should appear after reset")
         
-        XCUIDevice.shared.rotateDigitalCrown(delta: 5.0, velocity: 1.0)  // Zoom in
+        // Verify empty
+        let emptyLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
+        let emptyPredicate = NSPredicate(format: "label == %@", emptyLabel)
+        let emptyExpectation = self.expectation(for: emptyPredicate, evaluatedWith: canvas)
+        let emptyResult = XCTWaiter.wait(for: [emptyExpectation], timeout: 5.0)
+        XCTAssert(emptyResult == .completed, "Graph reset to empty")
         
-        // Check label unchanged post-zoom (empty graph)
-        let zoomedLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
-        let predicate = NSPredicate(format: "label == %@", zoomedLabel)
-        let expectation = self.expectation(for: predicate, evaluatedWith: canvas)
-        let result = XCTWaiter.wait(for: [expectation], timeout: 10.0)
-        XCTAssert(result == .completed, "Zoom updates view")
+        // Pan once
+        let centerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let endCoordRight = centerCoord.withOffset(CGVector(dx: -1000, dy: 0))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordRight)
+        Thread.sleep(forTimeInterval: 0.3)
+        let endCoordDown = centerCoord.withOffset(CGVector(dx: 0, dy: -1000))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordDown)
+        Thread.sleep(forTimeInterval: 0.3)
+        
+        // Long press to open menu and add node (2 retries, pre-tap, 5s duration)
+        let menuList = app.scrollViews["menuList"]
+        var menuOpened = false
+        let cornerCoord = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))  // Center
+        for attempt in 1...2 {
+            print("Attempt \(attempt) to open menu for add node")
+            cornerCoord.tap()  // Pre-tap
+            Thread.sleep(forTimeInterval: 0.3)
+            cornerCoord.press(forDuration: 5.0)
+            Thread.sleep(forTimeInterval: 2.0)  // Increased post-press sleep
+            
+            print("Canvas label after long press (attempt \(attempt)): \(canvas.label)")
+            print("Post-long press hierarchy (attempt \(attempt)): \(app.debugDescription)")
+            
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Post-long-press-addNode-attempt-\(attempt)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            
+            if menuList.waitForExistence(timeout: 5.0) {
+                menuOpened = true
+                break
+            }
+            // Tap to dismiss if stuck
+            centerCoord.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(menuOpened, "Menu list should appear after long press for add")
+        
+        let addNodeButton = app.buttons["addNodeButton"]
+        scrollUntilVisible(element: addNodeButton, in: menuList, maxAttempts: 20)
+        addNodeButton.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        
+        // Check added
+        let addedLabel = "Graph with 1 node and 0 edges. No node or edge selected."
+        let addedPredicate = NSPredicate(format: "label == %@", addedLabel)
+        let addedExpectation = self.expectation(for: addedPredicate, evaluatedWith: canvas)
+        let addedResult = XCTWaiter.wait(for: [addedExpectation], timeout: 5.0)
+        XCTAssert(addedResult == .completed, "Node added")
+        
+        // Pan again for second long press (once)
+        let endCoordRight2 = centerCoord.withOffset(CGVector(dx: -1000, dy: 0))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordRight2)
+        Thread.sleep(forTimeInterval: 0.3)
+        let endCoordDown2 = centerCoord.withOffset(CGVector(dx: 0, dy: -1000))
+        centerCoord.press(forDuration: 0.1, thenDragTo: endCoordDown2)
+        Thread.sleep(forTimeInterval: 0.3)
+        
+        // Second long press (2 retries, pre-tap, 5s duration)
+        menuOpened = false
+        for attempt in 1...2 {
+            print("Attempt \(attempt) to open menu for undo")
+            cornerCoord.tap()  // Pre-tap
+            Thread.sleep(forTimeInterval: 0.3)
+            cornerCoord.press(forDuration: 5.0)
+            Thread.sleep(forTimeInterval: 2.0)  // Increased post-press sleep
+            
+            print("Canvas label after second long press (attempt \(attempt)): \(canvas.label)")
+            print("Post-second long press hierarchy (attempt \(attempt)): \(app.debugDescription)")
+            
+            let attachment = XCTAttachment(screenshot: app.screenshot())
+            attachment.name = "Post-long-press-undo-attempt-\(attempt)"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            
+            if menuList.waitForExistence(timeout: 5.0) {
+                menuOpened = true
+                break
+            }
+            // Tap to dismiss if stuck
+            centerCoord.tap()
+            Thread.sleep(forTimeInterval: 0.5)
+        }
+        XCTAssertTrue(menuOpened, "Menu list should appear after second long press")
+        
+        let undoButton = app.buttons["undoButton"]
+        scrollUntilVisible(element: undoButton, in: menuList, maxAttempts: 20)
+        XCTAssertTrue(undoButton.waitForExistence(timeout: 3), "Undo button should appear")
+        undoButton.tap()
+        Thread.sleep(forTimeInterval: 0.5)
+        
+        // Check reverted
+        let revertedLabel = "Graph with 0 nodes and 0 edges. No node or edge selected."
+        let revertedPredicate = NSPredicate(format: "label == %@", revertedLabel)
+        let revertedExpectation = self.expectation(for: revertedPredicate, evaluatedWith: canvas)
+        let revertedResult = XCTWaiter.wait(for: [revertedExpectation], timeout: 5.0)
+        XCTAssert(revertedResult == .completed, "Undo reverts add")
     }
-     */
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatchUITestsLaunchTests.swift

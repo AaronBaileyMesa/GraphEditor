@@ -33,6 +33,7 @@
 
 /* Begin PBXFileReference section */
 		4E21B7DF2E3F01B00007BB7F /* GraphEditorWatchTestsPlan.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; name = GraphEditorWatchTestsPlan.xctestplan; path = GraphEditorWatchTests/GraphEditorWatchTestsPlan.xctestplan; sourceTree = "<group>"; };
+		4E25DC022EA32FF900D25BC5 /* GraphEditorWatch.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = GraphEditorWatch.xctestplan; sourceTree = "<group>"; };
 		4E2830782E416F84005CF8A3 /* GraphEditorWatchUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = GraphEditorWatchUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E3A08C42E3DC9B0008CC9C7 /* GraphEditorWatch.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GraphEditorWatch.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		4E3A08E42E3DCA9D008CC9C7 /* GraphEditorShared */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = GraphEditorShared; sourceTree = "<group>"; };
@@ -176,6 +177,7 @@
 		4ED427652E3BF44700DEF801 = {
 			isa = PBXGroup;
 			children = (
+				4E25DC022EA32FF900D25BC5 /* GraphEditorWatch.xctestplan */,
 				4E21B7DF2E3F01B00007BB7F /* GraphEditorWatchTestsPlan.xctestplan */,
 				4EB112AA2E3F0035001A8E1A /* GraphEditorWatchTests.xctestplan */,
 				4E7D70372E3EA4AC00814DFF /* GraphEditorSharedTests.xctestplan */,
@@ -416,6 +418,7 @@
 		4E2830812E416F84005CF8A3 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;
@@ -435,6 +438,7 @@
 		4E2830822E416F84005CF8A3 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;

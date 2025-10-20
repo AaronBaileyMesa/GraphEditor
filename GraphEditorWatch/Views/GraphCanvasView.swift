@@ -30,7 +30,6 @@ struct GraphCanvasView: View {
     @Binding var isSimulating: Bool
     @Binding var saturation: Double
     
-    
     init(
         viewModel: GraphViewModel,
         zoomScale: Binding<CGFloat>,

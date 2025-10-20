@@ -36,7 +36,8 @@ struct GraphGesturesModifierTests {
             crownPosition: .constant(0.0),
             onUpdateZoomRanges: {},
             isAddingEdge: .constant(false),
-            isSimulating: .constant(true)
+            isSimulating: .constant(true),
+            saturation: .constant(1.0)  // Add this line
         )
     }
     

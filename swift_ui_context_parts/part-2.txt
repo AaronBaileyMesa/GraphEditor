@@ -1,13 +1,68 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-16 07:49:10
+Current date: 2025-10-17 17:38:34
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-2. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-3. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
-4. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-5. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
+2. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+3. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+4. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
+5. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
+6. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift--------------------------------------------------
+File: GraphModel+Visibility.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
+Last modified: 2025-10-03 10:02:52
+
+Contents:
+//
+//  GraphModel+Visibility.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 9/19/25.
+//
+import Foundation
+
+@available(iOS 16.0, watchOS 6.0, *)
+extension GraphModel {
+    public func visibleNodes() -> [any NodeProtocol] {
+        let hidden = hiddenNodeIDs
+        return nodes.map { $0.unwrapped }.filter { !hidden.contains($0.id) }
+    }
+
+    public func visibleEdges() -> [GraphEdge] {
+        let hidden = hiddenNodeIDs
+        return edges.filter { !hidden.contains($0.from) && !hidden.contains($0.target) }
+    }
+
+    public func boundingBox() -> CGRect {
+        self.physicsEngine.boundingBox(nodes: nodes.map { $0.unwrapped })
+    }
+
+    public func centerGraph() {
+        let centered = physicsEngine.centerNodes(nodes: nodes.map { $0.unwrapped })
+        nodes = centered.map { AnyNode($0) }
+        objectWillChange.send()
+    }
+
+    public func expandAllRoots() async {
+        for var root in buildRoots() {
+            root.isExpanded = true
+            if let index = nodes.firstIndex(where: { $0.id == root.id }) {
+                nodes[index] = AnyNode(root)
+            }
+        }
+        objectWillChange.send()
+    }
+
+    private func buildRoots() -> [any NodeProtocol] {
+        var incoming = Set<NodeID>()
+        for edge in edges {
+            incoming.insert(edge.target)
+        }
+        return nodes.filter { !incoming.contains($0.id) }.map { $0.unwrapped }
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: GraphSimulator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
 Last modified: 2025-10-15 03:54:44

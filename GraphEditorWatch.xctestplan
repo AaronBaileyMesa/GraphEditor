@@ -1,0 +1,38 @@
+{
+  "configurations" : [
+    {
+      "id" : "2C7ABE09-ECFA-4227-9DFC-67AEB922C2E7",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true,
+    "targetForVariableExpansion" : {
+      "containerPath" : "container:GraphEditor.xcodeproj",
+      "identifier" : "4E3A08C32E3DC9B0008CC9C7",
+      "name" : "GraphEditorWatch"
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:GraphEditor.xcodeproj",
+        "identifier" : "4EB112712E3EE09D001A8E1A",
+        "name" : "GraphEditorWatchTests"
+      }
+    },
+    {
+      "parallelizable" : true,
+      "target" : {
+        "containerPath" : "container:GraphEditor.xcodeproj",
+        "identifier" : "4E2830772E416F83005CF8A3",
+        "name" : "GraphEditorWatchUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
