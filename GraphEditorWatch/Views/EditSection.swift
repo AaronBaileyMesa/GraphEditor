@@ -11,116 +11,154 @@ import GraphEditorShared
 
 struct EditSection: View {
     let viewModel: GraphViewModel
-    let selectedNodeID: NodeID?  // Keep let for now (uses wrappedValue)
-    let selectedEdgeID: UUID?    // Keep let for now (uses wrappedValue)
+    let selectedNodeID: NodeID?
+    let selectedEdgeID: UUID?
     let onDismiss: () -> Void
     let onEditNode: () -> Void
     
-    @State private var isProcessing = false  // NEW: Loading state
+    @State private var isProcessing = false
     
     private func findSelectedEdge() -> GraphEdge? {
         viewModel.model.edges.first { $0.id == selectedEdgeID }
     }
     
     private func clearSelections() {
-        // NEW: Clear bindings (passed as let, so call ViewModel to sync)
         viewModel.setSelectedNode(nil)
         viewModel.setSelectedEdge(nil)
     }
     
     var body: some View {
-        Section(header: Text("Edit")) {
-            if let selectedID = selectedNodeID {  // Assuming selectedNodeID is available
-                NavigationLink(destination: EditContentSheet(  // NEW: Use NavigationLink to push
-                    selectedID: selectedID,
-                    viewModel: viewModel,
-                    onSave: { newContents in
-                        Task { await viewModel.model.updateNodeContents(withID: selectedID, newContents: newContents) }
-                        // No need for showEditSheet = false; navigation handles pop
-                    }
-                )) {
-                    Text("Edit Contents")
-                }
-                .accessibilityIdentifier("editContentsButton")
-                
+        Group {
+            if let selectedID = selectedNodeID {
+                editContentsLink
                 if viewModel.isSelectedToggleNode {
-                    Button("Toggle Expand/Collapse") {
-                        Task { await viewModel.toggleSelectedNode() }
-                        onDismiss()
-                    }
-                    .onSubmit { /* Same as above */ }
-                    .accessibilityIdentifier("toggleExpandCollapseButton")
-
+                    toggleExpandButton
                 }
-                
-                Button("Delete Node", role: .destructive) {
-                    Task {
-                        isProcessing = true
-                        await viewModel.model.deleteNode(withID: selectedID)
-                        clearSelections()  // NEW: Clear after delete
-                        isProcessing = false
-                    }
-                    onDismiss()
-                }
-                .onSubmit { /* Same as above, but for focus */ }
-                .disabled(isProcessing)
-                .accessibilityIdentifier("deleteNodeButton")
+                deleteNodeButton
             }
-            
             if let selectedEdgeID = selectedEdgeID,
                let selectedEdge = findSelectedEdge() {
-                let fromID = selectedEdge.from
-                let targetID = selectedEdge.target
-                let isBi = viewModel.model.isBidirectionalBetween(fromID, targetID)
-                let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
-                let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
-                
-                // Display edge info
-                Text("Edge: \(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
-                    Task {
-                        isProcessing = true
-                        await viewModel.model.snapshot()
-                        if isBi {
-                            let pair = viewModel.model.edgesBetween(fromID, targetID)
-                            viewModel.model.edges.removeAll { pair.contains($0) }
-                        } else {
-                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                        }
-                        await viewModel.model.startSimulation()
-                        clearSelections()  // NEW: Clear after delete
-                        isProcessing = false
-                    }
-                    onDismiss()
-                }
-                .onSubmit { /* Same as above */ }
-                .disabled(isProcessing)
-                .accessibilityIdentifier("deleteEdgeButton")
-
-                if selectedEdge.type == .hierarchy {  // NEW: Only for directed edges
-                    Button("Reverse Edge") {
-                        Task {
-                            isProcessing = true
-                            await viewModel.model.snapshot()
-                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                            viewModel.model.edges.append(GraphEdge(from: targetID, target: fromID, type: .hierarchy))
-                            await viewModel.model.startSimulation()
-                            clearSelections()  // NEW: Clear after reverse
-                            isProcessing = false
-                        }
-                        onDismiss()
-                    }
-                    .onSubmit { /* Same as above */ }
-                    .disabled(isProcessing)
-                    .accessibilityIdentifier("reverseNodeButton")
-
+                edgeInfoText(selectedEdge: selectedEdge)
+                deleteEdgeButton(selectedEdge: selectedEdge)
+                if selectedEdge.type == .hierarchy {
+                    reverseEdgeButton(selectedEdge: selectedEdge)
                 }
             }
         }
-        .accessibilityLabel("Edit section")  // NEW: Accessibility
-        .foregroundColor(isProcessing ? .gray : .primary)  // NEW: Visual feedback for processing
+        .foregroundColor(isProcessing ? .gray : .primary)
+        .accessibilityLabel("Edit section")
+    }
+    
+    private func edgeInfoText(selectedEdge: GraphEdge) -> some View {
+        let fromID = selectedEdge.from
+        let targetID = selectedEdge.target
+        let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
+        let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
+        return Text("Edge: \(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
+            .font(.caption)
+            .foregroundColor(.secondary)
+            .gridCellColumns(2)  // Span for info
+    }
+    
+    private var editContentsLink: some View {
+        NavigationLink(destination: EditContentSheet(
+            selectedID: selectedNodeID ?? NodeID(),
+            viewModel: viewModel,
+            onSave: { newContents in
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                }
+            }
+        )) {
+            Label("Contents", systemImage: "pencil")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("editContentsButton")
+    }
+    
+    private var toggleExpandButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.toggleSelectedNode() }
+            onDismiss()
+        } label: {
+            Label("Toggle", systemImage: "arrow.up.arrow.down")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("toggleExpandCollapseButton")
+    }
+    
+    private var deleteNodeButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            if let id = selectedNodeID {
+                Task {
+                    isProcessing = true
+                    await viewModel.model.deleteNode(withID: id)
+                    clearSelections()
+                    isProcessing = false
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Del Node", systemImage: "trash")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .disabled(isProcessing)
+        .accessibilityIdentifier("deleteNodeButton")
+    }
+    
+    private func deleteEdgeButton(selectedEdge: GraphEdge) -> some View {
+        let fromID = selectedEdge.from
+        let targetID = selectedEdge.target
+        let isBi = viewModel.model.isBidirectionalBetween(fromID, targetID)
+        return Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                isProcessing = true
+                await viewModel.model.snapshot()
+                if isBi {
+                    let pair = viewModel.model.edgesBetween(fromID, targetID)
+                    viewModel.model.edges.removeAll { pair.contains($0) }
+                } else {
+                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                }
+                await viewModel.model.startSimulation()
+                clearSelections()
+                isProcessing = false
+            }
+            onDismiss()
+        } label: {
+            Label(isBi ? "Del Both" : "Del Edge", systemImage: "trash.slash")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .disabled(isProcessing)
+        .accessibilityIdentifier("deleteEdgeButton")
+    }
+    
+    private func reverseEdgeButton(selectedEdge: GraphEdge) -> some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                isProcessing = true
+                await viewModel.model.snapshot()
+                viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                viewModel.model.edges.append(GraphEdge(from: selectedEdge.target, target: selectedEdge.from, type: .hierarchy))
+                await viewModel.model.startSimulation()
+                clearSelections()
+                isProcessing = false
+            }
+            onDismiss()
+        } label: {
+            Label("Reverse", systemImage: "arrow.left.arrow.right")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .disabled(isProcessing)
+        .accessibilityIdentifier("reverseNodeButton")
     }
 }

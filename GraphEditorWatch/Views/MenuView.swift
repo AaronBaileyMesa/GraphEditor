@@ -16,20 +16,21 @@ struct MenuView: View {
     let onCenterGraph: () -> Void
     @Binding var showMenu: Bool
     @Binding var showOverlays: Bool
-    @Binding var selectedNodeID: NodeID?    // NEW: @Binding for reactivity
-    @Binding var selectedEdgeID: UUID?      // NEW: @Binding for reactivity
+    @Binding var selectedNodeID: NodeID?
+    @Binding var selectedEdgeID: UUID?
     
     @FocusState private var isMenuFocused: Bool
-    @State private var isAddingEdge: Bool = false  // RESTORE: Keep this state as it's used in onAddEdge
+    @State private var isAddingEdge: Bool = false
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                Text("Add").font(.subheadline).gridCellColumns(2)
                 AddSection(
                     viewModel: viewModel,
-                    selectedNodeID: selectedNodeID,  // NEW: Use binding.wrappedValue
+                    selectedNodeID: selectedNodeID,
                     onDismiss: { showMenu = false },
                     onAddEdge: { type in
                         viewModel.pendingEdgeType = type
@@ -37,22 +38,23 @@ struct MenuView: View {
                     }
                 )
                 
-                // NEW: Conditional EditSection to avoid empty header
-                if selectedNodeID != nil || selectedEdgeID != nil {  // NEW: Use bindings
+                if selectedNodeID != nil || selectedEdgeID != nil {
+                    Text("Edit").font(.subheadline).gridCellColumns(2)
                     EditSection(
                         viewModel: viewModel,
-                        selectedNodeID: selectedNodeID,      // NEW: Pass binding.wrappedValue
-                        selectedEdgeID: selectedEdgeID,      // NEW: Pass binding.wrappedValue
+                        selectedNodeID: selectedNodeID,
+                        selectedEdgeID: selectedEdgeID,
                         onDismiss: { showMenu = false },
-                        onEditNode: {}  // Set to empty closure if unused
+                        onEditNode: {}
                     )
                 }
                 
+                Text("View").font(.subheadline).gridCellColumns(2)
                 ViewSection(
-                    showOverlays: $showOverlays,  // Now in scope
+                    showOverlays: $showOverlays,
                     isSimulating: isSimulatingBinding,
                     onCenterGraph: onCenterGraph,
-                    onDismiss: { showMenu = false },  // Now in scope
+                    onDismiss: { showMenu = false },
                     onSimulationChange: { newValue in
                         viewModel.model.isSimulating = newValue
                         if newValue {
@@ -63,31 +65,31 @@ struct MenuView: View {
                     }
                 )
                 
-                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
+                Text("Graph").font(.subheadline).gridCellColumns(2)
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
             .padding(8)
         }
-        .accessibilityIdentifier("menuGrid")  // Updated from "menuList" for new layout
+        .accessibilityIdentifier("menuGrid")
         .navigationTitle("Menu")
-        .focused($isMenuFocused)  // New: Bind focus to list
+        .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isMenuFocused = true
             }
-            // NEW: Debug log for selections
             MenuView.logger.debug("Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
         }
         .onChange(of: isMenuFocused) { _, newValue in
             MenuView.logger.debug("Menu focus: \(newValue)")
             if !newValue {
-                isMenuFocused = true // Auto-recover
+                isMenuFocused = true
             }
         }
         .ignoresSafeArea(.keyboard)
-        .onChange(of: isAddingEdge) { _, newValue in  // RESTORE: Add back if needed for handling add-edge mode
+        .onChange(of: isAddingEdge) { _, newValue in
             if newValue {
-                // Optionally notify viewModel or handle here (from original code)
+                // Handle add-edge mode
             }
         }
     }

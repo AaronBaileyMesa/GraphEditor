@@ -2,10 +2,11 @@
 //  GraphSection.swift
 //  GraphEditorWatch
 //
-//  Created by handcart on 10/5/25.  // Updated date for refactor
+//  Created by handcart on 10/5/25.
 //
 
 import SwiftUI
+import WatchKit
 
 struct GraphSection: View {
     let viewModel: GraphViewModel
@@ -18,138 +19,217 @@ struct GraphSection: View {
     @State private var errorMessage: String?
     
     var body: some View {
-        Section(header: Text("Graph")) {
-            TextField("Graph Name", text: $graphName)
-                .accessibilityIdentifier("graphNameTextField")
+        Group {
+            graphNameField
             if viewModel.canRedo || viewModel.canUndo {
-                Section(header: Text("Undo")) {
-                    if viewModel.canUndo {
-                        Button("Undo") {
-                            Task { await viewModel.undo()}
-                            onDismiss()
-                        }
-                        .accessibilityIdentifier("undoButton")
-                    }
-                    if viewModel.canRedo {
-                        Button("Redo") {
-                            Task { await viewModel.redo()}
-                            onDismiss()
-                        }
-                        .accessibilityIdentifier("redoButton")
-                    }
-                }
+                undoButton
+                redoButton
             }
-            
-            TextField("Graph Name", text: $graphName)
-                .onAppear { graphName = viewModel.currentGraphName }
-            
-            Button("New Graph") {
-                newGraphName = ""
-                showNewSheet = true
-            }
-            .accessibilityIdentifier("newGraphButton")
-            .onSubmit { /* Same as above */ }
-            .sheet(isPresented: $showNewSheet) {
-                VStack {
-                    TextField("New Graph Name", text: $newGraphName)
-                        .accessibilityIdentifier("newGraphNameTextField")  // Add this
-                    Button("Create") {
-                        Task {
-                            do {
-                                try await viewModel.model.createNewGraph(name: newGraphName)
-                                viewModel.currentGraphName = newGraphName
-                                showNewSheet = false
-                                onDismiss()
-                            } catch {
-                                errorMessage = error.localizedDescription
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("createButton")
-                }
-            }
-            
-            Button("Save Graph") {
-                Task {
-                    viewModel.currentGraphName = graphName
-                    do {
-                        try await viewModel.model.saveGraph()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    onDismiss()
-                }
-            }
-            .accessibilityIdentifier("saveButton")
-            .onSubmit { /* Same as above */ }
-            
-            Button("Load Graph") {
-                Task {
-                    do {
-                        try await viewModel.model.loadGraph(name: graphName)
-                        viewModel.currentGraphName = graphName
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    onDismiss()
-                }
-            }
-            .accessibilityIdentifier("loadButton")
-            .onSubmit { /* Same as above */ }
-            
-            Button("List Graphs") {
-                Task {
-                    do {
-                        graphs = try await viewModel.model.listGraphNames()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
-            .accessibilityIdentifier("listGraphsButton")
-            .onSubmit { /* Same as above */ }
-            
+            newGraphButton
+            saveGraphButton
+            loadGraphButton
+            listGraphsButton
             ForEach(graphs, id: \.self) { name in
-                Button(name) {
+                graphItemButton(name: name)
+            }
+            resetGraphButton
+            deleteGraphButton
+            if let error = errorMessage {
+                Text(error).foregroundColor(.red).font(.caption).gridCellColumns(2)
+            }
+        }
+        .sheet(isPresented: $showNewSheet) {
+            VStack {
+                TextField("New Name", text: $newGraphName)
+                    .font(.caption)
+                    .accessibilityIdentifier("newGraphNameTextField")
+                Button {
+                    WKInterfaceDevice.current().play(.click)
                     Task {
                         do {
-                            try await viewModel.model.loadGraph(name: name)
-                            viewModel.currentGraphName = name
-                            graphName = name
+                            try await viewModel.model.createNewGraph(name: newGraphName)
+                            viewModel.currentGraphName = newGraphName
+                            showNewSheet = false
                             onDismiss()
                         } catch {
                             errorMessage = error.localizedDescription
                         }
                     }
+                } label: {
+                    Label("Create", systemImage: "plus")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
                 }
-            }
-            
-            Button("Reset Graph", role: .destructive) {
-                Task { await viewModel.clearGraph() }
-                onDismiss()
-            }
-            .onSubmit { /* Same as above */ }
-            .accessibilityIdentifier("resetGraphButton")
-            
-            Button("Delete Graph", role: .destructive) {
-                Task {
-                    do {
-                        try await viewModel.model.deleteGraph(name: graphName)
-                        graphName = "default"
-                        try await viewModel.model.loadGraph(name: "default")
-                        onDismiss()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
-            .onSubmit { /* Same as above */ }
-            .accessibilityLabel("deleteGraphButton")
-            
-            if let error = errorMessage {
-                Text(error).foregroundColor(.red)
+                .accessibilityIdentifier("createButton")
             }
         }
-        .accessibilityLabel("Graph section")  // NEW: Accessibility
+        .onAppear { graphName = viewModel.currentGraphName }
+        .accessibilityLabel("Graph section")
+    }
+    
+    private var graphNameField: some View {
+        TextField("Name", text: $graphName)
+            .font(.caption)
+            .accessibilityIdentifier("graphNameTextField")
+            .gridCellColumns(2)  // Span for field
+    }
+    
+    private var undoButton: some View {
+        if viewModel.canUndo {
+            return AnyView(Button {
+                WKInterfaceDevice.current().play(.click)
+                Task { await viewModel.undo() }
+                onDismiss()
+            } label: {
+                Label("Undo", systemImage: "arrow.uturn.left")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            }
+            .accessibilityIdentifier("undoButton"))
+        } else {
+            return AnyView(EmptyView())
+        }
+    }
+    
+    private var redoButton: some View {
+        if viewModel.canRedo {
+            return AnyView(Button {
+                WKInterfaceDevice.current().play(.click)
+                Task { await viewModel.redo() }
+                onDismiss()
+            } label: {
+                Label("Redo", systemImage: "arrow.uturn.right")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            }
+            .accessibilityIdentifier("redoButton"))
+        } else {
+            return AnyView(EmptyView())
+        }
+    }
+    
+    private var newGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            newGraphName = ""
+            showNewSheet = true
+        } label: {
+            Label("New", systemImage: "doc.badge.plus")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("newGraphButton")
+    }
+    
+    private var saveGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            viewModel.currentGraphName = graphName
+            Task {
+                do {
+                    try await viewModel.model.saveGraph()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Save", systemImage: "square.and.arrow.down")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("saveButton")
+    }
+    
+    private var loadGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.loadGraph(name: graphName)
+                    viewModel.currentGraphName = graphName
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Load", systemImage: "folder")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("loadButton")
+    }
+    
+    private var listGraphsButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    graphs = try await viewModel.model.listGraphNames()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        } label: {
+            Label("List", systemImage: "list.bullet")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("listGraphsButton")
+    }
+    
+    private func graphItemButton(name: String) -> some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.loadGraph(name: name)
+                    viewModel.currentGraphName = name
+                    graphName = name
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label(name, systemImage: "doc")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+    }
+    
+    private var resetGraphButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.clearGraph() }
+            onDismiss()
+        } label: {
+            Label("Reset", systemImage: "arrow.counterclockwise")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("resetGraphButton")
+    }
+    
+    private var deleteGraphButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.deleteGraph(name: graphName)
+                    graphName = "default"
+                    try await viewModel.model.loadGraph(name: "default")
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Del Graph", systemImage: "trash")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("deleteGraphButton")
     }
 }

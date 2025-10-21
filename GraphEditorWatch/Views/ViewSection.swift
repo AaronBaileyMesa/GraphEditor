@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import WatchKit
 
 struct ViewSection: View {
     @Binding var showOverlays: Bool
@@ -15,22 +16,50 @@ struct ViewSection: View {
     let onSimulationChange: (Bool) -> Void
     
     var body: some View {
-        Section(header: Text("View")) {
-            Toggle("Show Overlays", isOn: $showOverlays)
-                .onSubmit { /* No-op for toggle */ }
-            
-            Toggle("Run Simulation", isOn: isSimulating)
-                .onChange(of: isSimulating.wrappedValue) { _, newValue in
-                    onSimulationChange(newValue)
-                }
-                .onSubmit { /* No-op for toggle */ }
-            
-            Button("Center Graph") {
-                onCenterGraph()
-                onDismiss()
-            }
-            .onSubmit { onCenterGraph(); onDismiss() }
+        Group {
+            overlaysToggle
+            simulationToggle
+            centerButton
         }
-        .accessibilityLabel("View section")  // NEW: Accessibility
+        .accessibilityLabel("View section")
+    }
+    
+    private var overlaysToggle: some View {
+        Toggle(isOn: $showOverlays) {
+            Label("Overlays", systemImage: "eye")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .onChange(of: showOverlays) { _ in
+            WKInterfaceDevice.current().play(.click)
+            onDismiss()
+        }
+    }
+    
+    private var simulationToggle: some View {
+        Toggle(isOn: isSimulating) {
+            Label("Simulate", systemImage: "play")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .onChange(of: isSimulating.wrappedValue) { newValue in
+            WKInterfaceDevice.current().play(.click)
+            onSimulationChange(newValue)
+            onDismiss()
+        }
+        .accessibilityIdentifier("toggleSimulation")
+    }
+    
+    private var centerButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onCenterGraph()
+            onDismiss()
+        } label: {
+            Label("Center", systemImage: "dot.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("centerGraphButton")
     }
 }
