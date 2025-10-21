@@ -5,14 +5,6 @@
 //  Created by handcart on 10/21/25.
 //
 
-
-//
-//  NodeMenuView.swift
-//  GraphEditor
-//
-//  Created by handcart on 10/21/25.
-//
-
 import SwiftUI
 import WatchKit
 import GraphEditorShared
@@ -29,10 +21,11 @@ struct NodeMenuView: View {
     
     @FocusState private var isMenuFocused: Bool
     @State private var isAddingEdge: Bool = false
+    @State private var selectedEdgeType: EdgeType = .association  // For edge picker
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodemenuview")
     
-    // Fetch node label for header
+    // Fetch node label for header and title
     private var nodeLabel: String {
         if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
             return "\(node.label)"
@@ -40,54 +33,47 @@ struct NodeMenuView: View {
         return "Unknown"
     }
     
+    // Check if selected node is a ToggleNode
+    private var isToggleNode: Bool {
+        viewModel.isSelectedToggleNode
+    }
+    
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
-                Text("Node \(nodeLabel)").font(.subheadline.bold()).gridCellColumns(2)  // Name as first item
+            VStack(spacing: 8) {
+                // Add Section: Side-by-side buttons with icons + text
+                Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    addNodeButton
+                    addToggleNodeButton
+                }
+                .padding(.horizontal, 8)
                 
-                Text("Add").font(.subheadline.bold()).gridCellColumns(2)
-                AddSection(
-                    viewModel: viewModel,
-                    selectedNodeID: selectedNodeID,
-                    onDismiss: onDismiss,
-                    onAddEdge: { type in
-                        viewModel.pendingEdgeType = type
-                        isAddingEdge = true
+                if selectedNodeID != nil {
+                    HStack(spacing: 8) {
+                        addChildButton
+                        addEdgeButton
                     }
-                )
+                    .padding(.horizontal, 8)
+                    edgeTypePicker.padding(.horizontal, 8)  // Picker below for space
+                }
                 
-                Text("Edit").font(.subheadline.bold()).gridCellColumns(2)
-                EditSection(
-                    viewModel: viewModel,
-                    selectedNodeID: selectedNodeID,
-                    selectedEdgeID: nil,  // No edge selected
-                    onDismiss: onDismiss,
-                    onEditNode: {}
-                )
+                // Edit Section: Side-by-side buttons with icons + text (node-focused only)
+                Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    editContentsButton
+                    deleteNodeButton
+                }
+                .padding(.horizontal, 8)
                 
-                Text("View").font(.subheadline.bold()).gridCellColumns(2)
-                ViewSection(
-                    showOverlays: $showOverlays,
-                    isSimulating: isSimulatingBinding,
-                    onCenterGraph: onCenterGraph,
-                    onDismiss: onDismiss,
-                    onSimulationChange: { newValue in
-                        viewModel.model.isSimulating = newValue
-                        if newValue {
-                            Task { await viewModel.model.startSimulation() }
-                        } else {
-                            Task { await viewModel.model.stopSimulation() }
-                        }
-                    }
-                )
-                
-                Text("Graph").font(.subheadline.bold()).gridCellColumns(2)
-                GraphSection(viewModel: viewModel, onDismiss: onDismiss)
+                if isToggleNode {
+                    toggleExpandButton.padding(.horizontal, 8)  // Conditional for ToggleNode
+                }
             }
             .padding(4)
         }
         .accessibilityIdentifier("nodeMenuGrid")
-        .navigationTitle("Node Menu")  // Differentiate for testing
+        .navigationTitle("Node \(nodeLabel)")  // Dynamic name in top-right
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -108,5 +94,121 @@ struct NodeMenuView: View {
                 // Handle add-edge mode (same as original)
             }
         }
+    }
+    
+    // Extracted Add buttons (from AddSection)
+    private var addNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.addNode(at: .zero) }
+            onDismiss()
+        } label: {
+            Label("Node", systemImage: "plus.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addNodeButton")
+    }
+    
+    private var addToggleNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.addToggleNode(at: .zero) }
+            onDismiss()
+        } label: {
+            Label("Toggle", systemImage: "plus.circle.fill")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addToggleNodeButton")
+    }
+    
+    private var addChildButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            if let id = selectedNodeID {
+                Task { await viewModel.addChild(to: id) }
+            }
+            onDismiss()
+        } label: {
+            Label("Child", systemImage: "plus.square")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addChildButton")
+    }
+    
+    private var edgeTypePicker: some View {
+        Picker("Type", selection: $selectedEdgeType) {
+            Text("Assoc").tag(EdgeType.association)
+            Text("Hier").tag(EdgeType.hierarchy)
+        }
+        .font(.caption2)
+        .labelsHidden()
+        .accessibilityHint("Select edge type")
+    }
+    
+    private var addEdgeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            viewModel.pendingEdgeType = selectedEdgeType
+            isAddingEdge = true
+            onDismiss()
+        } label: {
+            Label("Edge", systemImage: "arrow.right.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .disabled(selectedNodeID == nil)
+        .accessibilityIdentifier("addEdgeButton")
+    }
+    
+    // Extracted Edit buttons (from EditSection, node-focused)
+    private var editContentsButton: some View {
+        NavigationLink(destination: EditContentSheet(
+            selectedID: selectedNodeID ?? NodeID(),
+            viewModel: viewModel,
+            onSave: { newContents in
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                }
+            }
+        )) {
+            Label("Contents", systemImage: "pencil")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("editContentsButton")
+    }
+    
+    private var toggleExpandButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.toggleSelectedNode() }
+            onDismiss()
+        } label: {
+            Label("Toggle", systemImage: "arrow.up.arrow.down")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("toggleExpandCollapseButton")
+    }
+    
+    private var deleteNodeButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            if let id = selectedNodeID {
+                Task {
+                    await viewModel.model.deleteNode(withID: id)
+                    viewModel.setSelectedNode(nil)
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Delete", systemImage: "trash")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("deleteNodeButton")
     }
 }

@@ -26,8 +26,6 @@ struct GraphMenuView: View {
     var body: some View {
         ScrollView {
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
-                Text("Graph").font(.subheadline.bold()).gridCellColumns(2)  // Name as first item; enhance with actual graph name if available
-                
                 Text("Add").font(.subheadline.bold()).gridCellColumns(2)
                 AddSection(
                     viewModel: viewModel,
@@ -61,7 +59,7 @@ struct GraphMenuView: View {
             .padding(4)
         }
         .accessibilityIdentifier("graphMenuGrid")
-        .navigationTitle("Graph Menu")  // Differentiate for testing
+        .navigationTitle("Graph")  // Static name in top-right
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true

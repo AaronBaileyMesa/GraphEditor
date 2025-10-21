@@ -23,7 +23,7 @@ struct EdgeMenuView: View {
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "edgemenuview")
     
-    // Fetch edge details for header (adapted from EditSection)
+    // Fetch edge details for header and title (adapted from EditSection)
     private var edgeDescription: String {
         if let id = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == id }),
            let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
@@ -52,13 +52,6 @@ struct EdgeMenuView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                Text("Edge: \(edgeDescription)")
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity, alignment: .center)  // Full-width span
-                    .lineLimit(1)  // Prevent wrapping; truncate if too long
-                    .truncationMode(.tail)
-                    .padding(.horizontal, 8)  // Horizontal padding for readability
-                
                 HStack(spacing: 8) {
                     // Delete button (icon only, with accessibility)
                     deleteEdgeButton
@@ -73,6 +66,7 @@ struct EdgeMenuView: View {
             .padding(4)
         }
         .accessibilityIdentifier("edgeMenuGrid")
+        .navigationTitle("Edge: \(edgeDescription)")  // Dynamic name in top-right
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
