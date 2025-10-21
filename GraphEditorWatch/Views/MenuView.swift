@@ -25,7 +25,17 @@ struct MenuView: View {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        if selectedNodeID == nil && selectedEdgeID == nil {
+        if selectedNodeID != nil && selectedEdgeID == nil {
+            NodeMenuView(
+                viewModel: viewModel,
+                isSimulatingBinding: isSimulatingBinding,
+                onCenterGraph: onCenterGraph,
+                showMenu: $showMenu,
+                showOverlays: $showOverlays,
+                selectedNodeID: $selectedNodeID,
+                onDismiss: { showMenu = false }
+            )
+        } else if selectedNodeID == nil && selectedEdgeID == nil {
             GraphMenuView(
                 viewModel: viewModel,
                 isSimulatingBinding: isSimulatingBinding,
