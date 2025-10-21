@@ -85,8 +85,8 @@ struct MenuView: View {
         .ignoresSafeArea(.keyboard)
         .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
             if let selectedID = viewModel.selectedNodeID {
-                EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContent in
-                    Task { await viewModel.model.updateNodeContent(withID: selectedID, newContent: newContent) }
+                EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContents in
+                    Task { await viewModel.model.updateNodeContents(withID: selectedID, newContents: newContents) }
                     showEditSheet = false
                 })
             }

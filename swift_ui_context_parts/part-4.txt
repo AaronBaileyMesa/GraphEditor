@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-17 17:38:35
+Current date: 2025-10-20 10:44:25
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 2. GraphEditorWatch/GraphEditorWatch.swift
@@ -230,7 +230,7 @@ struct ContentLoaderView: View {
 ----------------------------------------------------------------------------------------------------
 File: AppConstants.swift
 Path: GraphEditorWatch/Models/AppConstants.swift
-Last modified: 2025-10-16 09:34:11
+Last modified: 2025-10-17 21:57:03
 
 Contents:
 //
@@ -247,7 +247,7 @@ struct AppConstants {
     static let nodeModelRadius: CGFloat = 10.0
     static let hitScreenRadius: CGFloat = 30.0
     static let tapThreshold: CGFloat = 10.0
-    static let menuLongPressDuration: Double = 3.0  // Change to 2.0 here for testing
+    static let menuLongPressDuration: Double = 2.0  // Change to 2.0 here for testing
     
     // Zooming
     static let numZoomLevels = 10
@@ -687,7 +687,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-16 12:40:03
+Last modified: 2025-10-20 10:42:45
 
 Contents:
 import SwiftUI

@@ -12,7 +12,7 @@ struct AppConstants {
     static let nodeModelRadius: CGFloat = 10.0
     static let hitScreenRadius: CGFloat = 30.0
     static let tapThreshold: CGFloat = 10.0
-    static let menuLongPressDuration: Double = 2.0  // Change to 2.0 here for testing
+    static let menuLongPressDuration: Double = 1.3
     
     // Zooming
     static let numZoomLevels = 10
