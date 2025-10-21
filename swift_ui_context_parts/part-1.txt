@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-20 10:44:24
+Current date: 2025-10-21 10:02:27
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -432,7 +432,7 @@ import WatchKit
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+EdgesNodes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-10-14 09:31:53
+Last modified: 2025-10-20 15:32:34
 
 Contents:
 //
@@ -548,13 +548,13 @@ extension GraphModel {
         await resumeSimulation()
     }
 
-    public func updateNodeContent(withID id: NodeID, newContent: NodeContent?) async {
+    public func updateNodeContents(withID id: NodeID, newContents: [NodeContent]) async {
         // CHANGED: Qualified
-        Self.logger.debugLog("Updating content for node ID: \(id.uuidString.prefix(8))")  // Added debug log
+        Self.logger.debugLog("Updating contents for node ID: \(id.uuidString.prefix(8))")  // Added debug log
         pushUndo()
         if let index = nodes.firstIndex(where: { $0.id == id }) {
             var updated = nodes[index].unwrapped
-            updated.content = newContent
+            updated.contents = newContents
             nodes[index] = AnyNode(updated)
             objectWillChange.send()
             await resumeSimulation()

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-20 10:44:25
+Current date: 2025-10-21 10:02:28
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 2. GraphEditorWatch/GraphEditorWatch.swift
@@ -9,8 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/ViewModels/GraphViewModel.swift
 5. GraphEditorWatch/Views/AddSection.swift
 6. GraphEditorWatch/Views/ContentView.swift
-7. GraphEditorWatch/Views/EditContentSheet.swift
-8. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+7. GraphEditorWatch/Views/EditContentSheet.swift--------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 Last modified: 2025-10-14 09:10:51
@@ -230,7 +229,7 @@ struct ContentLoaderView: View {
 ----------------------------------------------------------------------------------------------------
 File: AppConstants.swift
 Path: GraphEditorWatch/Models/AppConstants.swift
-Last modified: 2025-10-17 21:57:03
+Last modified: 2025-10-20 10:54:39
 
 Contents:
 //
@@ -247,7 +246,7 @@ struct AppConstants {
     static let nodeModelRadius: CGFloat = 10.0
     static let hitScreenRadius: CGFloat = 30.0
     static let tapThreshold: CGFloat = 10.0
-    static let menuLongPressDuration: Double = 2.0  // Change to 2.0 here for testing
+    static let menuLongPressDuration: Double = 1.3
     
     // Zooming
     static let numZoomLevels = 10
@@ -260,7 +259,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-16 13:25:57
+Last modified: 2025-10-21 10:01:55
 
 Contents:
 //
@@ -1012,7 +1011,7 @@ extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: EditContentSheet.swift
 Path: GraphEditorWatch/Views/EditContentSheet.swift
-Last modified: 2025-09-19 14:48:19
+Last modified: 2025-10-21 09:36:45
 
 Contents:
 //
@@ -1022,186 +1021,134 @@ Contents:
 //  Created by handcart on 9/19/25.
 //
 
-// EditContentSheet.swift
-
 import SwiftUI
 import GraphEditorShared
 
 struct EditContentSheet: View {
     let selectedID: NodeID
     let viewModel: GraphViewModel
-    let onSave: (NodeContent?) -> Void
-    @State private var selectedType: String = "String"
+    let onSave: ([NodeContent]) -> Void  // Updated: Now saves an array
+    @Environment(\.dismiss) private var dismiss  // NEW: For explicit dismiss
+    @State private var contents: [NodeContent] = []  // State for the list
+    @State private var selectedType: String = "String"  // For new item picker
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberValue: Double = 0.0
+    @FocusState private var isSheetFocused: Bool  // Focus state
     
     var body: some View {
-        VStack {
-            Picker("Type", selection: $selectedType) {
-                Text("String").tag("String")
-                Text("Date").tag("Date")
-                Text("Number").tag("Number")
-                Text("None").tag("None")
-            }
-            if selectedType == "String" {
-                TextField("Enter text", text: $stringValue).frame(maxWidth: .infinity)
-            } else if selectedType == "Date" {
-                DatePicker("Select date", selection: $dateValue, displayedComponents: .date)
-            } else if selectedType == "Number" {
-                TextField("Enter number", value: $numberValue, format: .number)
-            }
-            Button("Save") {
-                let newContent: NodeContent? = {
-                    switch selectedType {
-                    case "String": return stringValue.isEmpty ? nil : .string(stringValue)
-                    case "Date": return .date(dateValue)
-                    case "Number": return .number(numberValue)
-                    default: return nil
+        NavigationView {  // NEW: Wrap in NavigationView for watchOS stability
+            VStack {
+                // List for editing existing contents (reorderable, deletable)
+                List {
+                    ForEach(contents.indices, id: \.self) { index in
+                        HStack {
+                            Text(self.displayText(for: contents[index]))
+                            Spacer()
+                        }
+                        .swipeActions {
+                            Button("Delete", role: .destructive) {
+                                contents.remove(at: index)
+                            }
+                        }
                     }
-                }()
-                onSave(newContent)
-            }
-        }
-        .onAppear {
-            if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }),
-               let content = node.content {
-                switch content {
-                case .string(let str): selectedType = "String"; stringValue = str
-                case .date(let date): selectedType = "Date"; dateValue = date
-                case .number(let num): selectedType = "Number"; numberValue = num
+                    .onMove { indices, newOffset in
+                        contents.move(fromOffsets: indices, toOffset: newOffset)
+                    }
                 }
-            }
-        }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: EditSection.swift
-Path: GraphEditorWatch/Views/EditSection.swift
-Last modified: 2025-10-10 13:16:11
-
-Contents:
-//
-//  EditSection.swift
-//  GraphEditor
-//
-//  Created by handcart on 10/5/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-struct EditSection: View {
-    let viewModel: GraphViewModel
-    let selectedNodeID: NodeID?  // Keep let for now (uses wrappedValue)
-    let selectedEdgeID: UUID?    // Keep let for now (uses wrappedValue)
-    let onDismiss: () -> Void
-    let onEditNode: () -> Void
-    
-    @State private var isProcessing = false  // NEW: Loading state
-    
-    private func findSelectedEdge() -> GraphEdge? {
-        viewModel.model.edges.first { $0.id == selectedEdgeID }
-    }
-    
-    private func clearSelections() {
-        // NEW: Clear bindings (passed as let, so call ViewModel to sync)
-        viewModel.setSelectedNode(nil)
-        viewModel.setSelectedEdge(nil)
-    }
-    
-    var body: some View {
-        Section(header: Text("Edit")) {
-            if let selectedID = selectedNodeID {
-                Button("Edit Node") {  // New
-                    onEditNode()
-                    onDismiss()
+                .frame(maxHeight: 200)  // Limit height for watchOS
+                
+                // Picker and input for adding new item
+                Picker("Add Type", selection: $selectedType) {
+                    Text("String").tag("String")
+                    Text("Date").tag("Date")
+                    Text("Number").tag("Number")
+                }
+                if selectedType == "String" {
+                    TextField("Enter text", text: $stringValue).frame(maxWidth: .infinity)
+                } else if selectedType == "Date" {
+                    DatePicker("Select date", selection: $dateValue, displayedComponents: .date)
+                } else if selectedType == "Number" {
+                    TextField("Enter number", value: $numberValue, format: .number)
+                }
+                
+                // Add button
+                Button("Add") {
+                    let newContent: NodeContent? = {
+                        switch selectedType {
+                        case "String": return stringValue.isEmpty ? nil : .string(stringValue)
+                        case "Date": return .date(dateValue)
+                        case "Number": return .number(numberValue)
+                        default: return nil
+                        }
+                    }()
+                    if let content = newContent {
+                        contents.append(content)
+                        resetInputFields()  // Clear inputs after adding
+                    }
+                }
+                
+                // Save and Cancel buttons
+                HStack {
+                    Button("Cancel") {
+                        dismiss()  // Explicit dismiss
+                    }
+                    .foregroundColor(.red)
                     
-                }
-                .onSubmit { onEditNode(); onDismiss() }
-                .disabled(isProcessing)
-                .accessibilityIdentifier("editNodeButton")
-                
-                if viewModel.isSelectedToggleNode {
-                    Button("Toggle Expand/Collapse") {
-                        Task { await viewModel.toggleSelectedNode() }
-                        onDismiss()
+                    Button("Save") {
+                        onSave(contents)
+                        dismiss()  // Dismiss after save
                     }
-                    .onSubmit { /* Same as above */ }
-                    .accessibilityIdentifier("toggleExpandCollapseButton")
-
                 }
-                
-                Button("Delete Node", role: .destructive) {
-                    Task {
-                        isProcessing = true
-                        await viewModel.model.deleteNode(withID: selectedID)
-                        clearSelections()  // NEW: Clear after delete
-                        isProcessing = false
-                    }
-                    onDismiss()
-                }
-                .onSubmit { /* Same as above, but for focus */ }
-                .disabled(isProcessing)
-                .accessibilityIdentifier("deleteNodeButton")
             }
-            
-            if let selectedEdgeID = selectedEdgeID,
-               let selectedEdge = findSelectedEdge() {
-                let fromID = selectedEdge.from
-                let targetID = selectedEdge.target
-                let isBi = viewModel.model.isBidirectionalBetween(fromID, targetID)
-                let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
-                let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
-                
-                // Display edge info
-                Text("Edge: \(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                
-                Button(isBi ? "Delete Both Edges" : "Delete Edge", role: .destructive) {
-                    Task {
-                        isProcessing = true
-                        await viewModel.model.snapshot()
-                        if isBi {
-                            let pair = viewModel.model.edgesBetween(fromID, targetID)
-                            viewModel.model.edges.removeAll { pair.contains($0) }
-                        } else {
-                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                        }
-                        await viewModel.model.startSimulation()
-                        clearSelections()  // NEW: Clear after delete
-                        isProcessing = false
-                    }
-                    onDismiss()
+            .navigationTitle("Edit Contents")  // NEW: Title for NavigationView
+            .navigationBarTitleDisplayMode(.inline)  // Compact for watchOS
+            .focused($isSheetFocused)
+            .onAppear {
+                isSheetFocused = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {  // Slightly longer delay
+                    isSheetFocused = true
                 }
-                .onSubmit { /* Same as above */ }
-                .disabled(isProcessing)
-                .accessibilityIdentifier("deleteEdgeButton")
-
-                if selectedEdge.type == .hierarchy {  // NEW: Only for directed edges
-                    Button("Reverse Edge") {
-                        Task {
-                            isProcessing = true
-                            await viewModel.model.snapshot()
-                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                            viewModel.model.edges.append(GraphEdge(from: targetID, target: fromID, type: .hierarchy))
-                            await viewModel.model.startSimulation()
-                            clearSelections()  // NEW: Clear after reverse
-                            isProcessing = false
-                        }
-                        onDismiss()
-                    }
-                    .onSubmit { /* Same as above */ }
-                    .disabled(isProcessing)
-                    .accessibilityIdentifier("reverseNodeButton")
-
+                print("EditContentSheet appeared")  // Debug
+                // Load existing contents
+                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                    contents = node.contents
                 }
+            }
+            .onChange(of: isSheetFocused) { oldValue, newValue in
+                print("Sheet focus changed: \(newValue)")  // Debug
+                if !newValue {
+                    isSheetFocused = true  // Auto-recover
+                }
+            }
+            .onDisappear {
+                print("EditContentSheet disappeared")  // Debug why/when it dismisses
             }
         }
-        .accessibilityLabel("Edit section")  // NEW: Accessibility
-        .foregroundColor(isProcessing ? .gray : .primary)  // NEW: Visual feedback for processing
+        .interactiveDismissDisabled(true)  // Prevent swipe dismiss
+    }
+    
+    // Helper to display content in list
+    private func displayText(for content: NodeContent) -> String {
+        switch content {
+        case .string(let str): return "String: \(str.prefix(20))"
+        case .date(let date): return "Date: \(dateFormatter.string(from: date))"  // Fixed: Use string(from:)
+        case .number(let num): return "Number: \(num)"
+        case .boolean(let bool): return "Boolean: \(bool ? "True" : "False")"  // NEW: Handle boolean
+        }
+    }
+    
+    private let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .none
+        return formatter
+    }()
+    
+    private func resetInputFields() {
+        stringValue = ""
+        dateValue = Date()
+        numberValue = 0.0
     }
 }
 --------------------------------------------------

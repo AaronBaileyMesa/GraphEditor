@@ -196,22 +196,26 @@ struct ContentView: View {
             .padding(.horizontal, 15)
             .transition(.move(edge: .bottom))
         }*/
+        // In ContentView.swift (inside body, where .sheet(isPresented: $showMenu) is)
         .sheet(isPresented: $showMenu) {
-            MenuView(
-                viewModel: viewModel,
-                isSimulatingBinding: $isSimulating,  // Pass your bindings
-                onCenterGraph: centerGraph,
-                showMenu: $showMenu,  // For dismissal
-                showOverlays: $showOverlays,
-                selectedNodeID: $selectedNodeID,
-                selectedEdgeID: $selectedEdgeID
-            )
+            NavigationStack {  // NEW: Wrap in NavigationStack for push navigation
+                MenuView(
+                    viewModel: viewModel,
+                    isSimulatingBinding: $isSimulating,
+                    onCenterGraph: centerGraph,
+                    showMenu: $showMenu,
+                    showOverlays: $showOverlays,
+                    selectedNodeID: $selectedNodeID,
+                    selectedEdgeID: $selectedEdgeID
+                )
+                .navigationBarTitleDisplayMode(.inline)  // Optional: Compact title
+            }
             .onDisappear {
                 print("Menu sheet dismissed")
                 showMenu = false
                 withAnimation(.easeInOut(duration: 0.2)) {
-                                saturation = 1.0  // Ensure reset on dismiss
-                            }
+                    saturation = 1.0  // Ensure reset on dismiss
+                }
             }
         }
     }

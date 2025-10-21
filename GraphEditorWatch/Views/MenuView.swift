@@ -20,8 +20,7 @@ struct MenuView: View {
     @Binding var selectedEdgeID: UUID?      // NEW: @Binding for reactivity
     
     @FocusState private var isMenuFocused: Bool
-    @State private var showEditSheet: Bool = false
-    @State private var isAddingEdge: Bool = false
+    @State private var isAddingEdge: Bool = false  // RESTORE: Keep this state as it's used in onAddEdge
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
@@ -44,7 +43,7 @@ struct MenuView: View {
                     selectedNodeID: selectedNodeID,      // NEW: Pass binding.wrappedValue
                     selectedEdgeID: selectedEdgeID,      // NEW: Pass binding.wrappedValue
                     onDismiss: { showMenu = false },
-                    onEditNode: { showEditSheet = true }
+                    onEditNode: {}  // Set to empty closure if unused
                 )
             }
             
@@ -83,35 +82,10 @@ struct MenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
-        .sheet(isPresented: $showEditSheet) {  // New: Local sheet for edit
-            if let selectedID = viewModel.selectedNodeID {
-                EditContentSheet(selectedID: selectedID, viewModel: viewModel, onSave: { newContents in
-                    Task { await viewModel.model.updateNodeContents(withID: selectedID, newContents: newContents) }
-                    showEditSheet = false
-                })
-                .interactiveDismissDisabled(true)  // NEW: Prevent swipe dismiss on watchOS
-            }
-        }
-        .onChange(of: isAddingEdge) { _, newValue in  // New: Handle add edge mode (if needed; or pass to parent)
+        .onChange(of: isAddingEdge) { _, newValue in  // RESTORE: Add back if needed for handling add-edge mode
             if newValue {
-                // Optionally notify viewModel or handle here
+                // Optionally notify viewModel or handle here (from original code)
             }
         }
     }
-}
-
-#Preview {
-    @Previewable @State var mockSelectedNodeID: NodeID?
-    @Previewable @State var mockSelectedEdgeID: UUID? = UUID()  // Simulate
-    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    mockViewModel.setSelectedEdge(UUID())  // Simulate edge selection for preview
-    return MenuView(
-        viewModel: mockViewModel,
-        isSimulatingBinding: .constant(false),
-        onCenterGraph: {},
-        showMenu: .constant(true),
-        showOverlays: .constant(false),
-        selectedNodeID: $mockSelectedNodeID,  // NEW
-        selectedEdgeID: $mockSelectedEdgeID   // NEW
-    )
 }

@@ -30,14 +30,17 @@ struct EditSection: View {
     
     var body: some View {
         Section(header: Text("Edit")) {
-            if let selectedID = selectedNodeID {
-                Button("Edit Contents") {  // Updated name
-                    onEditNode()
-                    onDismiss()
-                    
+            if let selectedID = selectedNodeID {  // Assuming selectedNodeID is available
+                NavigationLink(destination: EditContentSheet(  // NEW: Use NavigationLink to push
+                    selectedID: selectedID,
+                    viewModel: viewModel,
+                    onSave: { newContents in
+                        Task { await viewModel.model.updateNodeContents(withID: selectedID, newContents: newContents) }
+                        // No need for showEditSheet = false; navigation handles pop
+                    }
+                )) {
+                    Text("Edit Contents")
                 }
-                .onSubmit { onEditNode(); onDismiss() }
-                .disabled(isProcessing)
                 .accessibilityIdentifier("editContentsButton")
                 
                 if viewModel.isSelectedToggleNode {
