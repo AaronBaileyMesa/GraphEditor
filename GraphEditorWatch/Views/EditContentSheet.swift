@@ -88,6 +88,7 @@ struct EditContentSheet: View {
         case .string(let str): return "String: \(str.prefix(20))"
         case .date(let date): return "Date: \(dateFormatter.string(from: date))"  // Fixed: Use string(from:)
         case .number(let num): return "Number: \(num)"
+        case .boolean(let bool): return "Boolean: \(bool ? "True" : "False")"  // NEW: Handle boolean
         }
     }
     
