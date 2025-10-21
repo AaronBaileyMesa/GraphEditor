@@ -27,6 +27,26 @@ struct MenuView: View {
     
     var body: some View {
         List {
+            // Global sections when nothing selected
+            if selectedNodeID == nil && selectedEdgeID == nil {
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
+                ViewSection(
+                    showOverlays: $showOverlays,
+                    isSimulating: isSimulatingBinding,
+                    onCenterGraph: onCenterGraph,
+                    onDismiss: { showMenu = false },
+                    onSimulationChange: { newValue in
+                        viewModel.model.isSimulating = newValue
+                        if newValue {
+                            Task { await viewModel.model.startSimulation() }
+                        } else {
+                            Task { await viewModel.model.stopSimulation() }
+                        }
+                    }
+                )
+            }
+            
+            // Add section (always available for flexibility)
             AddSection(
                 viewModel: viewModel,
                 selectedNodeID: selectedNodeID,  // NEW: Use binding.wrappedValue
@@ -37,7 +57,7 @@ struct MenuView: View {
                 }
             )
             
-            // NEW: Conditional EditSection to avoid empty header
+            // Edit section only if something selected
             if selectedNodeID != nil || selectedEdgeID != nil {  // NEW: Use bindings
                 EditSection(
                     viewModel: viewModel,
@@ -47,23 +67,6 @@ struct MenuView: View {
                     onEditNode: { showEditSheet = true }
                 )
             }
-            
-            ViewSection(
-                showOverlays: $showOverlays,  // Now in scope
-                isSimulating: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
-                onDismiss: { showMenu = false },  // Now in scope
-                onSimulationChange: { newValue in
-                    viewModel.model.isSimulating = newValue
-                    if newValue {
-                        Task { await viewModel.model.startSimulation() }
-                    } else {
-                        Task { await viewModel.model.stopSimulation() }
-                    }
-                }
-            )
-            
-            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
         }
         .accessibilityIdentifier("menuList")
         .navigationTitle("Menu")
