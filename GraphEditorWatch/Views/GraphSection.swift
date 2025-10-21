@@ -35,11 +35,11 @@ struct GraphSection: View {
             resetGraphButton
             deleteGraphButton
             if let error = errorMessage {
-                Text(error).foregroundColor(.red).font(.caption).gridCellColumns(2)
+                Text(error).foregroundColor(.red).font(.caption2).gridCellColumns(2)
             }
         }
         .sheet(isPresented: $showNewSheet) {
-            VStack {
+            VStack(spacing: 4) {
                 TextField("New Name", text: $newGraphName)
                     .font(.caption)
                     .accessibilityIdentifier("newGraphNameTextField")
@@ -64,6 +64,7 @@ struct GraphSection: View {
             }
         }
         .onAppear { graphName = viewModel.currentGraphName }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Graph section")
     }
     
@@ -71,7 +72,7 @@ struct GraphSection: View {
         TextField("Name", text: $graphName)
             .font(.caption)
             .accessibilityIdentifier("graphNameTextField")
-            .gridCellColumns(2)  // Span for field
+            .gridCellColumns(2)
     }
     
     private var undoButton: some View {
@@ -195,8 +196,9 @@ struct GraphSection: View {
         } label: {
             Label(name, systemImage: "doc")
                 .labelStyle(.titleAndIcon)
-                .font(.caption)
+                .font(.caption2)  // Smaller for long names
         }
+        .accessibilityHint("Load graph \(name)")
     }
     
     private var resetGraphButton: some View {
@@ -226,7 +228,7 @@ struct GraphSection: View {
             }
             onDismiss()
         } label: {
-            Label("Del Graph", systemImage: "trash")
+            Label("Del", systemImage: "trash")
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }

@@ -46,6 +46,7 @@ struct EditSection: View {
             }
         }
         .foregroundColor(isProcessing ? .gray : .primary)
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("Edit section")
     }
     
@@ -54,10 +55,11 @@ struct EditSection: View {
         let targetID = selectedEdge.target
         let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
         let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
-        return Text("Edge: \(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
-            .font(.caption)
+        return Text("\(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
+            .font(.caption2)
             .foregroundColor(.secondary)
-            .gridCellColumns(2)  // Span for info
+            .gridCellColumns(2)
+            .accessibilityLabel("Edge info")
     }
     
     private var editContentsLink: some View {

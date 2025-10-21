@@ -26,8 +26,8 @@ struct MenuView: View {
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                Text("Add").font(.subheadline).gridCellColumns(2)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {  // Denser spacing
+                Text("Add").font(.subheadline.bold()).gridCellColumns(2)
                 AddSection(
                     viewModel: viewModel,
                     selectedNodeID: selectedNodeID,
@@ -39,7 +39,7 @@ struct MenuView: View {
                 )
                 
                 if selectedNodeID != nil || selectedEdgeID != nil {
-                    Text("Edit").font(.subheadline).gridCellColumns(2)
+                    Text("Edit").font(.subheadline.bold()).gridCellColumns(2)
                     EditSection(
                         viewModel: viewModel,
                         selectedNodeID: selectedNodeID,
@@ -49,7 +49,7 @@ struct MenuView: View {
                     )
                 }
                 
-                Text("View").font(.subheadline).gridCellColumns(2)
+                Text("View").font(.subheadline.bold()).gridCellColumns(2)
                 ViewSection(
                     showOverlays: $showOverlays,
                     isSimulating: isSimulatingBinding,
@@ -65,10 +65,10 @@ struct MenuView: View {
                     }
                 )
                 
-                Text("Graph").font(.subheadline).gridCellColumns(2)
+                Text("Graph").font(.subheadline.bold()).gridCellColumns(2)
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
-            .padding(8)
+            .padding(4)  // Minimal padding
         }
         .accessibilityIdentifier("menuGrid")
         .navigationTitle("Menu")

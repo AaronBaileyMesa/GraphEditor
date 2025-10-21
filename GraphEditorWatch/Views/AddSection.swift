@@ -27,6 +27,8 @@ struct AddSection: View {
                 addEdgeButton
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Add section")
     }
     
     private var addNodeButton: some View {
@@ -75,9 +77,10 @@ struct AddSection: View {
             Text("Assoc").tag(EdgeType.association)
             Text("Hier").tag(EdgeType.hierarchy)
         }
-        .font(.caption)
-        .accessibilityLabel("Select edge type: \(selectedEdgeType.rawValue)")
-        .gridCellColumns(2)  // Span for better layout
+        .font(.caption2)  // Smaller for compactness
+        .labelsHidden()   // Hide label for space
+        .accessibilityHint("Select edge type")
+        .gridCellColumns(2)
     }
     
     private var addEdgeButton: some View {

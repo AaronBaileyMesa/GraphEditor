@@ -21,6 +21,7 @@ struct ViewSection: View {
             simulationToggle
             centerButton
         }
+        .accessibilityElement(children: .combine)
         .accessibilityLabel("View section")
     }
     
