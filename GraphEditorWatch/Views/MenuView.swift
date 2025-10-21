@@ -25,46 +25,49 @@ struct MenuView: View {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        List {
-            AddSection(
-                viewModel: viewModel,
-                selectedNodeID: selectedNodeID,  // NEW: Use binding.wrappedValue
-                onDismiss: { showMenu = false },
-                onAddEdge: { type in
-                    viewModel.pendingEdgeType = type
-                    isAddingEdge = true
-                }
-            )
-            
-            // NEW: Conditional EditSection to avoid empty header
-            if selectedNodeID != nil || selectedEdgeID != nil {  // NEW: Use bindings
-                EditSection(
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                AddSection(
                     viewModel: viewModel,
-                    selectedNodeID: selectedNodeID,      // NEW: Pass binding.wrappedValue
-                    selectedEdgeID: selectedEdgeID,      // NEW: Pass binding.wrappedValue
+                    selectedNodeID: selectedNodeID,  // NEW: Use binding.wrappedValue
                     onDismiss: { showMenu = false },
-                    onEditNode: {}  // Set to empty closure if unused
-                )
-            }
-            
-            ViewSection(
-                showOverlays: $showOverlays,  // Now in scope
-                isSimulating: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
-                onDismiss: { showMenu = false },  // Now in scope
-                onSimulationChange: { newValue in
-                    viewModel.model.isSimulating = newValue
-                    if newValue {
-                        Task { await viewModel.model.startSimulation() }
-                    } else {
-                        Task { await viewModel.model.stopSimulation() }
+                    onAddEdge: { type in
+                        viewModel.pendingEdgeType = type
+                        isAddingEdge = true
                     }
+                )
+                
+                // NEW: Conditional EditSection to avoid empty header
+                if selectedNodeID != nil || selectedEdgeID != nil {  // NEW: Use bindings
+                    EditSection(
+                        viewModel: viewModel,
+                        selectedNodeID: selectedNodeID,      // NEW: Pass binding.wrappedValue
+                        selectedEdgeID: selectedEdgeID,      // NEW: Pass binding.wrappedValue
+                        onDismiss: { showMenu = false },
+                        onEditNode: {}  // Set to empty closure if unused
+                    )
                 }
-            )
-            
-            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
+                
+                ViewSection(
+                    showOverlays: $showOverlays,  // Now in scope
+                    isSimulating: isSimulatingBinding,
+                    onCenterGraph: onCenterGraph,
+                    onDismiss: { showMenu = false },  // Now in scope
+                    onSimulationChange: { newValue in
+                        viewModel.model.isSimulating = newValue
+                        if newValue {
+                            Task { await viewModel.model.startSimulation() }
+                        } else {
+                            Task { await viewModel.model.stopSimulation() }
+                        }
+                    }
+                )
+                
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
+            }
+            .padding(8)
         }
-        .accessibilityIdentifier("menuList")
+        .accessibilityIdentifier("menuGrid")  // Updated from "menuList" for new layout
         .navigationTitle("Menu")
         .focused($isMenuFocused)  // New: Bind focus to list
         .onAppear {

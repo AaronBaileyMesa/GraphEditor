@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-21 10:02:28
+Current date: 2025-10-21 11:34:55
 Table of Contents:
 1. GraphEditorWatch/Views/EditSection.swift
 2. GraphEditorWatch/Views/FocusableView.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/Views/GraphCanvasView.swift--------------------------------------------------
 File: EditSection.swift
 Path: GraphEditorWatch/Views/EditSection.swift
-Last modified: 2025-10-21 09:23:54
+Last modified: 2025-10-21 10:12:57
 
 Contents:
 //
@@ -44,14 +44,17 @@ struct EditSection: View {
     
     var body: some View {
         Section(header: Text("Edit")) {
-            if let selectedID = selectedNodeID {
-                Button("Edit Contents") {  // Updated name
-                    onEditNode()
-                    onDismiss()
-                    
+            if let selectedID = selectedNodeID {  // Assuming selectedNodeID is available
+                NavigationLink(destination: EditContentSheet(  // NEW: Use NavigationLink to push
+                    selectedID: selectedID,
+                    viewModel: viewModel,
+                    onSave: { newContents in
+                        Task { await viewModel.model.updateNodeContents(withID: selectedID, newContents: newContents) }
+                        // No need for showEditSheet = false; navigation handles pop
+                    }
+                )) {
+                    Text("Edit Contents")
                 }
-                .onSubmit { onEditNode(); onDismiss() }
-                .disabled(isProcessing)
                 .accessibilityIdentifier("editContentsButton")
                 
                 if viewModel.isSelectedToggleNode {
