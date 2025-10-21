@@ -26,7 +26,7 @@ struct MenuView: View {
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {  // Denser spacing
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
                 Text("Add").font(.subheadline.bold()).gridCellColumns(2)
                 AddSection(
                     viewModel: viewModel,
@@ -68,7 +68,7 @@ struct MenuView: View {
                 Text("Graph").font(.subheadline.bold()).gridCellColumns(2)
                 GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
             }
-            .padding(4)  // Minimal padding
+            .padding(4)
         }
         .accessibilityIdentifier("menuGrid")
         .navigationTitle("Menu")

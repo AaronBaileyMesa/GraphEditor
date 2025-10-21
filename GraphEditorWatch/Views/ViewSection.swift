@@ -17,31 +17,45 @@ struct ViewSection: View {
     
     var body: some View {
         Group {
-            overlaysToggle
-            simulationToggle
+            customOverlaysToggle
+            customSimulationToggle
             centerButton
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("View section")
     }
     
-    private var overlaysToggle: some View {
-        Toggle(isOn: $showOverlays) {
-            Label("Overlays", systemImage: "eye")
-                .labelStyle(.titleAndIcon)
+    private var customOverlaysToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eye")
                 .font(.caption)
+            Text("Overlays")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: $showOverlays)
+                .labelsHidden()
         }
         .onChange(of: showOverlays) { _ in
             WKInterfaceDevice.current().play(.click)
             onDismiss()
         }
+        .gridCellColumns(2)
+        .accessibilityLabel("Overlays toggle")
     }
     
-    private var simulationToggle: some View {
-        Toggle(isOn: isSimulating) {
-            Label("Simulate", systemImage: "play")
-                .labelStyle(.titleAndIcon)
+    private var customSimulationToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "play")
                 .font(.caption)
+            Text("Simulate")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: isSimulating)
+                .labelsHidden()
         }
         .onChange(of: isSimulating.wrappedValue) { newValue in
             WKInterfaceDevice.current().play(.click)
@@ -49,6 +63,8 @@ struct ViewSection: View {
             onDismiss()
         }
         .accessibilityIdentifier("toggleSimulation")
+        .gridCellColumns(2)
+        .accessibilityLabel("Simulate toggle")
     }
     
     private var centerButton: some View {
@@ -62,5 +78,6 @@ struct ViewSection: View {
                 .font(.caption)
         }
         .accessibilityIdentifier("centerGraphButton")
+        .gridCellColumns(2)
     }
 }

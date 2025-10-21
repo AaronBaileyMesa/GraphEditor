@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-21 11:34:55
+Current date: 2025-10-21 12:56:23
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphSection.swift
@@ -365,17 +365,18 @@ extension GraphGesturesModifier {
 ----------------------------------------------------------------------------------------------------
 File: GraphSection.swift
 Path: GraphEditorWatch/Views/GraphSection.swift
-Last modified: 2025-10-20 08:47:39
+Last modified: 2025-10-21 12:24:42
 
 Contents:
 //
 //  GraphSection.swift
 //  GraphEditorWatch
 //
-//  Created by handcart on 10/5/25.  // Updated date for refactor
+//  Created by handcart on 10/5/25.
 //
 
 import SwiftUI
+import WatchKit
 
 struct GraphSection: View {
     let viewModel: GraphViewModel
@@ -388,139 +389,220 @@ struct GraphSection: View {
     @State private var errorMessage: String?
     
     var body: some View {
-        Section(header: Text("Graph")) {
-            TextField("Graph Name", text: $graphName)
-                .accessibilityIdentifier("graphNameTextField")
+        Group {
+            graphNameField
             if viewModel.canRedo || viewModel.canUndo {
-                Section(header: Text("Undo")) {
-                    if viewModel.canUndo {
-                        Button("Undo") {
-                            Task { await viewModel.undo()}
-                            onDismiss()
-                        }
-                        .accessibilityIdentifier("undoButton")
-                    }
-                    if viewModel.canRedo {
-                        Button("Redo") {
-                            Task { await viewModel.redo()}
-                            onDismiss()
-                        }
-                        .accessibilityIdentifier("redoButton")
-                    }
-                }
+                undoButton
+                redoButton
             }
-            
-            TextField("Graph Name", text: $graphName)
-                .onAppear { graphName = viewModel.currentGraphName }
-            
-            Button("New Graph") {
-                newGraphName = ""
-                showNewSheet = true
-            }
-            .accessibilityIdentifier("newGraphButton")
-            .onSubmit { /* Same as above */ }
-            .sheet(isPresented: $showNewSheet) {
-                VStack {
-                    TextField("New Graph Name", text: $newGraphName)
-                        .accessibilityIdentifier("newGraphNameTextField")  // Add this
-                    Button("Create") {
-                        Task {
-                            do {
-                                try await viewModel.model.createNewGraph(name: newGraphName)
-                                viewModel.currentGraphName = newGraphName
-                                showNewSheet = false
-                                onDismiss()
-                            } catch {
-                                errorMessage = error.localizedDescription
-                            }
-                        }
-                    }
-                    .accessibilityIdentifier("createButton")
-                }
-            }
-            
-            Button("Save Graph") {
-                Task {
-                    viewModel.currentGraphName = graphName
-                    do {
-                        try await viewModel.model.saveGraph()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    onDismiss()
-                }
-            }
-            .accessibilityIdentifier("saveButton")
-            .onSubmit { /* Same as above */ }
-            
-            Button("Load Graph") {
-                Task {
-                    do {
-                        try await viewModel.model.loadGraph(name: graphName)
-                        viewModel.currentGraphName = graphName
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                    onDismiss()
-                }
-            }
-            .accessibilityIdentifier("loadButton")
-            .onSubmit { /* Same as above */ }
-            
-            Button("List Graphs") {
-                Task {
-                    do {
-                        graphs = try await viewModel.model.listGraphNames()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
-            .accessibilityIdentifier("listGraphsButton")
-            .onSubmit { /* Same as above */ }
-            
+            newGraphButton
+            saveGraphButton
+            loadGraphButton
+            listGraphsButton
             ForEach(graphs, id: \.self) { name in
-                Button(name) {
+                graphItemButton(name: name)
+            }
+            resetGraphButton
+            deleteGraphButton
+            if let error = errorMessage {
+                Text(error).foregroundColor(.red).font(.caption2).gridCellColumns(2)
+            }
+        }
+        .sheet(isPresented: $showNewSheet) {
+            VStack(spacing: 4) {
+                TextField("New Name", text: $newGraphName)
+                    .font(.caption)
+                    .accessibilityIdentifier("newGraphNameTextField")
+                Button {
+                    WKInterfaceDevice.current().play(.click)
                     Task {
                         do {
-                            try await viewModel.model.loadGraph(name: name)
-                            viewModel.currentGraphName = name
-                            graphName = name
+                            try await viewModel.model.createNewGraph(name: newGraphName)
+                            viewModel.currentGraphName = newGraphName
+                            showNewSheet = false
                             onDismiss()
                         } catch {
                             errorMessage = error.localizedDescription
                         }
                     }
+                } label: {
+                    Label("Create", systemImage: "plus")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption)
                 }
-            }
-            
-            Button("Reset Graph", role: .destructive) {
-                Task { await viewModel.clearGraph() }
-                onDismiss()
-            }
-            .onSubmit { /* Same as above */ }
-            .accessibilityIdentifier("resetGraphButton")
-            
-            Button("Delete Graph", role: .destructive) {
-                Task {
-                    do {
-                        try await viewModel.model.deleteGraph(name: graphName)
-                        graphName = "default"
-                        try await viewModel.model.loadGraph(name: "default")
-                        onDismiss()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            }
-            .onSubmit { /* Same as above */ }
-            .accessibilityLabel("deleteGraphButton")
-            
-            if let error = errorMessage {
-                Text(error).foregroundColor(.red)
+                .accessibilityIdentifier("createButton")
             }
         }
-        .accessibilityLabel("Graph section")  // NEW: Accessibility
+        .onAppear { graphName = viewModel.currentGraphName }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Graph section")
+    }
+    
+    private var graphNameField: some View {
+        TextField("Name", text: $graphName)
+            .font(.caption)
+            .accessibilityIdentifier("graphNameTextField")
+            .gridCellColumns(2)
+    }
+    
+    private var undoButton: some View {
+        if viewModel.canUndo {
+            return AnyView(Button {
+                WKInterfaceDevice.current().play(.click)
+                Task { await viewModel.undo() }
+                onDismiss()
+            } label: {
+                Label("Undo", systemImage: "arrow.uturn.left")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            }
+            .accessibilityIdentifier("undoButton"))
+        } else {
+            return AnyView(EmptyView())
+        }
+    }
+    
+    private var redoButton: some View {
+        if viewModel.canRedo {
+            return AnyView(Button {
+                WKInterfaceDevice.current().play(.click)
+                Task { await viewModel.redo() }
+                onDismiss()
+            } label: {
+                Label("Redo", systemImage: "arrow.uturn.right")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
+            }
+            .accessibilityIdentifier("redoButton"))
+        } else {
+            return AnyView(EmptyView())
+        }
+    }
+    
+    private var newGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            newGraphName = ""
+            showNewSheet = true
+        } label: {
+            Label("New", systemImage: "doc.badge.plus")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("newGraphButton")
+    }
+    
+    private var saveGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            viewModel.currentGraphName = graphName
+            Task {
+                do {
+                    try await viewModel.model.saveGraph()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Save", systemImage: "square.and.arrow.down")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("saveButton")
+    }
+    
+    private var loadGraphButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.loadGraph(name: graphName)
+                    viewModel.currentGraphName = graphName
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Load", systemImage: "folder")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("loadButton")
+    }
+    
+    private var listGraphsButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    graphs = try await viewModel.model.listGraphNames()
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+        } label: {
+            Label("List", systemImage: "list.bullet")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("listGraphsButton")
+    }
+    
+    private func graphItemButton(name: String) -> some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.loadGraph(name: name)
+                    viewModel.currentGraphName = name
+                    graphName = name
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label(name, systemImage: "doc")
+                .labelStyle(.titleAndIcon)
+                .font(.caption2)  // Smaller for long names
+        }
+        .accessibilityHint("Load graph \(name)")
+    }
+    
+    private var resetGraphButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.clearGraph() }
+            onDismiss()
+        } label: {
+            Label("Reset", systemImage: "arrow.counterclockwise")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("resetGraphButton")
+    }
+    
+    private var deleteGraphButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            Task {
+                do {
+                    try await viewModel.model.deleteGraph(name: graphName)
+                    graphName = "default"
+                    try await viewModel.model.loadGraph(name: "default")
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+            }
+            onDismiss()
+        } label: {
+            Label("Del", systemImage: "trash")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("deleteGraphButton")
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -685,7 +767,7 @@ struct InnerView: View {
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-10-21 10:26:39
+Last modified: 2025-10-21 12:31:48
 
 Contents:
 //
@@ -706,75 +788,80 @@ struct MenuView: View {
     let onCenterGraph: () -> Void
     @Binding var showMenu: Bool
     @Binding var showOverlays: Bool
-    @Binding var selectedNodeID: NodeID?    // NEW: @Binding for reactivity
-    @Binding var selectedEdgeID: UUID?      // NEW: @Binding for reactivity
+    @Binding var selectedNodeID: NodeID?
+    @Binding var selectedEdgeID: UUID?
     
     @FocusState private var isMenuFocused: Bool
-    @State private var isAddingEdge: Bool = false  // RESTORE: Keep this state as it's used in onAddEdge
+    @State private var isAddingEdge: Bool = false
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        List {
-            AddSection(
-                viewModel: viewModel,
-                selectedNodeID: selectedNodeID,  // NEW: Use binding.wrappedValue
-                onDismiss: { showMenu = false },
-                onAddEdge: { type in
-                    viewModel.pendingEdgeType = type
-                    isAddingEdge = true
-                }
-            )
-            
-            // NEW: Conditional EditSection to avoid empty header
-            if selectedNodeID != nil || selectedEdgeID != nil {  // NEW: Use bindings
-                EditSection(
+        ScrollView {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
+                Text("Add").font(.subheadline.bold()).gridCellColumns(2)
+                AddSection(
                     viewModel: viewModel,
-                    selectedNodeID: selectedNodeID,      // NEW: Pass binding.wrappedValue
-                    selectedEdgeID: selectedEdgeID,      // NEW: Pass binding.wrappedValue
+                    selectedNodeID: selectedNodeID,
                     onDismiss: { showMenu = false },
-                    onEditNode: {}  // Set to empty closure if unused
-                )
-            }
-            
-            ViewSection(
-                showOverlays: $showOverlays,  // Now in scope
-                isSimulating: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
-                onDismiss: { showMenu = false },  // Now in scope
-                onSimulationChange: { newValue in
-                    viewModel.model.isSimulating = newValue
-                    if newValue {
-                        Task { await viewModel.model.startSimulation() }
-                    } else {
-                        Task { await viewModel.model.stopSimulation() }
+                    onAddEdge: { type in
+                        viewModel.pendingEdgeType = type
+                        isAddingEdge = true
                     }
+                )
+                
+                if selectedNodeID != nil || selectedEdgeID != nil {
+                    Text("Edit").font(.subheadline.bold()).gridCellColumns(2)
+                    EditSection(
+                        viewModel: viewModel,
+                        selectedNodeID: selectedNodeID,
+                        selectedEdgeID: selectedEdgeID,
+                        onDismiss: { showMenu = false },
+                        onEditNode: {}
+                    )
                 }
-            )
-            
-            GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })  // Now in scope
+                
+                Text("View").font(.subheadline.bold()).gridCellColumns(2)
+                ViewSection(
+                    showOverlays: $showOverlays,
+                    isSimulating: isSimulatingBinding,
+                    onCenterGraph: onCenterGraph,
+                    onDismiss: { showMenu = false },
+                    onSimulationChange: { newValue in
+                        viewModel.model.isSimulating = newValue
+                        if newValue {
+                            Task { await viewModel.model.startSimulation() }
+                        } else {
+                            Task { await viewModel.model.stopSimulation() }
+                        }
+                    }
+                )
+                
+                Text("Graph").font(.subheadline.bold()).gridCellColumns(2)
+                GraphSection(viewModel: viewModel, onDismiss: { showMenu = false })
+            }
+            .padding(4)
         }
-        .accessibilityIdentifier("menuList")
+        .accessibilityIdentifier("menuGrid")
         .navigationTitle("Menu")
-        .focused($isMenuFocused)  // New: Bind focus to list
+        .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 isMenuFocused = true
             }
-            // NEW: Debug log for selections
             MenuView.logger.debug("Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
         }
         .onChange(of: isMenuFocused) { _, newValue in
             MenuView.logger.debug("Menu focus: \(newValue)")
             if !newValue {
-                isMenuFocused = true // Auto-recover
+                isMenuFocused = true
             }
         }
         .ignoresSafeArea(.keyboard)
-        .onChange(of: isAddingEdge) { _, newValue in  // RESTORE: Add back if needed for handling add-edge mode
+        .onChange(of: isAddingEdge) { _, newValue in
             if newValue {
-                // Optionally notify viewModel or handle here (from original code)
+                // Handle add-edge mode
             }
         }
     }
@@ -828,7 +915,7 @@ struct NodeView: View {
 ----------------------------------------------------------------------------------------------------
 File: ViewSection.swift
 Path: GraphEditorWatch/Views/ViewSection.swift
-Last modified: 2025-10-05 16:02:44
+Last modified: 2025-10-21 12:53:16
 
 Contents:
 //
@@ -839,6 +926,7 @@ Contents:
 //
 
 import SwiftUI
+import WatchKit
 
 struct ViewSection: View {
     @Binding var showOverlays: Bool
@@ -848,23 +936,69 @@ struct ViewSection: View {
     let onSimulationChange: (Bool) -> Void
     
     var body: some View {
-        Section(header: Text("View")) {
-            Toggle("Show Overlays", isOn: $showOverlays)
-                .onSubmit { /* No-op for toggle */ }
-            
-            Toggle("Run Simulation", isOn: isSimulating)
-                .onChange(of: isSimulating.wrappedValue) { _, newValue in
-                    onSimulationChange(newValue)
-                }
-                .onSubmit { /* No-op for toggle */ }
-            
-            Button("Center Graph") {
-                onCenterGraph()
-                onDismiss()
-            }
-            .onSubmit { onCenterGraph(); onDismiss() }
+        Group {
+            customOverlaysToggle
+            customSimulationToggle
+            centerButton
         }
-        .accessibilityLabel("View section")  // NEW: Accessibility
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("View section")
+    }
+    
+    private var customOverlaysToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eye")
+                .font(.caption)
+            Text("Overlays")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: $showOverlays)
+                .labelsHidden()
+        }
+        .onChange(of: showOverlays) { _ in
+            WKInterfaceDevice.current().play(.click)
+            onDismiss()
+        }
+        .gridCellColumns(2)
+        .accessibilityLabel("Overlays toggle")
+    }
+    
+    private var customSimulationToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "play")
+                .font(.caption)
+            Text("Simulate")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: isSimulating)
+                .labelsHidden()
+        }
+        .onChange(of: isSimulating.wrappedValue) { newValue in
+            WKInterfaceDevice.current().play(.click)
+            onSimulationChange(newValue)
+            onDismiss()
+        }
+        .accessibilityIdentifier("toggleSimulation")
+        .gridCellColumns(2)
+        .accessibilityLabel("Simulate toggle")
+    }
+    
+    private var centerButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onCenterGraph()
+            onDismiss()
+        } label: {
+            Label("Center", systemImage: "dot.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("centerGraphButton")
+        .gridCellColumns(2)
     }
 }
 ----------------------------------------------------------------------------------------------------
