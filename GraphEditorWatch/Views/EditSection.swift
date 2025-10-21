@@ -31,14 +31,14 @@ struct EditSection: View {
     var body: some View {
         Section(header: Text("Edit")) {
             if let selectedID = selectedNodeID {
-                Button("Edit Node") {  // New
+                Button("Edit Contents") {  // Updated name
                     onEditNode()
                     onDismiss()
                     
                 }
                 .onSubmit { onEditNode(); onDismiss() }
                 .disabled(isProcessing)
-                .accessibilityIdentifier("editNodeButton")
+                .accessibilityIdentifier("editContentsButton")
                 
                 if viewModel.isSelectedToggleNode {
                     Button("Toggle Expand/Collapse") {
