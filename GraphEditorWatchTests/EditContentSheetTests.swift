@@ -17,10 +17,10 @@ struct EditContentSheetTests {
         return await GraphViewModel(model: model)
     }
     
-    @Test func testSaveStringContent() async {
+    @MainActor @Test func testSaveStringContent() async {
         let viewModel = await setupViewModel()
         let nodeID = NodeID()
-        var savedContent: NodeContent?
+        var savedContent: [NodeContent]?
         let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
             savedContent = content
         }
@@ -28,6 +28,6 @@ struct EditContentSheetTests {
         // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
         // Placeholder assertion (adapt based on actual simulation logic)
         _ = sheet  // Use to silence warning
-        #expect(savedContent == nil, "Initially nil; add simulation to set .string(\"test\")")
+        #expect(savedContent == nil, "Initially nil; add simulation to set [.string(\"test\")]")
     }
 }
