@@ -33,24 +33,46 @@ struct EdgeMenuView: View {
         return "Unknown"
     }
     
+    // Fetch the selected edge for button logic
+    private var selectedEdge: GraphEdge? {
+        if let id = selectedEdgeID {
+            return viewModel.model.edges.first { $0.id == id }
+        }
+        return nil
+    }
+    
+    // Check if bidirectional for delete label
+    private var isBidirectional: Bool {
+        if let edge = selectedEdge {
+            return viewModel.model.isBidirectionalBetween(edge.from, edge.target)
+        }
+        return false
+    }
+    
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
-                Text("Edge: \(edgeDescription)").font(.subheadline.bold()).gridCellColumns(2)  // Name as first item
+            VStack(spacing: 8) {
+                Text("Edge: \(edgeDescription)")
+                    .font(.subheadline.bold())
+                    .frame(maxWidth: .infinity, alignment: .center)  // Full-width span
+                    .lineLimit(1)  // Prevent wrapping; truncate if too long
+                    .truncationMode(.tail)
+                    .padding(.horizontal, 8)  // Horizontal padding for readability
                 
-                Text("Edit").font(.subheadline.bold()).gridCellColumns(2)
-                EditSection(
-                    viewModel: viewModel,
-                    selectedNodeID: nil,  // No node focus
-                    selectedEdgeID: selectedEdgeID,
-                    onDismiss: onDismiss,
-                    onEditNode: {}
-                )
+                HStack(spacing: 8) {
+                    // Delete button (icon only, with accessibility)
+                    deleteEdgeButton
+                    
+                    // Reverse button (icon only, with accessibility, only if hierarchy)
+                    if let edge = selectedEdge, edge.type == .hierarchy {
+                        reverseEdgeButton
+                    }
+                }
+                .padding(.horizontal, 8)  // Ensure buttons don't touch edges
             }
             .padding(4)
         }
         .accessibilityIdentifier("edgeMenuGrid")
-        .navigationTitle("Edge Menu")  // Differentiate for testing
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -66,5 +88,60 @@ struct EdgeMenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
+    }
+    
+    private var deleteEdgeButton: some View {
+        Button(role: .destructive) {
+            WKInterfaceDevice.current().play(.click)
+            if let edge = selectedEdge {
+                Task {
+                    let isProcessing = true  // Use local or @State if needed for disabling
+                    await viewModel.model.snapshot()
+                    if isBidirectional {
+                        let pair = viewModel.model.edgesBetween(edge.from, edge.target)
+                        viewModel.model.edges.removeAll { pair.contains($0) }
+                    } else {
+                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    }
+                    await viewModel.model.startSimulation()
+                    viewModel.setSelectedEdge(nil)
+                    // Clear node selection if mixed
+                    viewModel.setSelectedNode(nil)
+                }
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "trash")
+                .font(.system(size: 20))  // Adjust size for watchOS
+        }
+        .buttonStyle(.borderedProminent)  // Makes it round/compact
+        .tint(.red)  // Destructive color
+        .accessibilityLabel(isBidirectional ? "Delete Both Edges" : "Delete Edge")
+        .accessibilityIdentifier("deleteEdgeButton")
+    }
+    
+    private var reverseEdgeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            if let edge = selectedEdge {
+                Task {
+                    let isProcessing = true
+                    await viewModel.model.snapshot()
+                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                    viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))
+                    await viewModel.model.startSimulation()
+                    viewModel.setSelectedEdge(nil)
+                    viewModel.setSelectedNode(nil)
+                }
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 20))
+        }
+        .buttonStyle(.bordered)
+        .tint(.gray)  // Neutral color
+        .accessibilityLabel("Reverse Edge")
+        .accessibilityIdentifier("reverseEdgeButton")
     }
 }
