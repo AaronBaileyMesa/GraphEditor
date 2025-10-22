@@ -285,7 +285,7 @@ extension GraphViewModel {
         // Save current view state before switching
         try saveViewState()
         
-        try await model.loadGraph(name: name)
+        await model.loadGraph(name: name)
         currentGraphName = model.currentGraphName  // Sync
         
         // Load view state for the new graph

@@ -61,7 +61,7 @@ struct EditContentSheet: View {
 
             // Section 2: Compact "Add New" (tappable to expand)
             Section {
-                Button(action: { showAddSection.toggle() }) {  // Tap to show/hide add inputs
+                Button(action: { showAddSection.toggle() }) { 
                     Text(showAddSection ? "Hide Add" : "Add New...").font(.caption)
                 }
                 if showAddSection {

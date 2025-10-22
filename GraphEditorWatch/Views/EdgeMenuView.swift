@@ -89,7 +89,7 @@ struct EdgeMenuView: View {
             WKInterfaceDevice.current().play(.click)
             if let edge = selectedEdge {
                 Task {
-                    let isProcessing = true  // Use local or @State if needed for disabling
+                    _ = true  // Use local or @State if needed for disabling
                     await viewModel.model.snapshot()
                     if isBidirectional {
                         let pair = viewModel.model.edgesBetween(edge.from, edge.target)
@@ -119,7 +119,7 @@ struct EdgeMenuView: View {
             WKInterfaceDevice.current().play(.click)
             if let edge = selectedEdge {
                 Task {
-                    let isProcessing = true
+                    _ = true
                     await viewModel.model.snapshot()
                     viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                     viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))
