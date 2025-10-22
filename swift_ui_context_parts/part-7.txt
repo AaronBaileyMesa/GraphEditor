@@ -1,15 +1,285 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-21 12:56:23
+Current date: 2025-10-21 16:07:19
 Table of Contents:
-1. GraphEditorWatchTests/GestureTests.swift
-2. GraphEditorWatchTests/GraphEditorWatchTests.swift
-3. GraphEditorWatchTests/GraphGesturesModifierTests.swift
-4. GraphEditorWatchTests/GraphModelTests.swift
-5. GraphEditorWatchTests/MenuViewTests.swift
-6. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-7. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+1. GraphEditorWatch/Views/NodeView.swift
+2. GraphEditorWatch/Views/ViewSection.swift
+3. GraphEditorWatchTests/AccessibilityTests.swift
+4. GraphEditorWatchTests/CoordinateTransformerTests.swift
+5. GraphEditorWatchTests/EditContentSheetTests.swift
+6. GraphEditorWatchTests/GestureTests.swift
+7. GraphEditorWatchTests/GraphEditorWatchTests.swift
+8. GraphEditorWatchTests/GraphGesturesModifierTests.swift
+9. GraphEditorWatchTests/GraphModelTests.swift
+10. GraphEditorWatchTests/MenuViewTests.swift--------------------------------------------------
+File: NodeView.swift
+Path: GraphEditorWatch/Views/NodeView.swift
+Last modified: 2025-09-16 11:24:30
+
+Contents:
+//
+//  NodeView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/13/25.
+//
+
+import SwiftUI
+import GraphEditorShared
+
+struct NodeView: View {
+    let node: any NodeProtocol
+    let isSelected: Bool
+    let zoomScale: CGFloat
+    
+    var body: some View {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .stroke(Color.yellow, lineWidth: 4 * zoomScale)
+                    .frame(width: node.radius * 2 * zoomScale + 4 * zoomScale, height: node.radius * 2 * zoomScale + 4 * zoomScale)
+            }
+            Circle()
+                .fill(node.fillColor)  // Or dynamic based on node type
+                .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
+            
+            // Add icon/label as in ToggleNode.draw
+            if let toggleNode = node as? ToggleNode {
+                Text(toggleNode.isExpanded ? "-" : "+")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
+            }
+            
+            Text("\(node.label)")
+                .foregroundColor(.white)
+                .font(.system(size: max(8.0, 12.0 * zoomScale)))
+                .offset(y: -(node.radius + 10) * zoomScale)  // Position above
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: ViewSection.swift
+Path: GraphEditorWatch/Views/ViewSection.swift
+Last modified: 2025-10-21 12:53:16
+
+Contents:
+//
+//  ViewSection.swift
+//  GraphEditor
+//
+//  Created by handcart on 10/5/25.
+//
+
+import SwiftUI
+import WatchKit
+
+struct ViewSection: View {
+    @Binding var showOverlays: Bool
+    let isSimulating: Binding<Bool>
+    let onCenterGraph: () -> Void
+    let onDismiss: () -> Void
+    let onSimulationChange: (Bool) -> Void
+    
+    var body: some View {
+        Group {
+            customOverlaysToggle
+            customSimulationToggle
+            centerButton
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("View section")
+    }
+    
+    private var customOverlaysToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eye")
+                .font(.caption)
+            Text("Overlays")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: $showOverlays)
+                .labelsHidden()
+        }
+        .onChange(of: showOverlays) { _ in
+            WKInterfaceDevice.current().play(.click)
+            onDismiss()
+        }
+        .gridCellColumns(2)
+        .accessibilityLabel("Overlays toggle")
+    }
+    
+    private var customSimulationToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "play")
+                .font(.caption)
+            Text("Simulate")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: isSimulating)
+                .labelsHidden()
+        }
+        .onChange(of: isSimulating.wrappedValue) { newValue in
+            WKInterfaceDevice.current().play(.click)
+            onSimulationChange(newValue)
+            onDismiss()
+        }
+        .accessibilityIdentifier("toggleSimulation")
+        .gridCellColumns(2)
+        .accessibilityLabel("Simulate toggle")
+    }
+    
+    private var centerButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onCenterGraph()
+            onDismiss()
+        } label: {
+            Label("Center", systemImage: "dot.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("centerGraphButton")
+        .gridCellColumns(2)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: AccessibilityTests.swift
+Path: GraphEditorWatchTests/AccessibilityTests.swift
+Last modified: 2025-09-22 11:21:14
+
+Contents:
+//
+//  AccessibilityTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct AccessibilityTests {
+    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
+        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+    }
+    
+    @Test func testGraphDescription() async throws {
+        let storage = MockGraphStorage()
+        storage.nodes = [Node(label: 0, position: .zero)]
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        await MainActor.run { model.nextNodeLabel = 1 }
+        await model.addNode(at: .zero)
+        await model.addNode(at: CGPoint(x: 10, y: 10))
+        
+        await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }
+        
+        let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
+        
+        let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: CoordinateTransformerTests.swift
+Path: GraphEditorWatchTests/CoordinateTransformerTests.swift
+Last modified: 2025-10-08 15:23:57
+
+Contents:
+//
+//  CoordinateTransformerTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct CoordinateTransformerTests {
+    @Test func testCoordinateRoundTrip() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 150, y: 150)
+        let modelPos = CGPoint(x: 167.78, y: 165.66)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize.zero
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
+    }
+    
+    @Test func testCoordinateRoundTripWithZoomAndOffset() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 56.73, y: 161.10)
+        let modelPos = CGPoint(x: -40.27, y: 52.60)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize(width: 81, height: 111.5)
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
+    }
+    
+    public func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: EditContentSheetTests.swift
+Path: GraphEditorWatchTests/EditContentSheetTests.swift
+Last modified: 2025-10-21 08:23:20
+
+Contents:
+//
+//  EditContentSheetTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/25/25.
+//
+import Testing
+import SwiftUI
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+
+struct EditContentSheetTests {
+    private func setupViewModel() async -> GraphViewModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
+        return await GraphViewModel(model: model)
+    }
+    
+    @MainActor @Test func testSaveStringContent() async {
+        let viewModel = await setupViewModel()
+        let nodeID = NodeID()
+        var savedContent: [NodeContent]?
+        let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
+            savedContent = content
+        }
+        // Simulate input: Since @State is private, this is placeholder; use XCUITest for full simulation or expose states for testing
+        // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
+        // Placeholder assertion (adapt based on actual simulation logic)
+        _ = sheet  // Use to silence warning
+        #expect(savedContent == nil, "Initially nil; add simulation to set [.string(\"test\")]")
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: GestureTests.swift
 Path: GraphEditorWatchTests/GestureTests.swift
 Last modified: 2025-10-10 13:16:11
@@ -691,208 +961,6 @@ struct MenuViewTests {
         // Simulate button tap (manual test logic; for full UI test, use XCUITest)
         await viewModel.deleteNode(withID: node.id)
         #expect(await viewModel.model.nodes.isEmpty, "Node deleted")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-10-20 10:42:40
-
-Contents:
-//
-//  GraphEditorWatchUITests.swift
-//  GraphEditorWatchUITests
-//
-//  Created by handcart on 8/4/25.
-//
-
-import XCTest
-
-extension XCUIApplication {
-    func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 10.0, file: StaticString = #file, line: UInt = #line) {
-        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
-    }
-}
-
-final class GraphEditorWatchUITests: XCTestCase {
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.terminate()
-        app.launch()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        print("Post-launch hierarchy: \(app.debugDescription)")
-        
-        let canvas = app.buttons["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")
-    }
-    
-    func testAppLaunchesAndCanvasExists() {
-        let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
-        canvas.waitForExistence(timeout: 10)
-        
-        // Basic verification: Check initial label (adjust based on launched state)
-        let initialPredicate = NSPredicate(format: "label CONTAINS 'Graph with'")
-        expectation(for: initialPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
-    
-    func testMenuOpensAfterLongPress() {
-        let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
-        canvas.waitForExistence(timeout: 10)
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
-        
-        let menuList = app.collectionViews["menuList"]
-        menuList.waitForExistence(timeout: 10)
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-    }
-    
-    func testAddNodeViaMenu() {
-        let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
-        canvas.waitForExistence(timeout: 10)
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
-        
-        let menuList = app.collectionViews["menuList"]
-        menuList.waitForExistence(timeout: 10)
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let addNodeButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addNodeButton, in: menuList, maxAttempts: 30)
-        addNodeButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Basic check: Label changes to include more nodes
-        let addedPredicate = NSPredicate(format: "label CONTAINS 'node'")
-        expectation(for: addedPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
-    
-    func testResetGraphViaMenu() {
-        let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
-        canvas.waitForExistence(timeout: 10)
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
-        
-        let menuList = app.collectionViews["menuList"]
-        menuList.waitForExistence(timeout: 10)
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let newGraphButton = app.buttons["newGraphButton"]
-        scrollUntilVisible(element: newGraphButton, in: menuList, maxAttempts: 30)
-        newGraphButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Verify reset: Check for empty graph label
-        let emptyPredicate = NSPredicate(format: "label == %@", "Graph with 0 nodes and 0 edges. No node or edge selected.")
-        expectation(for: emptyPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
-    
-    // Helper: Perform long press with retries and debug
-    private func performLongPress(on element: XCUIElement, atNormalizedOffset offset: CGVector, maxRetries: Int = 3, app: XCUIApplication) {
-        let coord = element.coordinate(withNormalizedOffset: offset)
-        for attempt in 1...maxRetries {
-            print("Long press attempt \(attempt)")
-            coord.tap()  // Pre-tap for readiness
-            Thread.sleep(forTimeInterval: 1.0)  // Settle time
-            coord.press(forDuration: 7.0)
-            Thread.sleep(forTimeInterval: 2.0)
-            
-            print("Post-long-press hierarchy (attempt \(attempt)): \(app.debugDescription)")
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Post-long-press-attempt-\(attempt)"
-            attachment.lifetime = XCTAttachment.Lifetime.keepAlways
-            add(attachment)
-            
-            if app.collectionViews["menuList"].exists {
-                return  // Success
-            }
-            coord.tap()  // Dismiss if partial open
-            Thread.sleep(forTimeInterval: 1.0)
-        }
-        XCTFail("Long press failed after \(maxRetries) attempts")
-    }
-    
-    // Improved scrolling: Bidirectional, smaller swipes, non-failing existence checks
-    private func scrollUntilVisible(element: XCUIElement, in container: XCUIElement, maxAttempts: Int) {
-        var attempts = 0
-        let smallOffset = CGVector(dx: 0.5, dy: 0.25)  // Swipe 1/4 height for precision
-        
-        while attempts < maxAttempts {
-            // Use query to check existence without failing
-            let query = container.buttons[element.identifier]
-            if query.exists && query.firstMatch.isHittable {
-                return
-            }
-            
-            // Swipe up (primary)
-            let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-            let end = container.coordinate(withNormalizedOffset: smallOffset)
-            start.press(forDuration: 0.1, thenDragTo: end)
-            Thread.sleep(forTimeInterval: 0.5)
-            attempts += 1
-            
-            print("Scroll up attempt \(attempts): Exists? \(query.exists), hittable? \(query.firstMatch.isHittable)")
-            
-            // Every 5 attempts, swipe down to correct overshoot
-            if attempts % 5 == 0 {
-                let downStart = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-                let downEnd = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-                downStart.press(forDuration: 0.1, thenDragTo: downEnd)
-                Thread.sleep(forTimeInterval: 0.5)
-                print("Corrective swipe down at attempt \(attempts)")
-            }
-        }
-        XCTFail("Element not visible after \(maxAttempts) attempts")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITestsLaunchTests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
-Last modified: 2025-09-19 13:15:40
-
-Contents:
-//
-//  GraphEditorWatchUITestsLaunchTests.swift
-//  GraphEditorWatchUITests
-//
-//  Created by handcart on 8/4/25.
-//
-
-import XCTest
-
-final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
-
-    override static var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
-    }
-
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-    }
-
-    @MainActor
-    func testLaunch() throws {
-        let app = XCUIApplication()
-        app.launch()
-
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
-        attachment.lifetime = .keepAlways
-        add(attachment)
     }
 }
 --------------------------------------------------

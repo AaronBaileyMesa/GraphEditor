@@ -1,40 +1,33 @@
 //
 //  NodeMenuView.swift
-//  GraphEditor
+//  GraphEditorWatch
 //
-//  Created by handcart on 10/21/25.
+//  Created by handcart on 2025-08-16
 //
 
 import SwiftUI
 import WatchKit
 import GraphEditorShared
-import os
+import os  // For logging
 
 struct NodeMenuView: View {
     let viewModel: GraphViewModel
-    let isSimulatingBinding: Binding<Bool>
-    let onCenterGraph: () -> Void
-    @Binding var showMenu: Bool
-    @Binding var showOverlays: Bool
-    @Binding var selectedNodeID: NodeID?
     let onDismiss: () -> Void
-    
+    @Binding var selectedNodeID: NodeID?
+    @Binding var isAddingEdge: Bool
+    @State private var selectedEdgeType: GraphEditorShared.EdgeType = .association  // Use shared EdgeType
     @FocusState private var isMenuFocused: Bool
-    @State private var isAddingEdge: Bool = false
-    @State private var selectedEdgeType: EdgeType = .association  // For edge picker
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodemenuview")
     
-    // Fetch node label for header and title
     private var nodeLabel: String {
         if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
             return "\(node.label)"
         }
-        return "Unknown"
+        return ""
     }
     
-    // Check if selected node is a ToggleNode
-    private var isToggleNode: Bool {
+    var isToggleNode: Bool {
         viewModel.isSelectedToggleNode
     }
     
@@ -55,7 +48,13 @@ struct NodeMenuView: View {
                         addEdgeButton
                     }
                     .padding(.horizontal, 8)
-                    edgeTypePicker.padding(.horizontal, 8)  // Picker below for space
+                    
+                    // Replaced Picker with buttons for edge type selection
+                    HStack(spacing: 8) {
+                        edgeTypeButton(type: .association)
+                        edgeTypeButton(type: .hierarchy)
+                    }
+                    .padding(.horizontal, 8)
                 }
                 
                 // Edit Section: Side-by-side buttons with icons + text (node-focused only)
@@ -96,11 +95,24 @@ struct NodeMenuView: View {
         }
     }
     
+    // NEW: Helper for edge type buttons
+    private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
+        Button {
+            selectedEdgeType = type
+        } label: {
+            Text(type == .association ? "Assoc" : "Hier")  // Use abbreviated labels
+            .font(.caption2)
+            .fontWeight(selectedEdgeType == type ? .bold : .regular)  // Use fontWeight for compatibility
+            .foregroundColor(selectedEdgeType == type ? .blue : .gray)  // Highlight selected
+        }
+        .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
+    }
+    
     // Extracted Add buttons (from AddSection)
     private var addNodeButton: some View {
         Button {
             WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.addNode(at: .zero) }
+            Task { await viewModel.model.addNode(at: CGPoint.zero) }
             onDismiss()
         } label: {
             Label("Node", systemImage: "plus.circle")
@@ -113,7 +125,7 @@ struct NodeMenuView: View {
     private var addToggleNodeButton: some View {
         Button {
             WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.addToggleNode(at: .zero) }
+            Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
             onDismiss()
         } label: {
             Label("Toggle", systemImage: "plus.circle.fill")
@@ -127,7 +139,7 @@ struct NodeMenuView: View {
         Button {
             WKInterfaceDevice.current().play(.click)
             if let id = selectedNodeID {
-                Task { await viewModel.addChild(to: id) }
+                Task { await viewModel.model.addChild(to: id) }
             }
             onDismiss()
         } label: {
@@ -136,16 +148,6 @@ struct NodeMenuView: View {
                 .font(.caption)
         }
         .accessibilityIdentifier("addChildButton")
-    }
-    
-    private var edgeTypePicker: some View {
-        Picker("Type", selection: $selectedEdgeType) {
-            Text("Assoc").tag(EdgeType.association)
-            Text("Hier").tag(EdgeType.hierarchy)
-        }
-        .font(.caption2)
-        .labelsHidden()
-        .accessibilityHint("Select edge type")
     }
     
     private var addEdgeButton: some View {

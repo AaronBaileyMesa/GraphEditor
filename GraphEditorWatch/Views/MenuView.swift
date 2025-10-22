@@ -28,12 +28,9 @@ struct MenuView: View {
         if selectedNodeID != nil && selectedEdgeID == nil {
             NodeMenuView(
                 viewModel: viewModel,
-                isSimulatingBinding: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
-                showMenu: $showMenu,
-                showOverlays: $showOverlays,
+                onDismiss: { showMenu = false },
                 selectedNodeID: $selectedNodeID,
-                onDismiss: { showMenu = false }
+                isAddingEdge: $isAddingEdge
             )
         } else if selectedEdgeID != nil {
             EdgeMenuView(
