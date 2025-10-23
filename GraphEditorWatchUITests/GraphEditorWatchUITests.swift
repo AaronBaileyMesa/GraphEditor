@@ -23,13 +23,13 @@ final class GraphEditorWatchUITests: XCTestCase {
         
         print("Post-launch hierarchy: \(app.debugDescription)")
         
-        let canvas = app.buttons["GraphCanvas"]
+        let canvas = app.otherElements["GraphCanvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")
     }
     
     func testAppLaunchesAndCanvasExists() {
         let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
+        let canvas = app.otherElements["GraphCanvas"]
         canvas.waitForExistence(timeout: 10)
         
         // Basic verification: Check initial label (adjust based on launched state)
@@ -40,7 +40,7 @@ final class GraphEditorWatchUITests: XCTestCase {
     
     func testMenuOpensAfterLongPress() {
         let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
+        let canvas = app.otherElements["GraphCanvas"]
         canvas.waitForExistence(timeout: 10)
         
         performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
@@ -53,7 +53,7 @@ final class GraphEditorWatchUITests: XCTestCase {
     
     func testAddNodeViaMenu() {
         let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
+        let canvas = app.otherElements["GraphCanvas"]
         canvas.waitForExistence(timeout: 10)
         
         performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
@@ -63,7 +63,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         
         print("Menu hierarchy after open: \(app.debugDescription)")
         
-        let addNodeButton = app.buttons["addNodeButton"]
+        let addNodeButton = app.otherElements["addNodeButton"]
         scrollUntilVisible(element: addNodeButton, in: menuList, maxAttempts: 30)
         addNodeButton.tap()
         Thread.sleep(forTimeInterval: 1.0)
@@ -76,7 +76,7 @@ final class GraphEditorWatchUITests: XCTestCase {
     
     func testResetGraphViaMenu() {
         let app = XCUIApplication()
-        let canvas = app.buttons["GraphCanvas"]
+        let canvas = app.otherElements["GraphCanvas"]
         canvas.waitForExistence(timeout: 10)
         
         performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 3, app: app)
@@ -86,7 +86,7 @@ final class GraphEditorWatchUITests: XCTestCase {
         
         print("Menu hierarchy after open: \(app.debugDescription)")
         
-        let newGraphButton = app.buttons["newGraphButton"]
+        let newGraphButton = app.otherElements["newGraphButton"]
         scrollUntilVisible(element: newGraphButton, in: menuList, maxAttempts: 30)
         newGraphButton.tap()
         Thread.sleep(forTimeInterval: 1.0)

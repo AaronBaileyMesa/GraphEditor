@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 import os  // Added for logging
 
-struct ContentView: View { // siwftlint:disable function_body_length
+struct ContentView: View { // siwftlint:disable type_body_length
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
     
     @ObservedObject var viewModel: GraphViewModel

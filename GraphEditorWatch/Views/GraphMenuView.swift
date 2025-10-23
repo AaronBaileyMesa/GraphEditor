@@ -16,50 +16,40 @@ struct GraphMenuView: View {
     let onCenterGraph: () -> Void
     @Binding var showMenu: Bool
     @Binding var showOverlays: Bool
-    let onDismiss: () -> Void  // Added for consistency with other menus
+    let onDismiss: () -> Void
     
     @FocusState private var isMenuFocused: Bool
-    @State private var isAddingEdge: Bool = false
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "graphmenuview")
     
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 4) {
-                Text("Add").font(.subheadline.bold()).gridCellColumns(2)
-                AddSection(
-                    viewModel: viewModel,
-                    selectedNodeID: nil,  // No selection
-                    onDismiss: onDismiss,
-                    onAddEdge: { type in
-                        viewModel.pendingEdgeType = type
-                        isAddingEdge = true
-                    }
-                )
+            VStack(spacing: 8) {
+                Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {  // Standardize with NodeMenuView
+                    addNodeButton
+                    addToggleNodeButton
+                }
+                .padding(.horizontal, 8)
                 
-                Text("View").font(.subheadline.bold()).gridCellColumns(2)
-                ViewSection(
-                    showOverlays: $showOverlays,
-                    isSimulating: isSimulatingBinding,
-                    onCenterGraph: onCenterGraph,
-                    onDismiss: onDismiss,
-                    onSimulationChange: { newValue in
-                        viewModel.model.isSimulating = newValue
-                        if newValue {
-                            Task { await viewModel.model.startSimulation() }
-                        } else {
-                            Task { await viewModel.model.stopSimulation() }
-                        }
-                    }
-                )
+                Text("View").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    overlaysToggle
+                    simulationToggle
+                }
+                .padding(.horizontal, 8)
                 
-                Text("Graph").font(.subheadline.bold()).gridCellColumns(2)
-                GraphSection(viewModel: viewModel, onDismiss: onDismiss)
+                Text("Graph").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    centerButton
+                    // Add other graph actions if needed (e.g., reset from GraphSection)
+                }
+                .padding(.horizontal, 8)
             }
             .padding(4)
         }
         .accessibilityIdentifier("graphMenuGrid")
-        .navigationTitle("Graph")  // Static name in top-right
+        .navigationTitle("Graph")
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -75,10 +65,71 @@ struct GraphMenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
-        .onChange(of: isAddingEdge) { _, newValue in
+    }
+    
+    // Extracted buttons for clarity (adapt from AddSection/ViewSection)
+    private var addNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.model.addNode(at: CGPoint.zero) }
+            onDismiss()
+        } label: {
+            Label("Node", systemImage: "plus.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addNodeButton")
+    }
+    
+    private var addToggleNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+            onDismiss()
+        } label: {
+            Label("Toggle", systemImage: "plus.circle.fill")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addToggleNodeButton")
+    }
+    
+    private var overlaysToggle: some View {
+        Toggle(isOn: $showOverlays) {
+            Label("Overlays", systemImage: "eye")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("overlaysToggle")
+    }
+    
+    private var simulationToggle: some View {
+        Toggle(isOn: isSimulatingBinding) {
+            Label("Simulate", systemImage: "play.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .onChange(of: isSimulatingBinding.wrappedValue) { newValue in
+            viewModel.model.isSimulating = newValue
             if newValue {
-                // Handle add-edge mode (same as original)
+                Task { await viewModel.model.startSimulation() }
+            } else {
+                Task { await viewModel.model.stopSimulation() }
             }
         }
+        .accessibilityIdentifier("simulationToggle")
+    }
+    
+    private var centerButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onCenterGraph()
+            onDismiss()
+        } label: {
+            Label("Center", systemImage: "scope")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("centerButton")
     }
 }
