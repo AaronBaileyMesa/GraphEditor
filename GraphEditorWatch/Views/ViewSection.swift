@@ -37,7 +37,7 @@ struct ViewSection: View {
             Toggle("", isOn: $showOverlays)
                 .labelsHidden()
         }
-        .onChange(of: showOverlays) { _ in
+        .onChange(of: showOverlays) {
             WKInterfaceDevice.current().play(.click)
             onDismiss()
         }
@@ -57,7 +57,7 @@ struct ViewSection: View {
             Toggle("", isOn: isSimulating)
                 .labelsHidden()
         }
-        .onChange(of: isSimulating.wrappedValue) { newValue in
+        .onChange(of: isSimulating.wrappedValue) {_, newValue in
             WKInterfaceDevice.current().play(.click)
             onSimulationChange(newValue)
             onDismiss()

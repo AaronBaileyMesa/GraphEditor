@@ -61,9 +61,9 @@ struct EditContentSheet: View {
 
             // Section 2: Compact "Add New" (tappable to expand)
             Section {
-                Button(action: { showAddSection.toggle() }) { 
+                Button(action: { showAddSection.toggle() }, label: {
                     Text(showAddSection ? "Hide Add" : "Add New...").font(.caption)
-                }
+                })
                 if showAddSection {
                     Picker("Type", selection: $selectedType) {
                         Text("String").tag("String")

@@ -29,14 +29,14 @@ struct EditSection: View {
     
     var body: some View {
         Group {
-            if let selectedID = selectedNodeID {
+            if selectedNodeID != nil {
                 editContentsLink
                 if viewModel.isSelectedToggleNode {
                     toggleExpandButton
                 }
                 deleteNodeButton
             }
-            if let selectedEdgeID = selectedEdgeID,
+            if selectedEdgeID != nil,
                let selectedEdge = findSelectedEdge() {
                 edgeInfoText(selectedEdge: selectedEdge)
                 deleteEdgeButton(selectedEdge: selectedEdge)
