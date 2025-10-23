@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>307</string>
+					<string>323</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>307</string>
+					<string>323</string>
 					<key>Timestamp</key>
-					<string>782933586.914891</string>
+					<string>782936158.44376</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,14 +36,11 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
 				<key>trailing</key>
-				<string>        .padding(10)
-        .background(Color.red.opacity(0.2))  // TEMP: Visualize; different color for distinction
-        .accessibilityLabel("Menu")
-</string>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -58,13 +55,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>307</string>
+					<string>323</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>307</string>
+					<string>323</string>
 					<key>Timestamp</key>
-					<string>782933586.914907</string>
+					<string>782936158.443774</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -82,14 +79,11 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
 				<key>trailing</key>
-				<string>        .padding(10)
-        .background(Color.red.opacity(0.2))  // TEMP: Visualize; different color for distinction
-        .accessibilityLabel("Menu")
-</string>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>
