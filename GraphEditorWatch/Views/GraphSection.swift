@@ -146,12 +146,8 @@ struct GraphSection: View {
         Button {
             WKInterfaceDevice.current().play(.click)
             Task {
-                do {
-                    try await viewModel.model.loadGraph(name: graphName)
-                    viewModel.currentGraphName = graphName
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+                await viewModel.model.loadGraph(name: graphName)
+                viewModel.currentGraphName = graphName
             }
             onDismiss()
         } label: {
@@ -184,13 +180,9 @@ struct GraphSection: View {
         Button {
             WKInterfaceDevice.current().play(.click)
             Task {
-                do {
-                    try await viewModel.model.loadGraph(name: name)
-                    viewModel.currentGraphName = name
-                    graphName = name
-                } catch {
-                    errorMessage = error.localizedDescription
-                }
+                await viewModel.model.loadGraph(name: name)
+                viewModel.currentGraphName = name
+                graphName = name
             }
             onDismiss()
         } label: {
@@ -221,7 +213,7 @@ struct GraphSection: View {
                 do {
                     try await viewModel.model.deleteGraph(name: graphName)
                     graphName = "default"
-                    try await viewModel.model.loadGraph(name: "default")
+                    await viewModel.model.loadGraph(name: "default")
                 } catch {
                     errorMessage = error.localizedDescription
                 }

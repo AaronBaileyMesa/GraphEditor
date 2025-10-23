@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-21 18:25:46
+Current date: 2025-10-22 10:21:09
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
 2. GraphEditorWatch/GraphEditorWatch.swift
@@ -259,7 +259,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-21 10:01:55
+Last modified: 2025-10-22 07:45:44
 
 Contents:
 //
@@ -549,7 +549,7 @@ extension GraphViewModel {
         // Save current view state before switching
         try saveViewState()
         
-        try await model.loadGraph(name: name)
+        await model.loadGraph(name: name)
         currentGraphName = model.currentGraphName  // Sync
         
         // Load view state for the new graph
@@ -723,7 +723,7 @@ struct AddSection: View {
 ----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-21 10:09:22
+Last modified: 2025-10-22 10:20:32
 
 Contents:
 import SwiftUI
@@ -1052,7 +1052,7 @@ extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: EdgeMenuView.swift
 Path: GraphEditorWatch/Views/EdgeMenuView.swift
-Last modified: 2025-10-21 15:58:08
+Last modified: 2025-10-22 07:45:44
 
 Contents:
 //
@@ -1146,7 +1146,7 @@ struct EdgeMenuView: View {
             WKInterfaceDevice.current().play(.click)
             if let edge = selectedEdge {
                 Task {
-                    let isProcessing = true  // Use local or @State if needed for disabling
+                    _ = true  // Use local or @State if needed for disabling
                     await viewModel.model.snapshot()
                     if isBidirectional {
                         let pair = viewModel.model.edgesBetween(edge.from, edge.target)
@@ -1176,7 +1176,7 @@ struct EdgeMenuView: View {
             WKInterfaceDevice.current().play(.click)
             if let edge = selectedEdge {
                 Task {
-                    let isProcessing = true
+                    _ = true
                     await viewModel.model.snapshot()
                     viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
                     viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))

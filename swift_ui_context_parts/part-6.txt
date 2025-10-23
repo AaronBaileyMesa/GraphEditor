@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-21 18:25:47
+Current date: 2025-10-22 10:21:10
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphMenuView.swift
@@ -12,7 +12,7 @@ Table of Contents:
 7. GraphEditorWatch/Views/NodeMenuView.swift--------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-10-17 07:47:32
+Last modified: 2025-10-22 07:45:44
 
 Contents:
 //
@@ -97,47 +97,58 @@ struct GraphGesturesModifier: ViewModifier {
                 gestureState = currentState  // Track if actively pressing
             }
             .onEnded { _ in
-                if !isSimulating {
-                    selectedNodeID = nil
-                    selectedEdgeID = nil
-                    showMenu = true
-                    WKInterfaceDevice.current().play(.click)  // Better haptic for completion
-                    withAnimation(.easeInOut(duration: 0.1)) {
-                        saturation = 1.0  // Immediate reset on success
-                    }
-                    pressProgress = 0.0
-                    longPressTimer?.invalidate()
-                    longPressTimer = nil
-                    Self.logger.debug("Long press completed: Menu shown, saturation reset")
-                }
+                handleLongPressEnded()
             }
         
         content
             .highPriorityGesture(dragGesture)
             .simultaneousGesture(longPressGesture)
-            .onChange(of: isLongPressing) { oldValue, newValue in
+            .onChange(of: isLongPressing) { _, newValue in
                 if newValue {  // Press started
-                    Self.logger.debug("Long press detected: Starting desaturation")
-                    WKInterfaceDevice.current().play(.click)  // Initial haptic
-                    longPressTimer?.invalidate()
-                    longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
-                        pressProgress += 0.05 / AppConstants.menuLongPressDuration
-                        saturation = 1.0 - pressProgress  // Progressive desaturation (1.0 -> 0.0)
-                        if pressProgress >= 1.0 {
-                            longPressTimer?.invalidate()
-                            longPressTimer = nil
-                        }
-                    }
+                    handleLongPressStart()
                 } else {  // Press cancelled (e.g., moved too far)
-                    Self.logger.debug("Long press cancelled: Resetting saturation")
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        saturation = 1.0
-                    }
-                    pressProgress = 0.0
-                    longPressTimer?.invalidate()
-                    longPressTimer = nil
+                    handleLongPressCancel()
                 }
             }
+    }
+    private func handleLongPressStart() {
+        Self.logger.debug("Long press detected: Starting desaturation")
+        WKInterfaceDevice.current().play(.click)  // Initial haptic
+        longPressTimer?.invalidate()
+        longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            pressProgress += 0.05 / AppConstants.menuLongPressDuration
+            saturation = 1.0 - pressProgress  // Progressive desaturation (1.0 -> 0.0)
+            if pressProgress >= 1.0 {
+                longPressTimer?.invalidate()
+                longPressTimer = nil
+            }
+        }
+    }
+
+    private func handleLongPressCancel() {
+        Self.logger.debug("Long press cancelled: Resetting saturation")
+        withAnimation(.easeInOut(duration: 0.2)) {
+            saturation = 1.0
+        }
+        pressProgress = 0.0
+        longPressTimer?.invalidate()
+        longPressTimer = nil
+    }
+
+    private func handleLongPressEnded() {
+        if !isSimulating {
+            selectedNodeID = nil
+            selectedEdgeID = nil
+            showMenu = true
+            WKInterfaceDevice.current().play(.click)  // Better haptic for completion
+            withAnimation(.easeInOut(duration: 0.1)) {
+                saturation = 1.0  // Immediate reset on success
+            }
+            pressProgress = 0.0
+            longPressTimer?.invalidate()
+            longPressTimer = nil
+            Self.logger.debug("Long press completed: Menu shown, saturation reset")
+        }
     }
 }
 
