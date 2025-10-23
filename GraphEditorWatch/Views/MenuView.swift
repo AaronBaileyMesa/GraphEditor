@@ -46,7 +46,6 @@ struct MenuView: View {
             GraphMenuView(
                 viewModel: viewModel,
                 isSimulatingBinding: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
                 showMenu: $showMenu,
                 showOverlays: $showOverlays,
                 onDismiss: { showMenu = false }

@@ -13,10 +13,9 @@ import os
 struct GraphMenuView: View {
     let viewModel: GraphViewModel
     let isSimulatingBinding: Binding<Bool>
-    let onCenterGraph: () -> Void
     @Binding var showMenu: Bool
     @Binding var showOverlays: Bool
-    let onDismiss: () -> Void
+    let onDismiss: () -> Void  // For consistency
     
     @FocusState private var isMenuFocused: Bool
     
@@ -25,13 +24,15 @@ struct GraphMenuView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
+                // Add Section (from AddSection, no edge/child since no selection)
                 Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                HStack(spacing: 8) {  // Standardize with NodeMenuView
+                HStack(spacing: 8) {
                     addNodeButton
                     addToggleNodeButton
                 }
                 .padding(.horizontal, 8)
                 
+                // View Section
                 Text("View").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     overlaysToggle
@@ -39,17 +40,18 @@ struct GraphMenuView: View {
                 }
                 .padding(.horizontal, 8)
                 
+                // Graph Section (integrated: e.g., reset/clear actions; adjust based on original GraphSection code)
                 Text("Graph").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
-                    centerButton
-                    // Add other graph actions if needed (e.g., reset from GraphSection)
+                    resetGraphButton  // Example from GraphSection
+                    // Add other actions if in original (e.g., save/load)
                 }
                 .padding(.horizontal, 8)
             }
             .padding(4)
         }
         .accessibilityIdentifier("graphMenuGrid")
-        .navigationTitle("Graph")
+        .navigationTitle("Graph")  // Static name
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -67,7 +69,7 @@ struct GraphMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // Extracted buttons for clarity (adapt from AddSection/ViewSection)
+    // Add buttons
     private var addNodeButton: some View {
         Button {
             WKInterfaceDevice.current().play(.click)
@@ -94,11 +96,15 @@ struct GraphMenuView: View {
         .accessibilityIdentifier("addToggleNodeButton")
     }
     
+    // View toggles (adapted from ViewSection)
     private var overlaysToggle: some View {
         Toggle(isOn: $showOverlays) {
             Label("Overlays", systemImage: "eye")
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
+        }
+        .onChange(of: showOverlays) { newValue in
+            // Any additional logic from ViewSection
         }
         .accessibilityIdentifier("overlaysToggle")
     }
@@ -120,16 +126,19 @@ struct GraphMenuView: View {
         .accessibilityIdentifier("simulationToggle")
     }
     
-    private var centerButton: some View {
-        Button {
+    // Graph actions (from GraphSection; example reset button – adjust to match original)
+    private var resetGraphButton: some View {
+        Button(role: .destructive) {
             WKInterfaceDevice.current().play(.click)
-            onCenterGraph()
+            Task {
+                await viewModel.model.resetGraph()  // Assume this exists; adjust method name
+            }
             onDismiss()
         } label: {
-            Label("Center", systemImage: "scope")
+            Label("Reset", systemImage: "arrow.counterclockwise")
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }
-        .accessibilityIdentifier("centerButton")
+        .accessibilityIdentifier("resetGraphButton")
     }
 }

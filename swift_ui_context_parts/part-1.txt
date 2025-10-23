@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-23 10:27:07
+Current date: 2025-10-23 13:36:28
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -589,7 +589,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Helpers.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
-Last modified: 2025-10-16 15:42:12
+Last modified: 2025-10-23 13:29:25
 
 Contents:
 //
@@ -602,7 +602,17 @@ import Foundation
 
 @available(iOS 16.0, watchOS 6.0, *)
 extension GraphModel {
-    func buildAdjacencyList(for edgeType: EdgeType? = nil) -> [NodeID: [NodeID]] { 
+    public func resetGraph() async {
+        nodes.removeAll()
+        edges.removeAll()
+        nextNodeLabel = 1  // Reset label counter
+        undoStack.removeAll()
+        redoStack.removeAll()
+        objectWillChange.send()
+        await startSimulation()  // Or resume if needed
+    }
+    
+    func buildAdjacencyList(for edgeType: EdgeType? = nil) -> [NodeID: [NodeID]] {
         var adj = [NodeID: [NodeID]]()
         let filteredEdges = edgeType != nil ? edges.filter { $0.type == edgeType! } : edges
         for edge in filteredEdges {
