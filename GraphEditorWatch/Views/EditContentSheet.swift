@@ -17,7 +17,7 @@ struct EditContentSheet: View {
     @State private var selectedType: String = "String"
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
-    @State private var numberValue: Double = 0.0
+    @State private var numberString: String = ""  // Changed to string for custom input
     @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
     @State private var showAddSection: Bool = false  // NEW: Toggle add inputs visibility for compactness
@@ -25,74 +25,8 @@ struct EditContentSheet: View {
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                // Section 1: Prioritize contents list (editable, gesture-based)
-                Section(header: Text("Contents").font(.subheadline)) {  // Compact header
-                    if contents.isEmpty {
-                        Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
-                    } else {
-                        ForEach(contents.indices, id: \.self) { index in
-                            if editingIndex == index {
-                                // Inline edit mode (tap to enter)
-                                inlineEditView(for: index)
-                                    .swipeActions {  // Moved inside ForEach, per row
-                                        Button("Delete", role: .destructive) {
-                                            contents.remove(at: index)  // Use captured index
-                                            editingIndex = nil  // Reset if deleted while editing
-                                        }
-                                    }
-                            } else {
-                                Text(displayText(for: contents[index]))
-                                    .font(.caption)  // Smaller font for compactness
-                                    .onTapGesture {
-                                        editingIndex = index  // Tap to edit
-                                    }
-                                    .swipeActions {  // Moved inside ForEach, per row
-                                        Button("Delete", role: .destructive) {
-                                            contents.remove(at: index)  // Use captured index
-                                        }
-                                    }
-                            }
-                        }
-                        .onMove { indices, newOffset in
-                            contents.move(fromOffsets: indices, toOffset: newOffset)  // Drag to reorder
-                        }
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
-
-                // Section 2: Compact "Add New" (tappable to expand)
-                Section {
-                    Button(action: { showAddSection.toggle() }, label: {
-                        Text(showAddSection ? "Hide Add" : "Add New...").font(.caption)
-                    })
-                    if showAddSection {
-                        Picker("Type", selection: $selectedType) {
-                            Text("String").tag("String")
-                            Text("Date").tag("Date")
-                            Text("Number").tag("Number")
-                        }
-                        .pickerStyle(.wheel)  // Changed to .wheel for watchOS compatibility (default on watchOS)
-                        .id("addPicker")  // ID for scrolling
-                        
-                        if selectedType == "String" {
-                            TextField("Enter text", text: $stringValue)
-                        } else if selectedType == "Date" {
-                            DatePicker("Date", selection: $dateValue, displayedComponents: .date)
-                                .labelsHidden()  // Save space
-                        } else if selectedType == "Number" {
-                            TextField("Number", value: $numberValue, format: .number)
-                        }
-                        
-                        Button("Add") {
-                            if let newContent = createNewContent() {
-                                contents.append(newContent)
-                                resetInputFields()
-                                showAddSection = false  // Auto-hide after add for compactness
-                            }
-                        }
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Compact padding
+                contentsSection
+                addSection(proxy: proxy)
             }
             .navigationTitle("Edit Contents")  // Keep for context
             .navigationBarTitleDisplayMode(.inline)
@@ -101,7 +35,11 @@ struct EditContentSheet: View {
                     Button("Cancel") { dismiss() }.foregroundColor(.red)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { onSave(contents); dismiss() }
+                    Button("Save") {
+                        addPendingContent()  // NEW: Add any pending input before saving
+                        onSave(contents)
+                        dismiss()
+                    }
                 }
             }
             .focused($isSheetFocused)
@@ -125,6 +63,71 @@ struct EditContentSheet: View {
             .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
         }
     }
+
+    private var contentsSection: some View {
+        Section(header: Text("Contents").font(.subheadline)) {  // Compact header
+            if contents.isEmpty {
+                Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
+            } else {
+                ForEach(contents.indices, id: \.self) { index in
+                    if editingIndex == index {
+                        // Inline edit mode (tap to enter)
+                        inlineEditView(for: index)
+                            .swipeActions {  // Moved inside ForEach, per row
+                                Button("Delete", role: .destructive) {
+                                    contents.remove(at: index)  // Use captured index
+                                    editingIndex = nil  // Reset if deleted while editing
+                                }
+                            }
+                    } else {
+                        Text(displayText(for: contents[index]))
+                            .font(.caption)  // Smaller font for compactness
+                            .onTapGesture {
+                                editingIndex = index  // Tap to edit
+                            }
+                            .swipeActions {  // Moved inside ForEach, per row
+                                Button("Delete", role: .destructive) {
+                                    contents.remove(at: index)  // Use captured index
+                                }
+                            }
+                    }
+                }
+                .onMove { indices, newOffset in
+                    contents.move(fromOffsets: indices, toOffset: newOffset)  // Drag to reorder
+                }
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
+    }
+
+    private func addSection(proxy: ScrollViewProxy) -> some View {
+        Section {
+            Button(action: { showAddSection.toggle() }, label: {
+                Text(showAddSection ? "Hide Add" : "Add New...").font(.caption)
+            })
+            if showAddSection {
+                Picker("Type", selection: $selectedType) {
+                    Text("String").tag("String")
+                    Text("Date").tag("Date")
+                    Text("Number").tag("Number")
+                }
+                .pickerStyle(.wheel)
+                .id("addPicker")
+                
+                if selectedType == "String" {
+                    TextField("Enter text", text: $stringValue)
+                } else if selectedType == "Date" {
+                    DatePicker("Date", selection: $dateValue, displayedComponents: .date)
+                        .labelsHidden()
+                } else if selectedType == "Number" {
+                    NumericKeypadView(text: $numberString)
+                }
+                
+                // Removed the "Add" button; now handled by top "Save"
+            }
+        }
+        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Compact padding
+    }
     
     // NEW: Inline edit view for an item (compact, type-specific)
     private func inlineEditView(for index: Int) -> some View {
@@ -137,7 +140,11 @@ struct EditContentSheet: View {
                 DatePicker("Edit Date", selection: Binding(get: { date }, set: { date = $0; contents[index] = .date(date) }), displayedComponents: .date)
                     .labelsHidden()
             case .number(var num):
-                TextField("Edit Number", value: Binding(get: { num }, set: { num = $0; contents[index] = .number(num) }), format: .number)
+                let numString = Binding<String>(
+                    get: { String(num) },
+                    set: { if let newNum = Double($0) { contents[index] = .number(newNum) } }
+                )
+                NumericKeypadView(text: numString)
             case .boolean(var bool):
                 Toggle("Edit Boolean", isOn: Binding(get: { bool }, set: { bool = $0; contents[index] = .boolean(bool) }))
             }
@@ -145,12 +152,26 @@ struct EditContentSheet: View {
         }
     }
     
-    // Helper to create new content (unchanged)
+    // NEW: Add any pending new content before saving
+    private func addPendingContent() {
+        if showAddSection, let newContent = createNewContent() {
+            contents.append(newContent)
+            resetInputFields()
+            showAddSection = false
+        }
+    }
+    
+    // Helper to create new content (updated for numberString)
     private func createNewContent() -> NodeContent? {
         switch selectedType {
         case "String": return stringValue.isEmpty ? nil : .string(stringValue)
         case "Date": return .date(dateValue)
-        case "Number": return .number(numberValue)
+        case "Number":
+            if let num = Double(numberString) {
+                return .number(num)
+            } else {
+                return nil  // Or handle invalid input
+            }
         default: return nil
         }
     }
@@ -175,6 +196,80 @@ struct EditContentSheet: View {
     private func resetInputFields() {
         stringValue = ""
         dateValue = Date()
-        numberValue = 0.0
+        numberString = ""  // Reset string instead
+    }
+}
+
+struct NumericKeypadView: View {
+    @Binding var text: String
+    
+    let columns = [
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2),
+        GridItem(.flexible(), spacing: 2)
+    ]
+    
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(text.isEmpty ? "0" : text)
+                .font(.system(size: 12, weight: .medium))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(4)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(4)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            
+            LazyVGrid(columns: columns, spacing: 2) {
+                keypadButton("7") { appendDigit("7") }
+                keypadButton("8") { appendDigit("8") }
+                keypadButton("9") { appendDigit("9") }
+                keypadButton("4") { appendDigit("4") }
+                keypadButton("5") { appendDigit("5") }
+                keypadButton("6") { appendDigit("6") }
+                keypadButton("1") { appendDigit("1") }
+                keypadButton("2") { appendDigit("2") }
+                keypadButton("3") { appendDigit("3") }
+                keypadButton(".") { appendDigit(".") }
+                keypadButton("0") { appendDigit("0") }
+                keypadButton("-") { toggleNegative() }
+            }
+            
+            keypadButton("⌫", background: Color.red.opacity(0.2)) {
+                deleteLastCharacter()
+            }
+            .font(.system(size: 10))
+        }
+        .font(.system(size: 10))
+    }
+    
+    private func keypadButton(_ label: String, background: Color = Color.gray.opacity(0.1), action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .frame(maxWidth: .infinity, minHeight: 20)
+                .background(background)
+                .cornerRadius(4)
+        }
+        .buttonStyle(.plain)
+    }
+    
+    private func appendDigit(_ digit: String) {
+        if digit == "." && text.contains(".") { return }
+        text += digit
+    }
+    
+    private func toggleNegative() {
+        if text.hasPrefix("-") {
+            text.removeFirst()
+        } else if !text.isEmpty || text == "0" {
+            text = "-" + text
+        }
+    }
+    
+    private func deleteLastCharacter() {
+        if !text.isEmpty {
+            text.removeLast()
+        }
     }
 }
