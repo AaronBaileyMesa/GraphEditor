@@ -2,7 +2,7 @@
 //  MenuButton.swift
 //  GraphEditorWatch
 //
-//  Created by [Your Name] on 2025-10-23.
+//  Created by handcart on 2025-10-23.
 //
 
 import SwiftUI

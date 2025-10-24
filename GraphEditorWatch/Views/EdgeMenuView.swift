@@ -85,57 +85,60 @@ struct EdgeMenuView: View {
     }
     
     private var deleteEdgeButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            if let edge = selectedEdge {
-                Task {
-                    _ = true  // Use local or @State if needed for disabling
-                    await viewModel.model.snapshot()
-                    if isBidirectional {
-                        let pair = viewModel.model.edgesBetween(edge.from, edge.target)
-                        viewModel.model.edges.removeAll { pair.contains($0) }
-                    } else {
-                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+        MenuButton(
+            action: {
+                if let edge = selectedEdge {
+                    Task {
+                        _ = true  // Use local or @State if needed for disabling
+                        await viewModel.model.snapshot()
+                        if isBidirectional {
+                            let pair = viewModel.model.edgesBetween(edge.from, edge.target)
+                            viewModel.model.edges.removeAll { pair.contains($0) }
+                        } else {
+                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                        }
+                        await viewModel.model.startSimulation()
+                        viewModel.setSelectedEdge(nil)
+                        // Clear node selection if mixed
+                        viewModel.setSelectedNode(nil)
                     }
-                    await viewModel.model.startSimulation()
-                    viewModel.setSelectedEdge(nil)
-                    // Clear node selection if mixed
-                    viewModel.setSelectedNode(nil)
                 }
-            }
-            onDismiss()
-        } label: {
-            Image(systemName: "trash")
-                .font(.system(size: 20))  // Adjust size for watchOS
-        }
-        .buttonStyle(.borderedProminent)  // Makes it round/compact
-        .tint(.red)  // Destructive color
+                onDismiss()
+            },
+            label: {
+                Label("Delete", systemImage: "trash") // Converted to Label for consistency
+            },
+            accessibilityIdentifier: "deleteEdgeButton",
+            role: .destructive
+        )
+        .buttonStyle(.borderedProminent) // Keep for now; will standardize later
+        .tint(.red)
         .accessibilityLabel(isBidirectional ? "Delete Both Edges" : "Delete Edge")
-        .accessibilityIdentifier("deleteEdgeButton")
     }
-    
+
     private var reverseEdgeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            if let edge = selectedEdge {
-                Task {
-                    _ = true
-                    await viewModel.model.snapshot()
-                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                    viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))
-                    await viewModel.model.startSimulation()
-                    viewModel.setSelectedEdge(nil)
-                    viewModel.setSelectedNode(nil)
+        MenuButton(
+            action: {
+                if let edge = selectedEdge {
+                    Task {
+                        _ = true
+                        await viewModel.model.snapshot()
+                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
+                        viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))
+                        await viewModel.model.startSimulation()
+                        viewModel.setSelectedEdge(nil)
+                        viewModel.setSelectedNode(nil)
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 20))
-        }
+                onDismiss()
+            },
+            label: {
+                Label("Reverse", systemImage: "arrow.left.arrow.right")
+            },
+            accessibilityIdentifier: "reverseEdgeButton"
+        )
         .buttonStyle(.bordered)
-        .tint(.gray)  // Neutral color
+        .tint(.gray)
         .accessibilityLabel("Reverse Edge")
-        .accessibilityIdentifier("reverseEdgeButton")
     }
 }

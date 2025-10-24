@@ -79,56 +79,53 @@ struct GraphMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // Private var for the button
     private var manageGraphsButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            showGraphsMenu = true
-        } label: {
-            Label("Manage", systemImage: "folder.badge.gear")  // Icon for "manage graphs"
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("manageGraphsButton")
-        .sheet(isPresented: $showGraphsMenu) {  // Present as sheet for easy dismissal
+        MenuButton(
+            action: {
+                showGraphsMenu = true
+            },
+            label: {
+                Label("Manage", systemImage: "folder.badge.gear")
+            },
+            accessibilityIdentifier: "manageGraphsButton"
+        )
+        .sheet(isPresented: $showGraphsMenu) {
             GraphsMenuView(
                 viewModel: viewModel,
                 onDismiss: {
                     showGraphsMenu = false
-                    onDismiss()  // Optional: Dismiss parent menu if needed
+                    onDismiss()
                 }
             )
         }
     }
     
-    // Add buttons
     private var addNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Node", systemImage: "plus.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Node", systemImage: "plus.circle")
+            },
+            accessibilityIdentifier: "addNodeButton"
+        )
     }
     
     private var addToggleNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Toggle", systemImage: "plus.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addToggleNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "plus.circle.fill")
+            },
+            accessibilityIdentifier: "addToggleNodeButton"
+        )
     }
     
-    // View toggles (adapted from ViewSection)
     private var overlaysToggle: some View {
         Toggle(isOn: $showOverlays) {
             Label("Overlays", systemImage: "eye")
@@ -158,47 +155,45 @@ struct GraphMenuView: View {
         .accessibilityIdentifier("simulationToggle")
     }
     
-    // Graph actions (from GraphSection; example reset button – adjust to match original)
     private var resetGraphButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.resetGraph()  // Assume this exists; adjust method name
-            }
-            onDismiss()
-        } label: {
-            Label("Reset", systemImage: "arrow.counterclockwise")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("resetGraphButton")
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.resetGraph()  // Assume this exists; adjust method name
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+            },
+            accessibilityIdentifier: "resetGraphButton",
+            role: .destructive
+        )
     }
     
-    // New: Undo button (adapted from GraphSection)
     private var undoButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.undo() }
-            onDismiss()
-        } label: {
-            Label("Undo", systemImage: "arrow.uturn.left")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("undoButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.undo() }
+                onDismiss()
+            },
+            label: {
+                Label("Undo", systemImage: "arrow.uturn.left")
+            },
+            accessibilityIdentifier: "undoButton"
+        )
     }
     
-    // New: Redo button (adapted from GraphSection)
     private var redoButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.redo() }
-            onDismiss()
-        } label: {
-            Label("Redo", systemImage: "arrow.uturn.right")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("redoButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.redo() }
+                onDismiss()
+            },
+            label: {
+                Label("Redo", systemImage: "arrow.uturn.right")
+            },
+            accessibilityIdentifier: "redoButton"
+        )
     }
 }

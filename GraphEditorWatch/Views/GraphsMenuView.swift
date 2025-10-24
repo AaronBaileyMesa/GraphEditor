@@ -78,108 +78,110 @@ struct GraphsMenuView: View {
     }
     
     private var newGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            newGraphName = ""
-            showNewSheet = true
-        } label: {
-            Label("New", systemImage: "doc.badge.plus")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("newGraphButton")
+        MenuButton(
+            action: {
+                newGraphName = ""
+                showNewSheet = true
+            },
+            label: {
+                Label("New", systemImage: "doc.badge.plus")
+            },
+            accessibilityIdentifier: "newGraphButton"
+        )
     }
     
     private var saveGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            viewModel.currentGraphName = graphName
-            Task {
-                do {
-                    try await viewModel.model.saveGraph()
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                viewModel.currentGraphName = graphName
+                Task {
+                    do {
+                        try await viewModel.model.saveGraph()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Label("Save", systemImage: "square.and.arrow.down")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("saveButton")
+                onDismiss()
+            },
+            label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            },
+            accessibilityIdentifier: "saveButton"
+        )
     }
     
     private var loadGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.loadGraph(name: graphName)
-                viewModel.currentGraphName = graphName
-            }
-            onDismiss()
-        } label: {
-            Label("Load", systemImage: "folder")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("loadButton")
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.loadGraph(name: graphName)
+                    viewModel.currentGraphName = graphName
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Load", systemImage: "folder")
+            },
+            accessibilityIdentifier: "loadButton"
+        )
     }
     
     private var listGraphsButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                do {
-                    graphs = try await viewModel.model.listGraphNames()
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                Task {
+                    do {
+                        graphs = try await viewModel.model.listGraphNames()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-        } label: {
-            Label("List", systemImage: "list.bullet")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("listGraphsButton")
+            },
+            label: {
+                Label("List", systemImage: "list.bullet")
+            },
+            accessibilityIdentifier: "listGraphsButton"
+        )
     }
     
     // Added missing definitions below (copied from GraphSection.swift)
     private func graphItemButton(name: String) -> some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.loadGraph(name: name)
-                viewModel.currentGraphName = name
-                graphName = name
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.loadGraph(name: name)
+                    viewModel.currentGraphName = name
+                    graphName = name
+                }
+                onDismiss()
+            },
+            label: {
+                Label(name, systemImage: "doc")
             }
-            onDismiss()
-        } label: {
-            Label(name, systemImage: "doc")
-                .labelStyle(.titleAndIcon)
-                .font(.caption2)  // Smaller for long names
-        }
+        )
+        .font(.caption2)  // Smaller for long names
         .accessibilityHint("Load graph \(name)")
     }
     
     private var deleteGraphButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                do {
-                    try await viewModel.model.deleteGraph(name: graphName)
-                    graphName = "default"
-                    await viewModel.model.loadGraph(name: "default")
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                Task {
+                    do {
+                        try await viewModel.model.deleteGraph(name: graphName)
+                        graphName = "default"
+                        await viewModel.model.loadGraph(name: "default")
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Label("Del", systemImage: "trash")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("deleteGraphButton")
+                onDismiss()
+            },
+            label: {
+                Label("Del", systemImage: "trash")
+            },
+            accessibilityIdentifier: "deleteGraphButton",
+            role: .destructive
+        )
     }
 }

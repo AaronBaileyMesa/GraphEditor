@@ -88,84 +88,77 @@ struct NodeMenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
-        .onChange(of: isAddingEdge) { _, newValue in
-            if newValue {
-                // Handle add-edge mode (same as original)
-            }
-        }
     }
     
-    // NEW: Helper for edge type buttons
+    // NEW: Helper for edge type buttons (unchanged, but kept as is for this commit)
     private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
         Button {
             selectedEdgeType = type
         } label: {
-            Text(type == .association ? "Assoc" : "Hier")  // Use abbreviated labels
-            .font(.caption2)
-            .fontWeight(selectedEdgeType == type ? .bold : .regular)  // Use fontWeight for compatibility
-            .foregroundColor(selectedEdgeType == type ? .blue : .gray)  // Highlight selected
+            Text(type == .association ? "Assoc" : "Hier")
+                .font(.caption2)
+                .fontWeight(selectedEdgeType == type ? .bold : .regular)
+                .foregroundColor(selectedEdgeType == type ? .blue : .gray)
         }
         .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
     }
     
-    // Extracted Add buttons (from AddSection)
     private var addNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Node", systemImage: "plus.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Node", systemImage: "plus.circle")
+            },
+            accessibilityIdentifier: "addNodeButton"
+        )
     }
     
     private var addToggleNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Toggle", systemImage: "plus.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addToggleNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "plus.circle.fill")
+            },
+            accessibilityIdentifier: "addToggleNodeButton"
+        )
     }
     
     private var addChildButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            if let id = selectedNodeID {
-                Task { await viewModel.model.addChild(to: id) }
-            }
-            onDismiss()
-        } label: {
-            Label("Child", systemImage: "plus.square")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addChildButton")
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.addChild(to: id) }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Child", systemImage: "plus.square")
+            },
+            accessibilityIdentifier: "addChildButton"
+        )
     }
     
     private var addEdgeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            viewModel.pendingEdgeType = selectedEdgeType
-            isAddingEdge = true
-            onDismiss()
-        } label: {
-            Label("Edge", systemImage: "arrow.right.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
+        MenuButton(
+            action: {
+                viewModel.pendingEdgeType = selectedEdgeType
+                isAddingEdge = true
+                onDismiss()
+            },
+            label: {
+                Label("Edge", systemImage: "arrow.right.circle")
+            },
+            accessibilityIdentifier: "addEdgeButton"
+        )
         .disabled(selectedNodeID == nil)
-        .accessibilityIdentifier("addEdgeButton")
     }
     
-    // Extracted Edit buttons (from EditSection, node-focused)
     private var editContentsButton: some View {
         NavigationLink(destination: EditContentSheet(
             selectedID: selectedNodeID ?? NodeID(),
@@ -184,33 +177,34 @@ struct NodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.toggleSelectedNode() }
-            onDismiss()
-        } label: {
-            Label("Toggle", systemImage: "arrow.up.arrow.down")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("toggleExpandCollapseButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.toggleSelectedNode() }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "arrow.up.arrow.down")
+            },
+            accessibilityIdentifier: "toggleExpandCollapseButton"
+        )
     }
     
     private var deleteNodeButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            if let id = selectedNodeID {
-                Task {
-                    await viewModel.model.deleteNode(withID: id)
-                    viewModel.setSelectedNode(nil)
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task {
+                        await viewModel.model.deleteNode(withID: id)
+                        viewModel.setSelectedNode(nil)
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Label("Delete", systemImage: "trash")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("deleteNodeButton")
+                onDismiss()
+            },
+            label: {
+                Label("Delete", systemImage: "trash")
+            },
+            accessibilityIdentifier: "deleteNodeButton",
+            role: .destructive
+        )
     }
 }
