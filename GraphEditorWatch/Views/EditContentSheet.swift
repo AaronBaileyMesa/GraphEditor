@@ -14,31 +14,33 @@ struct EditContentSheet: View {
     let onSave: ([NodeContent]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var contents: [NodeContent] = []
-    @State private var selectedType: String = "String"
+    @State private var selectedType: DataType? = nil  // Changed to optional DataType
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberString: String = ""  // Changed to string for custom input
     @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
-    @State private var showAddSection: Bool = false  // NEW: Toggle add inputs visibility for compactness
 
     var body: some View {
         ScrollViewReader { proxy in
             List {
-                contentsSection
-                addSection(proxy: proxy)
+                contentsSection(proxy: proxy)
             }
-            .navigationTitle("Edit Contents")  // Keep for context
+            .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {  // NEW: Use toolbar for Save/Cancel to free bottom space
+            .toolbar {  // Use toolbar for Save/Cancel with icons
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }.foregroundColor(.red)
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                    }.foregroundColor(.red)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        addPendingContent()  // NEW: Add any pending input before saving
+                    Button(action: {
+                        addPendingContent()  // Add any pending input before saving
                         onSave(contents)
                         dismiss()
+                    }) {
+                        Image(systemName: "square.and.arrow.down")
                     }
                 }
             }
@@ -51,21 +53,16 @@ struct EditContentSheet: View {
                 }
             }
             .onChange(of: isSheetFocused) { _, newValue in
-                if !newValue { isSheetFocused = true }  // Auto-recover focus (helps prevent blur if focus-related)
-            }
-            .onChange(of: showAddSection) { _, newValue in
-                if newValue {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        proxy.scrollTo("addPicker", anchor: .top)
-                    }
-                }
+                if !newValue { isSheetFocused = true }  // Auto-recover focus
             }
             .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
         }
     }
 
-    private var contentsSection: some View {
-        Section(header: Text("Contents").font(.subheadline)) {  // Compact header
+    private func contentsSection(proxy: ScrollViewProxy) -> some View {
+        Section(
+            header: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
+        ) {
             if contents.isEmpty {
                 Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
             } else {
@@ -96,37 +93,19 @@ struct EditContentSheet: View {
                     contents.move(fromOffsets: indices, toOffset: newOffset)  // Drag to reorder
                 }
             }
-        }
-        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
-    }
-
-    private func addSection(proxy: ScrollViewProxy) -> some View {
-        Section {
-            Button(action: { showAddSection.toggle() }, label: {
-                Text(showAddSection ? "Hide Add" : "Add New...").font(.caption)
-            })
-            if showAddSection {
-                Picker("Type", selection: $selectedType) {
-                    Text("String").tag("String")
-                    Text("Date").tag("Date")
-                    Text("Number").tag("Number")
-                }
-                .pickerStyle(.wheel)
-                .id("addPicker")
-                
-                if selectedType == "String" {
+            
+            if let type = selectedType {  // Show inputs only if a type is selected
+                if type == .string {
                     TextField("Enter text", text: $stringValue)
-                } else if selectedType == "Date" {
+                } else if type == .date {
                     DatePicker("Date", selection: $dateValue, displayedComponents: .date)
                         .labelsHidden()
-                } else if selectedType == "Number" {
+                } else if type == .number {
                     NumericKeypadView(text: $numberString)
                 }
-                
-                // Removed the "Add" button; now handled by top "Save"
             }
         }
-        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Compact padding
+        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
     }
     
     // NEW: Inline edit view for an item (compact, type-specific)
@@ -154,25 +133,24 @@ struct EditContentSheet: View {
     
     // NEW: Add any pending new content before saving
     private func addPendingContent() {
-        if showAddSection, let newContent = createNewContent() {
+        if let type = selectedType, let newContent = createNewContent(for: type) {
             contents.append(newContent)
             resetInputFields()
-            showAddSection = false
+            selectedType = nil  // Hide after adding (optional; can remove if you want to keep open)
         }
     }
     
-    // Helper to create new content (updated for numberString)
-    private func createNewContent() -> NodeContent? {
-        switch selectedType {
-        case "String": return stringValue.isEmpty ? nil : .string(stringValue)
-        case "Date": return .date(dateValue)
-        case "Number":
+    // Helper to create new content (updated for DataType)
+    private func createNewContent(for type: DataType) -> NodeContent? {
+        switch type {
+        case .string: return stringValue.isEmpty ? nil : .string(stringValue)
+        case .date: return .date(dateValue)
+        case .number:
             if let num = Double(numberString) {
                 return .number(num)
             } else {
                 return nil  // Or handle invalid input
             }
-        default: return nil
         }
     }
     
@@ -272,4 +250,50 @@ struct NumericKeypadView: View {
             text.removeLast()
         }
     }
+}
+
+// MARK: - Custom Segmented Control for Data Types (watchOS-compatible version, with toggle behavior)
+struct DataTypeSegmentedControl: View {
+    @Binding var selectedType: DataType?
+   
+    var body: some View {
+        HStack(spacing: 4) {  // Compact spacing for watchOS
+            ForEach(DataType.allCases) { type in
+                Button {
+                    if selectedType == type {
+                        selectedType = nil  // Deselect and hide inputs
+                    } else {
+                        selectedType = type  // Select and show inputs
+                    }
+                } label: {
+                    Group {
+                        if type == .date {
+                            Image(systemName: "calendar")
+                        } else if type == .string {
+                            Text("A")
+                        } else {
+                            Text("123")
+                        }
+                    }
+                    .font(.caption2)  // Small font for watchOS
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(selectedType == type ? Color.blue : Color.gray.opacity(0.3))
+                    .foregroundColor(selectedType == type ? .white : .primary)
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)  // Avoid default button styling
+            }
+        }
+        .frame(maxWidth: .infinity)  // Stretch to fill available width
+    }
+}
+
+// MARK: - Enum for the three options
+enum DataType: String, CaseIterable, Identifiable {
+    case date = "date"
+    case string = "string"
+    case number = "number"
+   
+    var id: String { rawValue }
 }
