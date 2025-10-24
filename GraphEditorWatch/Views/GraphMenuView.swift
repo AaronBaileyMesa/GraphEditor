@@ -18,6 +18,7 @@ struct GraphMenuView: View {
     let onDismiss: () -> Void  // For consistency
     
     @FocusState private var isMenuFocused: Bool
+    @State private var showGraphsMenu: Bool = false  // Added this @State as per comment
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "graphmenuview")
     
@@ -45,6 +46,7 @@ struct GraphMenuView: View {
                 HStack(spacing: 8) {
                     resetGraphButton  // Example from GraphSection
                     // Add other actions if in original (e.g., save/load)
+                    manageGraphsButton
                 }
                 .padding(.horizontal, 8)
             }
@@ -67,6 +69,28 @@ struct GraphMenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
+    }
+    
+    // Private var for the button
+    private var manageGraphsButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            showGraphsMenu = true
+        } label: {
+            Label("Manage", systemImage: "folder.badge.gear")  // Icon for "manage graphs"
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("manageGraphsButton")
+        .sheet(isPresented: $showGraphsMenu) {  // Present as sheet for easy dismissal
+            GraphsMenuView(
+                viewModel: viewModel,
+                onDismiss: {
+                    showGraphsMenu = false
+                    onDismiss()  // Optional: Dismiss parent menu if needed
+                }
+            )
+        }
     }
     
     // Add buttons

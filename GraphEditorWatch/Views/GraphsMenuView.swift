@@ -1,14 +1,18 @@
 //
-//  GraphSection.swift
-//  GraphEditorWatch
+//  GraphsMenuView.swift
+//  GraphEditor
 //
-//  Created by handcart on 10/5/25.
+//  Created by handcart on 10/23/25.
 //
+
+
+// GraphsMenuView.swift
 
 import SwiftUI
 import WatchKit
+import GraphEditorShared
 
-struct GraphSection: View {
+struct GraphsMenuView: View {
     let viewModel: GraphViewModel
     let onDismiss: () -> Void
     
@@ -19,31 +23,43 @@ struct GraphSection: View {
     @State private var errorMessage: String?
     
     var body: some View {
-        Group {
-            graphNameField
-            if viewModel.canRedo || viewModel.canUndo {
-                undoButton
-                redoButton
-            }
-            newGraphButton
-            saveGraphButton
-            loadGraphButton
-            listGraphsButton
-            ForEach(graphs, id: \.self) { name in
-                graphItemButton(name: name)
-            }
-            resetGraphButton
-            deleteGraphButton
-            if let error = errorMessage {
-                Text(error).foregroundColor(.red).font(.caption2).gridCellColumns(2)
-            }
-        }
-        .sheet(isPresented: $showNewSheet) {
-            VStack(spacing: 4) {
-                TextField("New Name", text: $newGraphName)
+        ScrollView {  // Scrollable for long lists
+            VStack(spacing: 8) {
+                Text("Graphs").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                
+                // Current graph name editing (from GraphSection)
+                TextField("Current Name", text: $graphName)
                     .font(.caption)
-                    .accessibilityIdentifier("newGraphNameTextField")
-                Button {
+                    .accessibilityIdentifier("graphNameTextField")
+                
+                // Buttons for save/load/delete current graph
+                HStack(spacing: 8) {
+                    saveGraphButton
+                    loadGraphButton
+                    deleteGraphButton
+                }
+                
+                // New graph button
+                newGraphButton
+                
+                // List graphs button and dynamic list
+                listGraphsButton
+                ForEach(graphs, id: \.self) { name in
+                    graphItemButton(name: name)
+                }
+                
+                if let error = errorMessage {
+                    Text(error).foregroundColor(.red).font(.caption2)
+                }
+            }
+            .padding(4)
+        }
+        .navigationTitle("Manage Graphs")  // Clear title
+        .sheet(isPresented: $showNewSheet) {
+            // Same as GraphSection's new graph sheet
+            VStack(spacing: 4) {
+                TextField("New Name", text: $newGraphName).font(.caption)
+                Button("Create") {
                     WKInterfaceDevice.current().play(.click)
                     Task {
                         do {
@@ -55,61 +71,15 @@ struct GraphSection: View {
                             errorMessage = error.localizedDescription
                         }
                     }
-                } label: {
-                    Label("Create", systemImage: "plus")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption)
                 }
-                .accessibilityIdentifier("createButton")
             }
         }
-        .onAppear { graphName = viewModel.currentGraphName }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Graph section")
-    }
-    
-    private var graphNameField: some View {
-        TextField("Name", text: $graphName)
-            .font(.caption)
-            .accessibilityIdentifier("graphNameTextField")
-            .gridCellColumns(2)
-    }
-    
-    private var undoButton: some View {
-        if viewModel.canUndo {
-            return AnyView(Button {
-                WKInterfaceDevice.current().play(.click)
-                Task { await viewModel.undo() }
-                onDismiss()
-            } label: {
-                Label("Undo", systemImage: "arrow.uturn.left")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-            }
-            .accessibilityIdentifier("undoButton"))
-        } else {
-            return AnyView(EmptyView())
+        .onAppear {
+            graphName = viewModel.currentGraphName
+            // Optionally auto-list graphs here: Task { graphs = try await viewModel.model.listGraphNames() }
         }
     }
     
-    private var redoButton: some View {
-        if viewModel.canRedo {
-            return AnyView(Button {
-                WKInterfaceDevice.current().play(.click)
-                Task { await viewModel.redo() }
-                onDismiss()
-            } label: {
-                Label("Redo", systemImage: "arrow.uturn.right")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
-            }
-            .accessibilityIdentifier("redoButton"))
-        } else {
-            return AnyView(EmptyView())
-        }
-    }
-    
-    // Added missing definitions below (copied/completed from original context)
     private var newGraphButton: some View {
         Button {
             WKInterfaceDevice.current().play(.click)
@@ -177,6 +147,7 @@ struct GraphSection: View {
         .accessibilityIdentifier("listGraphsButton")
     }
     
+    // Added missing definitions below (copied from GraphSection.swift)
     private func graphItemButton(name: String) -> some View {
         Button {
             WKInterfaceDevice.current().play(.click)
@@ -192,19 +163,6 @@ struct GraphSection: View {
                 .font(.caption2)  // Smaller for long names
         }
         .accessibilityHint("Load graph \(name)")
-    }
-    
-    private var resetGraphButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.clearGraph() }
-            onDismiss()
-        } label: {
-            Label("Reset", systemImage: "arrow.counterclockwise")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("resetGraphButton")
     }
     
     private var deleteGraphButton: some View {
