@@ -35,7 +35,7 @@ struct GraphMenuView: View {
                 
                 // View Section
                 Text("View").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                HStack(spacing: 8) {
+                VStack(spacing: 8) {  // Changed to VStack for vertical stacking on small screen
                     overlaysToggle
                     simulationToggle
                 }
@@ -43,13 +43,8 @@ struct GraphMenuView: View {
                 
                 // Graph Section (integrated: e.g., reset/clear actions; adjust based on original GraphSection code)
                 Text("Graph").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                HStack(spacing: 8) {
-                    resetGraphButton  // Example from GraphSection
-                    manageGraphsButton
-                }
-                .padding(.horizontal, 8)
                 
-                // New: Undo/Redo row (conditional, like in GraphSection)
+                // Moved undo/redo here (before Reset/Manage) for desired order
                 if viewModel.canUndo || viewModel.canRedo {
                     HStack(spacing: 8) {
                         if viewModel.canUndo { undoButton }
@@ -57,6 +52,12 @@ struct GraphMenuView: View {
                     }
                     .padding(.horizontal, 8)
                 }
+                
+                HStack(spacing: 8) {
+                    resetGraphButton  // Example from GraphSection
+                    manageGraphsButton
+                }
+                .padding(.horizontal, 8)
             }
             .padding(4)
         }

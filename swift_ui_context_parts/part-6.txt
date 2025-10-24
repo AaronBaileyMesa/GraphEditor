@@ -1,14 +1,15 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-23 20:56:23
+Current date: 2025-10-24 08:01:51
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphMenuView.swift
 3. GraphEditorWatch/Views/GraphsMenuView.swift
 4. GraphEditorWatch/Views/GraphUtilities.swift
 5. GraphEditorWatch/Views/InnerView.swift
-6. GraphEditorWatch/Views/MenuView.swift--------------------------------------------------
+6. GraphEditorWatch/Views/MenuButton.swift
+7. GraphEditorWatch/Views/MenuView.swift--------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
 Last modified: 2025-10-23 13:06:56
@@ -372,7 +373,7 @@ extension GraphGesturesModifier {
 ----------------------------------------------------------------------------------------------------
 File: GraphMenuView.swift
 Path: GraphEditorWatch/Views/GraphMenuView.swift
-Last modified: 2025-10-23 20:53:08
+Last modified: 2025-10-24 07:54:16
 
 Contents:
 //
@@ -456,56 +457,53 @@ struct GraphMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // Private var for the button
     private var manageGraphsButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            showGraphsMenu = true
-        } label: {
-            Label("Manage", systemImage: "folder.badge.gear")  // Icon for "manage graphs"
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("manageGraphsButton")
-        .sheet(isPresented: $showGraphsMenu) {  // Present as sheet for easy dismissal
+        MenuButton(
+            action: {
+                showGraphsMenu = true
+            },
+            label: {
+                Label("Manage", systemImage: "folder.badge.gear")
+            },
+            accessibilityIdentifier: "manageGraphsButton"
+        )
+        .sheet(isPresented: $showGraphsMenu) {
             GraphsMenuView(
                 viewModel: viewModel,
                 onDismiss: {
                     showGraphsMenu = false
-                    onDismiss()  // Optional: Dismiss parent menu if needed
+                    onDismiss()
                 }
             )
         }
     }
     
-    // Add buttons
     private var addNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Node", systemImage: "plus.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Node", systemImage: "plus.circle")
+            },
+            accessibilityIdentifier: "addNodeButton"
+        )
     }
     
     private var addToggleNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
-            onDismiss()
-        } label: {
-            Label("Toggle", systemImage: "plus.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addToggleNodeButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "plus.circle.fill")
+            },
+            accessibilityIdentifier: "addToggleNodeButton"
+        )
     }
     
-    // View toggles (adapted from ViewSection)
     private var overlaysToggle: some View {
         Toggle(isOn: $showOverlays) {
             Label("Overlays", systemImage: "eye")
@@ -535,54 +533,52 @@ struct GraphMenuView: View {
         .accessibilityIdentifier("simulationToggle")
     }
     
-    // Graph actions (from GraphSection; example reset button – adjust to match original)
     private var resetGraphButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.resetGraph()  // Assume this exists; adjust method name
-            }
-            onDismiss()
-        } label: {
-            Label("Reset", systemImage: "arrow.counterclockwise")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("resetGraphButton")
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.resetGraph()  // Assume this exists; adjust method name
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Reset", systemImage: "arrow.counterclockwise")
+            },
+            accessibilityIdentifier: "resetGraphButton",
+            role: .destructive
+        )
     }
     
-    // New: Undo button (adapted from GraphSection)
     private var undoButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.undo() }
-            onDismiss()
-        } label: {
-            Label("Undo", systemImage: "arrow.uturn.left")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("undoButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.undo() }
+                onDismiss()
+            },
+            label: {
+                Label("Undo", systemImage: "arrow.uturn.left")
+            },
+            accessibilityIdentifier: "undoButton"
+        )
     }
     
-    // New: Redo button (adapted from GraphSection)
     private var redoButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.redo() }
-            onDismiss()
-        } label: {
-            Label("Redo", systemImage: "arrow.uturn.right")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("redoButton")
+        MenuButton(
+            action: {
+                Task { await viewModel.redo() }
+                onDismiss()
+            },
+            label: {
+                Label("Redo", systemImage: "arrow.uturn.right")
+            },
+            accessibilityIdentifier: "redoButton"
+        )
     }
 }
 ----------------------------------------------------------------------------------------------------
 File: GraphsMenuView.swift
 Path: GraphEditorWatch/Views/GraphsMenuView.swift
-Last modified: 2025-10-23 20:55:14
+Last modified: 2025-10-24 07:54:16
 
 Contents:
 //
@@ -665,109 +661,111 @@ struct GraphsMenuView: View {
     }
     
     private var newGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            newGraphName = ""
-            showNewSheet = true
-        } label: {
-            Label("New", systemImage: "doc.badge.plus")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("newGraphButton")
+        MenuButton(
+            action: {
+                newGraphName = ""
+                showNewSheet = true
+            },
+            label: {
+                Label("New", systemImage: "doc.badge.plus")
+            },
+            accessibilityIdentifier: "newGraphButton"
+        )
     }
     
     private var saveGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            viewModel.currentGraphName = graphName
-            Task {
-                do {
-                    try await viewModel.model.saveGraph()
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                viewModel.currentGraphName = graphName
+                Task {
+                    do {
+                        try await viewModel.model.saveGraph()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Label("Save", systemImage: "square.and.arrow.down")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("saveButton")
+                onDismiss()
+            },
+            label: {
+                Label("Save", systemImage: "square.and.arrow.down")
+            },
+            accessibilityIdentifier: "saveButton"
+        )
     }
     
     private var loadGraphButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.loadGraph(name: graphName)
-                viewModel.currentGraphName = graphName
-            }
-            onDismiss()
-        } label: {
-            Label("Load", systemImage: "folder")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("loadButton")
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.loadGraph(name: graphName)
+                    viewModel.currentGraphName = graphName
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Load", systemImage: "folder")
+            },
+            accessibilityIdentifier: "loadButton"
+        )
     }
     
     private var listGraphsButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                do {
-                    graphs = try await viewModel.model.listGraphNames()
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                Task {
+                    do {
+                        graphs = try await viewModel.model.listGraphNames()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-        } label: {
-            Label("List", systemImage: "list.bullet")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("listGraphsButton")
+            },
+            label: {
+                Label("List", systemImage: "list.bullet")
+            },
+            accessibilityIdentifier: "listGraphsButton"
+        )
     }
     
     // Added missing definitions below (copied from GraphSection.swift)
     private func graphItemButton(name: String) -> some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                await viewModel.model.loadGraph(name: name)
-                viewModel.currentGraphName = name
-                graphName = name
+        MenuButton(
+            action: {
+                Task {
+                    await viewModel.model.loadGraph(name: name)
+                    viewModel.currentGraphName = name
+                    graphName = name
+                }
+                onDismiss()
+            },
+            label: {
+                Label(name, systemImage: "doc")
             }
-            onDismiss()
-        } label: {
-            Label(name, systemImage: "doc")
-                .labelStyle(.titleAndIcon)
-                .font(.caption2)  // Smaller for long names
-        }
+        )
+        .font(.caption2)  // Smaller for long names
         .accessibilityHint("Load graph \(name)")
     }
     
     private var deleteGraphButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                do {
-                    try await viewModel.model.deleteGraph(name: graphName)
-                    graphName = "default"
-                    await viewModel.model.loadGraph(name: "default")
-                } catch {
-                    errorMessage = error.localizedDescription
+        MenuButton(
+            action: {
+                Task {
+                    do {
+                        try await viewModel.model.deleteGraph(name: graphName)
+                        graphName = "default"
+                        await viewModel.model.loadGraph(name: "default")
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-            }
-            onDismiss()
-        } label: {
-            Label("Del", systemImage: "trash")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("deleteGraphButton")
+                onDismiss()
+            },
+            label: {
+                Label("Del", systemImage: "trash")
+            },
+            accessibilityIdentifier: "deleteGraphButton",
+            role: .destructive
+        )
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -927,6 +925,52 @@ struct InnerView: View {
             .focused(config.canvasFocus.projectedValue)
             .focusable()
         canvasView
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: MenuButton.swift
+Path: GraphEditorWatch/Views/MenuButton.swift
+Last modified: 2025-10-24 07:54:16
+
+Contents:
+//
+//  MenuButton.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on 2025-10-23.
+//
+
+import SwiftUI
+import WatchKit
+
+struct MenuButton<LabelContent: View>: View {
+    let action: () -> Void
+    let label: () -> LabelContent
+    let accessibilityIdentifier: String?
+    let role: ButtonRole?
+    
+    init(
+        action: @escaping () -> Void,
+        @ViewBuilder label: @escaping () -> LabelContent,
+        accessibilityIdentifier: String? = nil,
+        role: ButtonRole? = nil
+    ) {
+        self.action = action
+        self.label = label
+        self.accessibilityIdentifier = accessibilityIdentifier
+        self.role = role
+    }
+    
+    var body: some View {
+        Button(role: role) {
+            WKInterfaceDevice.current().play(.click)
+            action()
+        } label: {
+            label()
+        }
+        .font(.caption)
+        .labelStyle(.titleAndIcon)
+        .accessibilityIdentifier(accessibilityIdentifier ?? "")
     }
 }
 ----------------------------------------------------------------------------------------------------
