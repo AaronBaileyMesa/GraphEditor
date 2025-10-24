@@ -45,10 +45,18 @@ struct GraphMenuView: View {
                 Text("Graph").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     resetGraphButton  // Example from GraphSection
-                    // Add other actions if in original (e.g., save/load)
                     manageGraphsButton
                 }
                 .padding(.horizontal, 8)
+                
+                // New: Undo/Redo row (conditional, like in GraphSection)
+                if viewModel.canUndo || viewModel.canRedo {
+                    HStack(spacing: 8) {
+                        if viewModel.canUndo { undoButton }
+                        if viewModel.canRedo { redoButton }
+                    }
+                    .padding(.horizontal, 8)
+                }
             }
             .padding(4)
         }
@@ -164,5 +172,33 @@ struct GraphMenuView: View {
                 .font(.caption)
         }
         .accessibilityIdentifier("resetGraphButton")
+    }
+    
+    // New: Undo button (adapted from GraphSection)
+    private var undoButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.undo() }
+            onDismiss()
+        } label: {
+            Label("Undo", systemImage: "arrow.uturn.left")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("undoButton")
+    }
+    
+    // New: Redo button (adapted from GraphSection)
+    private var redoButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.redo() }
+            onDismiss()
+        } label: {
+            Label("Redo", systemImage: "arrow.uturn.right")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("redoButton")
     }
 }

@@ -5,9 +5,6 @@
 //  Created by handcart on 10/23/25.
 //
 
-
-// GraphsMenuView.swift
-
 import SwiftUI
 import WatchKit
 import GraphEditorShared
