@@ -38,7 +38,6 @@ struct EditContentSheet: View {
                     Button(action: {
                         addPendingContent()  // Add any pending input before saving
                         onSave(contents)
-                        dismiss()
                     }) {
                         Image(systemName: "square.and.arrow.down")
                     }
