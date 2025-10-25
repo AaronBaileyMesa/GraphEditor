@@ -25,14 +25,23 @@ struct MenuView: View {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        if selectedNodeID != nil && selectedEdgeID == nil {
-            NodeMenuView(
+        if let id = selectedNodeID, selectedEdgeID == nil {
+            if viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped is ToggleNode {
+                ToggleNodeMenuView(
+                    viewModel: viewModel,
+                    onDismiss: { showMenu = false },
+                    selectedNodeID: $selectedNodeID,
+                    isAddingEdge: $isAddingEdge
+                )
+            } else {            NodeMenuView(
                 viewModel: viewModel,
                 onDismiss: { showMenu = false },
                 selectedNodeID: $selectedNodeID,
                 isAddingEdge: $isAddingEdge
             )
-        } else if selectedEdgeID != nil {
+            }
+        }
+        else if selectedEdgeID != nil {
             EdgeMenuView(
                 viewModel: viewModel,
                 isSimulatingBinding: isSimulatingBinding,

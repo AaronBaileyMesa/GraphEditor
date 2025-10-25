@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-24 08:01:49
+Current date: 2025-10-25 09:19:07
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -12,11 +12,10 @@ Table of Contents:
 7. GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
 8. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
 9. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-10. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
-11. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift--------------------------------------------------
+10. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift--------------------------------------------------
 File: AttractionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
-Last modified: 2025-09-19 13:45:29
+Last modified: 2025-10-25 09:07:26
 
 Contents:
 //
@@ -33,10 +32,12 @@ import CoreGraphics  // For CGPoint, CGVector (used internally)
 struct AttractionCalculator {
     let symmetricFactor: CGFloat
     let useAsymmetric: Bool  // New: Controls full asymmetry for hierarchy edges
+    let usePreferredAngles: Bool  // NEW: Controls angular torque for hierarchies
 
-    init(symmetricFactor: CGFloat, useAsymmetric: Bool = false) {  // Default false to preserve existing behavior
+    init(symmetricFactor: CGFloat, useAsymmetric: Bool = false, usePreferredAngles: Bool = false) {  // UPDATED: Added param, default false
         self.symmetricFactor = symmetricFactor
         self.useAsymmetric = useAsymmetric
+        self.usePreferredAngles = usePreferredAngles
     }
 
     func applyAttractions(forces: [NodeID: CGPoint], edges: [GraphEdge], nodes: [any NodeProtocol]) -> [NodeID: CGPoint] {
@@ -78,6 +79,28 @@ struct AttractionCalculator {
                 // Symmetric for .association (unchanged)
                 updatedForces[toNode.id] = CGPoint(x: currentForceTo.x - forceX + symForceX, y: currentForceTo.y - forceY + symForceY)
                 updatedForces[fromNode.id] = CGPoint(x: currentForceFrom.x + symForceX, y: currentForceFrom.y + symForceY)
+            }
+            
+            // NEW: Apply preferred angle torque if enabled and hierarchy
+            if isHierarchy && usePreferredAngles, let parent = fromNode as? ToggleNode {
+                let siblingIndex = parent.childOrder.firstIndex(of: toNode.id) ?? 0
+                let siblingCount = max(parent.childOrder.count, 1)
+                let baseAngle: CGFloat = .pi * 1.5  // 270° downward
+                let spread: CGFloat = .pi / 1.5  // ~120° fan for spacing
+                let anglePerSibling = spread / CGFloat(siblingCount - 1)
+                let preferredAngle = baseAngle - spread / 2 + CGFloat(siblingIndex) * anglePerSibling
+                
+                let actualAngle = atan2(deltaY, deltaX)
+                let angleDiff = (actualAngle - preferredAngle).clamped(to: -.pi ... .pi)  // Shortest angular distance
+                let torqueMagnitude = Constants.Physics.angularStiffness * angleDiff * forceMagnitude  // Scale by distance force
+                
+                // Torque as perpendicular components
+                let torqueX = -torqueMagnitude * forceDirectionY
+                let torqueY = torqueMagnitude * forceDirectionX
+                
+                // Apply to child (asymmetric guidance)
+                let currentTo = updatedForces[toNode.id] ?? .zero
+                updatedForces[toNode.id] = CGPoint(x: currentTo.x + torqueX, y: currentTo.y + torqueY)
             }
         }
         return updatedForces
@@ -121,7 +144,7 @@ struct CenteringCalculator {
 ----------------------------------------------------------------------------------------------------
 File: Constants.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-Last modified: 2025-10-08 13:12:23
+Last modified: 2025-10-25 09:07:26
 
 Contents:
 //
@@ -151,6 +174,7 @@ public enum Constants {
         public static let minCollisionDist: CGFloat = 35.0  // New: For anti-collision separation
         public static let verticalBias: CGFloat = 0.0  // New: Downward bias for hierarchy edges (tune as needed)
         public static let alphaDecay: CGFloat = 0.0228  // New: For cooling schedule
+        static let angularStiffness: CGFloat = 0.05  // Soft torque; tune up to 0.1 if needed
     }
     
     public enum App {
@@ -432,7 +456,7 @@ import WatchKit
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+EdgesNodes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-10-20 15:32:34
+Last modified: 2025-10-25 08:08:33
 
 Contents:
 //
@@ -531,9 +555,19 @@ extension GraphModel {
         let offsetX = CGFloat.random(in: -50...50)
         let offsetY = CGFloat.random(in: -50...50)
         let newPosition = parentPosition + CGPoint(x: offsetX, y: offsetY)
-        let newNode = AnyNode(Node(label: newLabel, position: newPosition))
+        let newNode = AnyNode(Node(label: newLabel, position: newPosition))  // Default to plain Node; could make configurable later
         nodes.append(newNode)
         edges.append(GraphEdge(from: parentID, target: newNode.id, type: .hierarchy))
+        
+        // NEW: If parent is ToggleNode, append to its children and childOrder
+        if var parentToggle = nodes[parentIndex].unwrapped as? ToggleNode {
+            if !parentToggle.children.contains(newNode.id) {  // Avoid duplicates
+                parentToggle.children.append(newNode.id)
+                parentToggle.childOrder.append(newNode.id)  // Append to maintain initial order
+                nodes[parentIndex] = AnyNode(parentToggle)
+            }
+        }
+        
         objectWillChange.send()
         await resumeSimulation()
     }
@@ -589,7 +623,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+Helpers.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
-Last modified: 2025-10-23 13:29:25
+Last modified: 2025-10-25 08:47:16
 
 Contents:
 //
@@ -719,6 +753,28 @@ extension GraphModel {
     
     public var centroid: CGPoint? {
         GraphEditorShared.centroid(of: visibleNodes())
+    }
+    
+    public func sortChildren<ComparableValue: Comparable>(of nodeID: NodeID, by keyPath: KeyPath<any NodeProtocol, ComparableValue>) async {
+        guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+              var toggleNode = nodes[index].unwrapped as? ToggleNode else {
+            // Skip if not ToggleNode
+            return
+        }
+        
+        pushUndo()  // Allow undo of sorting
+        let sortedOrder = toggleNode.children.sorted { childID1, childID2 in
+            guard let node1 = nodes.first(where: { $0.id == childID1 })?.unwrapped,
+                  let node2 = nodes.first(where: { $0.id == childID2 })?.unwrapped else {
+                return false  // Stable sort if nodes missing
+            }
+            return node1[keyPath: keyPath] < node2[keyPath: keyPath]
+        }
+        
+        let updated = toggleNode.with(childOrder: sortedOrder)
+        nodes[index] = AnyNode(updated)
+        objectWillChange.send()
+        await resumeSimulation()  // Re-simulate for layout adjustments
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -956,86 +1012,6 @@ extension GraphModel {
             Self.logger.errorLog("Failed to load view state for '\(currentGraphName)'", error: error)
             throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
         }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphModel+Undo.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-10-14 09:27:58
-
-Contents:
-//
-//  GraphModel+Undo.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 9/19/25.
-//
-import Foundation
-import os
-
-struct UndoGraphState {
-    let nodes: [AnyNode]
-    let edges: [GraphEdge]
-    let nextLabel: Int
-}
-
-@available(iOS 16.0, watchOS 6.0, *)
-extension GraphModel {
-    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "graphmodel_undo")
-    
-    internal func pushUndo() {
-        undoStack.append(currentState())
-        if undoStack.count > maxUndo { undoStack.removeFirst() }
-        redoStack = []
-    }
-    
-    private func currentState() -> UndoGraphState {
-        UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
-    }
-    
-    public func undo(resume: Bool = true) async {
-        if let state = undoStack.popLast() {
-            redoStack.append(currentState())
-            nodes = state.nodes
-            edges = state.edges
-            nextNodeLabel = state.nextLabel
-            objectWillChange.send()
-            if resume {
-                await resumeSimulation()
-            }
-        }
-    }
-    
-    public func redo(resume: Bool = true) async {
-        if let state = redoStack.popLast() {
-            undoStack.append(currentState())
-            nodes = state.nodes
-            edges = state.edges
-            nextNodeLabel = state.nextLabel
-            objectWillChange.send()
-            if resume {
-                await resumeSimulation()
-            }
-        }
-    }
-    
-    public func snapshot() async {
-        Self.logger.debug("snapshot() called from: \(#function), nodes: \(self.nodes.count), edges: \(self.edges.count)")  // Use debug for transient info
-        let state = UndoGraphState(nodes: nodes, edges: edges, nextLabel: nextNodeLabel)
-        undoStack.append(state)
-        if undoStack.count > maxUndo { undoStack.removeFirst() }
-        redoStack.removeAll()
-        
-        // Handle auto-save with error logging (fixes warning on await save())
-        do {
-            try await save()  // Use 'try await' here
-        } catch {
-            let logger = Logger.forCategory("graphmodel")  // From your standardized logging
-            logger.errorLog("Auto-save failed during snapshot", error: error)
-            // Optional: If you want user feedback, set viewModel.errorMessage here (e.g., via NotificationCenter)
-        }
-        
-        Self.logger.debug("snapshot() completed; undoStack size: \(self.undoStack.count)")
     }
 }
 --------------------------------------------------

@@ -1,24 +1,379 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-24 08:01:52
+Current date: 2025-10-25 09:19:09
 Table of Contents:
-1. GraphEditorWatchTests/GraphModelTests.swift
-2. GraphEditorWatchTests/MenuViewTests.swift
-3. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-4. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
-File: GraphModelTests.swift
-Path: GraphEditorWatchTests/GraphModelTests.swift
-Last modified: 2025-10-09 08:09:11
+1. GraphEditorWatch/Views/NodeMenuView.swift
+2. GraphEditorWatch/Views/NodeView.swift
+3. GraphEditorWatch/Views/ViewSection.swift
+4. GraphEditorWatchTests/AccessibilityTests.swift
+5. GraphEditorWatchTests/CoordinateTransformerTests.swift
+6. GraphEditorWatchTests/EditContentSheetTests.swift
+7. GraphEditorWatchTests/GestureTests.swift
+8. GraphEditorWatchTests/GraphEditorWatchTests.swift
+9. GraphEditorWatchTests/GraphGesturesModifierTests.swift--------------------------------------------------
+File: NodeMenuView.swift
+Path: GraphEditorWatch/Views/NodeMenuView.swift
+Last modified: 2025-10-24 07:54:16
 
 Contents:
 //
-//  GraphModelTests.swift
+//  NodeMenuView.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on 2025-08-16
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+import os  // For logging
+
+struct NodeMenuView: View {
+    let viewModel: GraphViewModel
+    let onDismiss: () -> Void
+    @Binding var selectedNodeID: NodeID?
+    @Binding var isAddingEdge: Bool
+    @State private var selectedEdgeType: GraphEditorShared.EdgeType = .association  // Use shared EdgeType
+    @FocusState private var isMenuFocused: Bool
+    
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodemenuview")
+    
+    private var nodeLabel: String {
+        if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+            return "\(node.label)"
+        }
+        return ""
+    }
+    
+    var isToggleNode: Bool {
+        viewModel.isSelectedToggleNode
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                // Add Section: Side-by-side buttons with icons + text
+                Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    addNodeButton
+                    addToggleNodeButton
+                }
+                .padding(.horizontal, 8)
+                
+                if selectedNodeID != nil {
+                    HStack(spacing: 8) {
+                        addChildButton
+                        addEdgeButton
+                    }
+                    .padding(.horizontal, 8)
+                    
+                    // Replaced Picker with buttons for edge type selection
+                    HStack(spacing: 8) {
+                        edgeTypeButton(type: .association)
+                        edgeTypeButton(type: .hierarchy)
+                    }
+                    .padding(.horizontal, 8)
+                }
+                
+                // Edit Section: Side-by-side buttons with icons + text (node-focused only)
+                Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    editContentsButton
+                    deleteNodeButton
+                }
+                .padding(.horizontal, 8)
+                
+                if isToggleNode {
+                    toggleExpandButton.padding(.horizontal, 8)  // Conditional for ToggleNode
+                }
+            }
+            .padding(4)
+        }
+        .accessibilityIdentifier("nodeMenuGrid")
+        .navigationTitle("Node \(nodeLabel)")  // Dynamic name in top-right
+        .focused($isMenuFocused)
+        .onAppear {
+            isMenuFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isMenuFocused = true
+            }
+            Self.logger.debug("Node Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil")")
+        }
+        .onChange(of: isMenuFocused) { _, newValue in
+            Self.logger.debug("Node Menu focus: \(newValue)")
+            if !newValue {
+                isMenuFocused = true
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+    
+    // NEW: Helper for edge type buttons (unchanged, but kept as is for this commit)
+    private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
+        Button {
+            selectedEdgeType = type
+        } label: {
+            Text(type == .association ? "Assoc" : "Hier")
+                .font(.caption2)
+                .fontWeight(selectedEdgeType == type ? .bold : .regular)
+                .foregroundColor(selectedEdgeType == type ? .blue : .gray)
+        }
+        .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
+    }
+    
+    private var addNodeButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Node", systemImage: "plus.circle")
+            },
+            accessibilityIdentifier: "addNodeButton"
+        )
+    }
+    
+    private var addToggleNodeButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "plus.circle.fill")
+            },
+            accessibilityIdentifier: "addToggleNodeButton"
+        )
+    }
+    
+    private var addChildButton: some View {
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.addChild(to: id) }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Child", systemImage: "plus.square")
+            },
+            accessibilityIdentifier: "addChildButton"
+        )
+    }
+    
+    private var addEdgeButton: some View {
+        MenuButton(
+            action: {
+                viewModel.pendingEdgeType = selectedEdgeType
+                isAddingEdge = true
+                onDismiss()
+            },
+            label: {
+                Label("Edge", systemImage: "arrow.right.circle")
+            },
+            accessibilityIdentifier: "addEdgeButton"
+        )
+        .disabled(selectedNodeID == nil)
+    }
+    
+    private var editContentsButton: some View {
+        NavigationLink(destination: EditContentSheet(
+            selectedID: selectedNodeID ?? NodeID(),
+            viewModel: viewModel,
+            onSave: { newContents in
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                }
+            }
+        )) {
+            Label("Contents", systemImage: "pencil")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("editContentsButton")
+    }
+    
+    private var toggleExpandButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.toggleSelectedNode() }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "arrow.up.arrow.down")
+            },
+            accessibilityIdentifier: "toggleExpandCollapseButton"
+        )
+    }
+    
+    private var deleteNodeButton: some View {
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task {
+                        await viewModel.model.deleteNode(withID: id)
+                        viewModel.setSelectedNode(nil)
+                    }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Delete", systemImage: "trash")
+            },
+            accessibilityIdentifier: "deleteNodeButton",
+            role: .destructive
+        )
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: NodeView.swift
+Path: GraphEditorWatch/Views/NodeView.swift
+Last modified: 2025-09-16 11:24:30
+
+Contents:
+//
+//  NodeView.swift
+//  GraphEditor
+//
+//  Created by handcart on 8/13/25.
+//
+
+import SwiftUI
+import GraphEditorShared
+
+struct NodeView: View {
+    let node: any NodeProtocol
+    let isSelected: Bool
+    let zoomScale: CGFloat
+    
+    var body: some View {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .stroke(Color.yellow, lineWidth: 4 * zoomScale)
+                    .frame(width: node.radius * 2 * zoomScale + 4 * zoomScale, height: node.radius * 2 * zoomScale + 4 * zoomScale)
+            }
+            Circle()
+                .fill(node.fillColor)  // Or dynamic based on node type
+                .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
+            
+            // Add icon/label as in ToggleNode.draw
+            if let toggleNode = node as? ToggleNode {
+                Text(toggleNode.isExpanded ? "-" : "+")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
+            }
+            
+            Text("\(node.label)")
+                .foregroundColor(.white)
+                .font(.system(size: max(8.0, 12.0 * zoomScale)))
+                .offset(y: -(node.radius + 10) * zoomScale)  // Position above
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: ViewSection.swift
+Path: GraphEditorWatch/Views/ViewSection.swift
+Last modified: 2025-10-23 10:08:33
+
+Contents:
+//
+//  ViewSection.swift
+//  GraphEditor
+//
+//  Created by handcart on 10/5/25.
+//
+
+import SwiftUI
+import WatchKit
+
+struct ViewSection: View {
+    @Binding var showOverlays: Bool
+    let isSimulating: Binding<Bool>
+    let onCenterGraph: () -> Void
+    let onDismiss: () -> Void
+    let onSimulationChange: (Bool) -> Void
+    
+    var body: some View {
+        Group {
+            customOverlaysToggle
+            customSimulationToggle
+            centerButton
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("View section")
+    }
+    
+    private var customOverlaysToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "eye")
+                .font(.caption)
+            Text("Overlays")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: $showOverlays)
+                .labelsHidden()
+        }
+        .onChange(of: showOverlays) {
+            WKInterfaceDevice.current().play(.click)
+            onDismiss()
+        }
+        .gridCellColumns(2)
+        .accessibilityLabel("Overlays toggle")
+    }
+    
+    private var customSimulationToggle: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "play")
+                .font(.caption)
+            Text("Simulate")
+                .font(.caption)
+                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+            Spacer()
+            Toggle("", isOn: isSimulating)
+                .labelsHidden()
+        }
+        .onChange(of: isSimulating.wrappedValue) {_, newValue in
+            WKInterfaceDevice.current().play(.click)
+            onSimulationChange(newValue)
+            onDismiss()
+        }
+        .accessibilityIdentifier("toggleSimulation")
+        .gridCellColumns(2)
+        .accessibilityLabel("Simulate toggle")
+    }
+    
+    private var centerButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onCenterGraph()
+            onDismiss()
+        } label: {
+            Label("Center", systemImage: "dot.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("centerGraphButton")
+        .gridCellColumns(2)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: AccessibilityTests.swift
+Path: GraphEditorWatchTests/AccessibilityTests.swift
+Last modified: 2025-09-22 11:21:14
+
+Contents:
+//
+//  AccessibilityTests.swift
 //  GraphEditor
 //
 //  Created by handcart on 9/22/25.
 //
-
 import Testing
 import Foundation
 import CoreGraphics
@@ -27,188 +382,87 @@ import CoreGraphics
 import XCTest
 import SwiftUI
 
-struct GraphModelTests {
+struct AccessibilityTests {
     private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
         GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
     }
     
-    private func setupDefaults(for storage: MockGraphStorage) async throws {
-        let node1 = AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))
-        let node2 = AnyNode(Node(label: 2, position: CGPoint(x: 200, y: 200)))
-        let node3 = AnyNode(Node(label: 3, position: CGPoint(x: 150, y: 150)))
-        let edge1 = GraphEdge(from: node1.id, target: node2.id)
-        let edge2 = GraphEdge(from: node2.id, target: node3.id)
-        let edge3 = GraphEdge(from: node3.id, target: node1.id)
-        try await storage.save(nodes: [node1, node2, node3], edges: [edge1, edge2, edge3])
-    }
-    
-    private func generateNodesAndEdges(seed: Int) async -> ([AnyNode], [GraphEdge]) {
-        struct SeededRandomNumberGenerator: RandomNumberGenerator {
-            private var state: UInt64
-            init(seed: UInt64) {
-                state = seed
-            }
-            mutating func next() -> UInt64 {
-                state &+= 1442695040888963407
-                state &*= 6364136223846793005
-                return state
-            }
-        }
-        var rng = SeededRandomNumberGenerator(seed: UInt64(seed))
-        var nodesToAssign: [AnyNode] = []
-        for _ in 0..<5 {
-            let label = Int.random(in: 0..<10, using: &rng)
-            let positionX = CGFloat.random(in: 0..<300, using: &rng)
-            let positionY = CGFloat.random(in: 0..<300, using: &rng)
-            nodesToAssign.append(AnyNode(Node(label: label, position: CGPoint(x: positionX, y: positionY))))
-        }
-        var edgesToAssign: [GraphEdge] = []
-        for _ in 0..<3 {
-            let fromIndex = Int.random(in: 0..<nodesToAssign.count, using: &rng)
-            let targetIndex = Int.random(in: 0..<nodesToAssign.count, using: &rng)
-            edgesToAssign.append(GraphEdge(from: nodesToAssign[fromIndex].id, target: nodesToAssign[targetIndex].id))
-        }
-        return (nodesToAssign, edgesToAssign)
-    }
-    
-    private func runSimulation(on model: GraphModel) async {
-        let physics = await MainActor.run { model.physicsEngine }
-        physics.resetSimulation()
-        let maxSteps = Constants.Physics.maxSimulationSteps
-        for _ in 0..<maxSteps {
-            let nodes = await model.nodes.map { $0.unwrapped }
-            let edges = await model.edges
-            let (updatedNodes, isActive) = physics.simulationStep(nodes: nodes, edges: edges)
-            await MainActor.run { model.nodes = updatedNodes.map(AnyNode.init) }
-            physics.alpha *= (1 - Constants.Physics.alphaDecay)
-            if !isActive { break }
-        }
-    }
-    
-    @Test(arguments: 1..<5) func testConvergencePropertyBased(seed: Int) async throws {
+    @Test func testGraphDescription() async throws {
         let storage = MockGraphStorage()
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let (nodesToAssign, edgesToAssign) = await generateNodesAndEdges(seed: seed)
-        await MainActor.run {
-            model.nodes = nodesToAssign
-            model.edges = edgesToAssign
-        }
-        await runSimulation(on: model)
-        let totalVel = (await model.nodes).reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        #expect(totalVel < 4.0, "Simulation converged to low velocity for seed \(seed)")
+        storage.nodes = [Node(label: 0, position: .zero)]
+        let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
+        await MainActor.run { model.nextNodeLabel = 1 }
+        await model.addNode(at: .zero)
+        await model.addNode(at: CGPoint(x: 10, y: 10))
+        
+        await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }
+        
+        let descNoSelect = await MainActor.run { model.graphDescription(selectedID: nil, selectedEdgeID: nil) }
+        #expect(descNoSelect == "Graph with 2 nodes and 1 directed edge. No node or edge selected.", "Correct desc without selection")
+        
+        let descWithSelect = await MainActor.run { model.graphDescription(selectedID: model.nodes[0].id, selectedEdgeID: nil) }
+        #expect(descWithSelect == "Graph with 2 nodes and 1 directed edge. Node 1 selected, outgoing to: 2; incoming from: none.", "Correct desc with selection")
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: CoordinateTransformerTests.swift
+Path: GraphEditorWatchTests/CoordinateTransformerTests.swift
+Last modified: 2025-10-08 15:23:57
+
+Contents:
+//
+//  CoordinateTransformerTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct CoordinateTransformerTests {
+    @Test func testCoordinateRoundTrip() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 150, y: 150)
+        let modelPos = CGPoint(x: 167.78, y: 165.66)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize.zero
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip should match original model position")
     }
     
-    @MainActor @Test func testUndoRedoMixedOperations() async throws {
-        let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        await model.load()
-        await model.addNode(at: CGPoint.zero)
-        await runSimulation(on: model)
-        await model.snapshot()  // Explicit snapshot after initial simulation to capture positions
-        let initialNodes = model.nodes
-        let initialNodeCount = initialNodes.count
-        let initialEdgeCount = model.edges.count
-        let nodeToDelete = initialNodes[0].id
-        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
-        await model.snapshot()  // Explicit before delete
-        await model.deleteNode(withID: nodeToDelete)
-        await runSimulation(on: model)
-        await model.addNode(at: CGPoint(x: 50, y: 50))
-        await runSimulation(on: model)
-        await model.undo(resume: false)
-        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
-        await model.undo(resume: false)
-        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
-        #expect(model.edges.count == initialEdgeCount, "Edges restored")
-        let restoredNodes = model.nodes
-        #expect(zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) && approximatelyEqual($0.velocity, $1.velocity, accuracy: 1e-5) }, "Positions and velocities restored")
-        await model.redo(resume: false)
-        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
-        await model.redo(resume: false)
-        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
+    @Test func testCoordinateRoundTripWithZoomAndOffset() {
+        let viewSize = CGSize(width: 205, height: 251)
+        let centroid = CGPoint(x: 56.73, y: 161.10)
+        let modelPos = CGPoint(x: -40.27, y: 52.60)
+        let zoom: CGFloat = 1.0
+        let offset = CGSize(width: 81, height: 111.5)
+        
+        let screenPos = CoordinateTransformer.modelToScreen(modelPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        let recoveredModel = CoordinateTransformer.screenToModel(screenPos, effectiveCentroid: centroid, zoomScale: zoom, offset: offset, viewSize: viewSize)
+        
+        #expect(approximatelyEqual(recoveredModel, modelPos, accuracy: 1e-3), "Round-trip with zoom and offset should match")
     }
     
-    @Test func testInitializationWithDefaults() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        #expect(await MainActor.run { model.nodes.count } >= 3, "Should load default or saved nodes")
-        #expect(await MainActor.run { model.edges.count } >= 3, "Should load default edges")
-    }
-    
-    @Test func testDeleteNodeAndEdges() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let nodes = await model.nodes
-        try #require(!nodes.isEmpty, "Assumes default nodes exist")
-        let nodeToDelete = nodes[0].id
-        let initialEdgeCount = await model.edges.count
-        let connectedEdges = (await model.edges).filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
-        await model.deleteNode(withID: nodeToDelete)
-        #expect(await MainActor.run { model.nodes.count } == nodes.count - 1, "Node deleted")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Connected edges deleted")
-    }
-    
-    @Test func testSaveLoadRoundTrip() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let originalNodeCount = await MainActor.run { model.nodes.count }
-        let originalEdges = await model.edges
-        await model.addNode(at: CGPoint.zero)
-        await runSimulation(on: model)
-        let postAddNodes = await model.nodes  // Capture after add and simulation
-        await model.snapshot()  // Triggers save() with stabilized positions
-        let newModel = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await newModel.load()
-        // Skip runSimulation(on: newModel) - loaded positions should match saved exactly; re-sim amplifies FP errors
-        #expect(await MainActor.run { newModel.nodes.count } == originalNodeCount + 1, "Loaded nodes include added one")
-        #expect(await newModel.edges == originalEdges, "Edges unchanged")
-        let loadedNodes = (await newModel.nodes).sorted(by: { $0.id.uuidString < $1.id.uuidString })
-        let expectedNodes = postAddNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })
-        #expect(zip(loadedNodes, expectedNodes).allSatisfy {
-            $0.label == $1.label && approximatelyEqual($0.position, $1.position, accuracy: 1e-2)  // Further relaxed for any JSON/FP rounding
-        }, "Loaded nodes match expected")
-    }
-    
-    @MainActor @Test func testUndoRedoRoundTrip() async {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        try? await model.loadGraph()  // Explicit load to start empty
-        let initialNode = AnyNode(Node(id: UUID(), label: 1, position: .zero))
-        await model.snapshot()  // Pre-add initial (appends empty)
-        model.nodes = [initialNode]  // "Add" initial
-        let newNode = AnyNode(Node(id: UUID(), label: 2, position: .zero))
-        await model.snapshot()  // Pre-add new (appends [initial])
-        model.nodes.append(newNode)  // Add new
-        await model.undo()  // Back to 1 node
-        #expect(model.nodes.count == 1, "Undo removes node")
-        #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
-        #expect(model.redoStack.count == 1, "Redo stack populated")
-        await model.redo()  // Forward to 2 nodes
-        #expect(model.nodes.count == 2, "Redo adds node")
-        #expect(model.undoStack.count == 2, "Undo stack updated")
-    }
-    
-    internal func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+    public func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
         hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
     }
 }
 ----------------------------------------------------------------------------------------------------
-File: MenuViewTests.swift
-Path: GraphEditorWatchTests/MenuViewTests.swift
-Last modified: 2025-09-25 14:19:07
+File: EditContentSheetTests.swift
+Path: GraphEditorWatchTests/EditContentSheetTests.swift
+Last modified: 2025-10-21 08:23:20
 
 Contents:
 //
-//  MenuViewTests.swift
+//  EditContentSheetTests.swift
 //  GraphEditor
 //
 //  Created by handcart on 9/25/25.
@@ -218,231 +472,479 @@ import SwiftUI
 @testable import GraphEditorWatch
 @testable import GraphEditorShared
 
-struct MenuViewTests {
+struct EditContentSheetTests {
     private func setupViewModel() async -> GraphViewModel {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
         let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
         return await GraphViewModel(model: model)
     }
-
-    @Test func testEditSectionDeleteNode() async {
+    
+    @MainActor @Test func testSaveStringContent() async {
         let viewModel = await setupViewModel()
-        let node = AnyNode(Node(label: 1, position: .zero))
-        await MainActor.run { viewModel.model.nodes = [node] }
-        _ = EditSection(viewModel: viewModel, selectedNodeID: node.id, selectedEdgeID: nil, onDismiss: {}, onEditNode: {})
-        
-        // Simulate button tap (manual test logic; for full UI test, use XCUITest)
-        await viewModel.deleteNode(withID: node.id)
-        #expect(await viewModel.model.nodes.isEmpty, "Node deleted")
+        let nodeID = NodeID()
+        var savedContent: [NodeContent]?
+        let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
+            savedContent = content
+        }
+        // Simulate input: Since @State is private, this is placeholder; use XCUITest for full simulation or expose states for testing
+        // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
+        // Placeholder assertion (adapt based on actual simulation logic)
+        _ = sheet  // Use to silence warning
+        #expect(savedContent == nil, "Initially nil; add simulation to set [.string(\"test\")]")
     }
 }
 ----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-Last modified: 2025-10-23 13:29:25
+File: GestureTests.swift
+Path: GraphEditorWatchTests/GestureTests.swift
+Last modified: 2025-10-10 13:16:11
 
 Contents:
 //
-//  GraphEditorWatchUITests.swift
-//  GraphEditorWatchUITests
+//  GestureTests.swift
+//  GraphEditor
 //
-//  Created by handcart on 8/4/25.
+//  Created by handcart on 9/22/25.
 //
-
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
 import XCTest
+import SwiftUI
 
-extension XCUIApplication {
-    func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 10.0, file: StaticString = #file, line: UInt = #line) {
-        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
-    }
-}
-
-final class GraphEditorWatchUITests: XCTestCase {
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        let app = XCUIApplication()
-        app.terminate()
-        app.launch()
-        Thread.sleep(forTimeInterval: 2.0)  // Increased for idle
-        
-        print("Post-launch hierarchy: \(app.debugDescription)")
-        
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")
+struct GestureTests {
+    private func setupModel() async -> GraphModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
+        await MainActor.run { model.nodes = [] }
+        await MainActor.run { model.edges = [] }
+        await model.addNode(at: CGPoint(x: 0, y: 0))
+        await model.addNode(at: CGPoint(x: 50, y: 50))
+        await model.stopSimulation()  // Ensure no ongoing simulation
+        return model
     }
     
-    func testAppLaunchesAndCanvasExists() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
+    @Test func testDragCreatesEdge() async throws {
+        let model = await setupModel()
+        #expect((await model.edges).isEmpty, "No edges initially")
         
-        // Removed predicate (no label); add if canvas gets one, e.g.:
-        // let initialPredicate = NSPredicate(format: "label CONTAINS 'Graph'")
-        // expectation(for: initialPredicate, evaluatedWith: canvas)
-        // waitForExpectations(timeout: 5.0)
-    }
-    
-    func testMenuOpensAfterLongPress() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
-        
-        canvas.tap()  // Deselect anything
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
-        
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-    }
-    
-    func testAddNodeViaMenu() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
-        
-        canvas.tap()  // Deselect
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
-        
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let addNodeButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addNodeButton, in: menuGrid, maxAttempts: 30)
-        addNodeButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Update predicate to match actual post-add (inspect app)
-        let addedPredicate = NSPredicate(format: "label CONTAINS 'node'")
-        expectation(for: addedPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
-    
-    func testResetGraphViaMenu() {
-        // If dropping reset, comment out or remove this test
-        // Otherwise, add after implementing resetGraph()
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
-        
-        canvas.tap()  // Deselect
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
-        
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let resetButton = app.buttons["resetGraphButton"]
-        scrollUntilVisible(element: resetButton, in: menuGrid, maxAttempts: 30)
-        resetButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Verify reset (adjust predicate)
-        let resetPredicate = NSPredicate(format: "label CONTAINS 'Empty'")
-        expectation(for: resetPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
-    
-    // Helper: Perform long press with retries and debug (adjustments for watchOS)
-    private func performLongPress(on element: XCUIElement, atNormalizedOffset offset: CGVector, maxRetries: Int = 5, app: XCUIApplication) {
-        let coord = element.coordinate(withNormalizedOffset: offset)
-        for attempt in 1...maxRetries {
-            print("Long press attempt \(attempt)")
-            Thread.sleep(forTimeInterval: 0.5)  // Settle without tap
-            coord.press(forDuration: 1.5)  // Reduced; match app's timer
-            Thread.sleep(forTimeInterval: 1.0)
-            
-            print("Post-long-press hierarchy (attempt \(attempt)): \(app.debugDescription)")
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Post-long-press-attempt-\(attempt)"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-            
-            if app.otherElements["graphMenuGrid"].exists {
-                return  // Success
-            }
-            coord.tap()  // Attempt dismiss
-            Thread.sleep(forTimeInterval: 0.5)
+        // Ensure at least two nodes exist before indexing
+        let currentCount = await model.nodes.count
+        if currentCount < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+            await model.stopSimulation()
         }
-        XCTFail("Long press failed after \(maxRetries) attempts")
-    }
-    
-    // Improved scrolling (updated query to otherElements if needed)
-    private func scrollUntilVisible(element: XCUIElement, in container: XCUIElement, maxAttempts: Int) {
-        var attempts = 0
-        let smallOffset = CGVector(dx: 0.5, dy: 0.25)
         
-        while attempts < maxAttempts {
-            let query = container.descendants(matching: .button)[element.identifier]  // Broader query for nested
-            if query.exists && query.firstMatch.isHittable {
-                return
-            }
-            
-            // Swipe up
-            let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-            let end = container.coordinate(withNormalizedOffset: smallOffset)
-            start.press(forDuration: 0.1, thenDragTo: end)
-            Thread.sleep(forTimeInterval: 0.5)
-            attempts += 1
-            
-            print("Scroll up attempt \(attempts): Exists? \(query.exists), hittable? \(query.firstMatch.isHittable)")
-            
-            // Corrective swipe down every 5
-            if attempts % 5 == 0 {
-                let downStart = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-                let downEnd = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-                downStart.press(forDuration: 0.1, thenDragTo: downEnd)
-                Thread.sleep(forTimeInterval: 0.5)
-                print("Corrective swipe down at attempt \(attempts)")
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let draggedNode = await model.nodes[0]
+        let potentialEdgeTarget = await model.nodes[1]
+        let initialPosition = draggedNode.position
+        
+        let mockTranslation = CGSize(width: 50, height: 50)
+        let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
+        let initialPositionUpdated = CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y)  // NEW: Compute expected position if moved
+        
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
+            await viewModel.model.snapshot()
+            if dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped)
+            } else {
+                if potentialEdgeTarget.id != draggedNode.id {
+                    let fromID = draggedNode.id
+                    let targetID = potentialEdgeTarget.id
+                    let initialEdges = await MainActor.run { viewModel.model.edges }  // Capture initial for comparison on MainActor
+                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == targetID } ||
+                                     initialEdges.contains { $0.from == targetID && $0.target == fromID }
+                    if !edgeExists {
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: targetID)) }
+                    } else {
+                        await MainActor.run {
+                            viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: initialPositionUpdated, velocity: .zero)
+                        }
+                    }
+                    await viewModel.model.startSimulation()
+                    await viewModel.model.stopSimulation()  // Wait for completion
+                }
             }
         }
-        XCTFail("Element not visible after \(maxAttempts) attempts")
+        
+        let finalEdgeCount = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount == 1, "Edge created after simulated drag")
+        let newEdge = await MainActor.run { viewModel.model.edges.first! }
+        #expect(newEdge.from == draggedNode.id, "Edge from correct node")
+        #expect(newEdge.target == potentialEdgeTarget.id, "Edge to correct node")
+        let node0PositionAfter = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfter, initialPosition, accuracy: 1e-5), "Position unchanged on edge create")  // Corrected expectation
+    }
+    @Test func testShortDragAsTap() async throws {
+        let model = await setupModel()
+        #expect((await model.edges).isEmpty, "No edges initially")
+        
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let draggedNode = await model.nodes[0]
+        let initialPosition = draggedNode.position
+        let initialEdgeCount = (await model.edges).count
+        
+        let mockTranslation = CGSize(width: 1, height: 1)  // Small, < tapThreshold
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
+            _ = index  // Silence unused warning
+            await viewModel.model.snapshot()
+            if dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped; assume no side effects for this test)
+            } else {
+                // Drag branch skipped due to small distance
+            }
+        }
+        
+        let edgeCountAfter = await MainActor.run { model.edges.count }
+        #expect(edgeCountAfter == initialEdgeCount, "No edge created on short drag")
+        let node0PositionAfterTap = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfterTap, initialPosition, accuracy: 1e-5), "Position unchanged")
+    }
+    
+    @Test func testDragMovesNodeIfEdgeExists() async throws {
+        let model = await setupModel()
+        
+        // Ensure at least two nodes exist before indexing
+        let currentCount = await model.nodes.count
+        if currentCount < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+            await model.stopSimulation()
+        }
+
+        let fromID = (await model.nodes[0]).id
+        let toID = (await model.nodes[1]).id
+        await MainActor.run { model.edges.append(GraphEdge(from: fromID, target: toID)) }
+        #expect((await model.edges).count == 1, "Edge exists initially")
+        
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let params = await prepareDragParameters(model: model)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == params.draggedNode.id }) {
+            await viewModel.model.snapshot()
+            if params.dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped)
+            } else {
+                await performDragAction(viewModel: viewModel, draggedNode: params.draggedNode, potentialEdgeTarget: params.potentialEdgeTarget, dragOffset: params.dragOffset, index: index)
+            }
+        }
+        
+        let finalEdgeCount2 = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount2 == 1, "No new edge created")
+        // OPTIONAL: If you want to verify post-simulation (e.g., position changed but not exactly by offset), add looser checks here
+    }
+    
+    private struct DragParameters {
+        let draggedNode: any NodeProtocol
+        let potentialEdgeTarget: any NodeProtocol
+        let initialPosition: CGPoint
+        let mockTranslation: CGSize
+        let dragOffset: CGPoint
+        let dragDistance: CGFloat
+    }
+    
+    private func prepareDragParameters(model: GraphModel) async -> DragParameters {
+        let draggedNode = await model.nodes[0]
+        let potentialEdgeTarget = await model.nodes[1]
+        let initialPosition = draggedNode.position
+        
+        let mockTranslation = CGSize(width: 50, height: 50)
+        let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        return DragParameters(
+            draggedNode: draggedNode,
+            potentialEdgeTarget: potentialEdgeTarget,
+            initialPosition: initialPosition,
+            mockTranslation: mockTranslation,
+            dragOffset: dragOffset,
+            dragDistance: dragDistance
+        )
+    }
+    
+    private func performDragAction(viewModel: GraphViewModel, draggedNode: any NodeProtocol, potentialEdgeTarget: any NodeProtocol, dragOffset: CGPoint, index: Int) async {
+        if potentialEdgeTarget.id != draggedNode.id {
+            let fromID = draggedNode.id
+            let toID = potentialEdgeTarget.id
+            let edgeExists = await MainActor.run {
+                let edges = viewModel.model.edges
+                let forwardMatch = edges.contains { $0.from == fromID && $0.target == toID }
+                let reverseMatch = edges.contains { $0.from == toID && $0.target == fromID }
+                return forwardMatch || reverseMatch
+            }
+            if !edgeExists {
+                await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
+                await viewModel.model.startSimulation()
+                await viewModel.model.stopSimulation()
+            } else {
+                await MainActor.run {
+                    let currentPos = viewModel.model.nodes[index].position
+                    viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
+                }
+                let posAfterImmediateMove = await MainActor.run { viewModel.model.nodes[0].position }
+                let initialPosition = draggedNode.position
+                #expect(!approximatelyEqual(posAfterImmediateMove, initialPosition, accuracy: 1e-5), "Position changed on move")
+                #expect(approximatelyEqual(posAfterImmediateMove, CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y), accuracy: 1e-5), "Moved by offset")
+                await viewModel.model.startSimulation()  // Keep this if needed for side effects, but checks are now before it
+                await viewModel.model.stopSimulation()
+            }
+        }
+    }
+    
+    func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        return hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
     }
 }
 ----------------------------------------------------------------------------------------------------
-File: GraphEditorWatchUITestsLaunchTests.swift
-Path: GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift
-Last modified: 2025-09-19 13:15:40
+File: GraphEditorWatchTests.swift
+Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
+Last modified: 2025-10-09 08:04:41
+
+Contents:
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+class MockGraphStorage: GraphStorage {
+    // In-memory single-graph (default) storage for convenience in tests
+    var nodes: [any NodeProtocol] = []
+    var edges: [GraphEdge] = []
+    var savedViewState: ViewState?
+
+    // In-memory multi-graph storage
+    private var graphs: [String: (nodes: [any NodeProtocol], edges: [GraphEdge])] = [:]
+    private var viewStates: [String: ViewState] = [:]
+    private let defaultName = "default"
+
+    // MARK: - Single-graph (default) methods
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
+        self.nodes = nodes
+        self.edges = edges
+        // Keep default graph in sync
+        graphs[defaultName] = (nodes, edges)
+    }
+
+    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        return (nodes, edges)
+    }
+
+    func clear() async throws {
+        nodes = []
+        edges = []
+        savedViewState = nil
+        graphs[defaultName] = ([], [])
+        viewStates.removeValue(forKey: defaultName)
+    }
+
+    func saveViewState(_ viewState: ViewState) async throws {
+        savedViewState = viewState
+        viewStates[defaultName] = viewState
+    }
+
+    func loadViewState() async throws -> ViewState? {
+        return savedViewState
+    }
+
+    // MARK: - Multi-graph methods
+    func listGraphNames() async throws -> [String] {
+        var names = Set(graphs.keys)
+        names.insert(defaultName)
+        return Array(names).sorted()
+    }
+
+    func createNewGraph(name: String) async throws {
+        if graphs[name] != nil {
+            throw GraphStorageError.graphExists(name)
+        }
+        graphs[name] = ([], [])
+        viewStates.removeValue(forKey: name)
+    }
+
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws {
+        graphs[name] = (nodes, edges)
+        if name == defaultName {
+            self.nodes = nodes
+            self.edges = edges
+        }
+    }
+
+    func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        if name == defaultName {
+            return (nodes, edges)
+        }
+        if let state = graphs[name] {
+            return state
+        }
+        throw GraphStorageError.graphNotFound(name)
+    }
+
+    func deleteGraph(name: String) async throws {
+        if name == defaultName {
+            nodes = []
+            edges = []
+            savedViewState = nil
+            graphs[defaultName] = ([], [])
+            viewStates.removeValue(forKey: defaultName)
+            return
+        }
+        guard graphs.removeValue(forKey: name) != nil else {
+            throw GraphStorageError.graphNotFound(name)
+        }
+        viewStates.removeValue(forKey: name)
+    }
+
+    // MARK: - View state per graph (sync variants required by protocol)
+    func saveViewState(_ viewState: ViewState, for name: String) throws {
+        viewStates[name] = viewState
+        if name == defaultName {
+            savedViewState = viewState
+        }
+    }
+
+    func loadViewState(for name: String) throws -> ViewState? {
+        if name == defaultName {
+            return savedViewState ?? viewStates[name]
+        }
+        return viewStates[name]
+    }
+}
+
+@MainActor @Test func testUndoRedoRoundTrip() async {
+    let storage = MockGraphStorage()
+    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+    try? await model.loadGraph()  // Explicit load to start empty
+    let initialNode = AnyNode(Node(id: UUID(), label: 1, position: .zero))
+    await model.snapshot()  // Pre-add initial (appends empty)
+    model.nodes = [initialNode]  // "Add" initial
+    let newNode = AnyNode(Node(id: UUID(), label: 2, position: .zero))
+    await model.snapshot()  // Pre-add new (appends [initial])
+    model.nodes.append(newNode)  // Add new
+    await model.undo()  // Back to 1 node
+    #expect(model.nodes.count == 1, "Undo removes node")
+    #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+    #expect(model.redoStack.count == 1, "Redo stack populated")
+    await model.redo()  // Forward to 2 nodes
+    #expect(model.nodes.count == 2, "Redo adds node")
+    #expect(model.undoStack.count == 2, "Undo stack updated")
+}
+----------------------------------------------------------------------------------------------------
+File: GraphGesturesModifierTests.swift
+Path: GraphEditorWatchTests/GraphGesturesModifierTests.swift
+Last modified: 2025-10-17 07:44:45
 
 Contents:
 //
-//  GraphEditorWatchUITestsLaunchTests.swift
-//  GraphEditorWatchUITests
+//  GraphGesturesModifierTests.swift
+//  GraphEditorWatch
 //
-//  Created by handcart on 8/4/25.
+//  Created by handcart on 9/25/25.
 //
+import Testing
+import SwiftUI
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
 
-import XCTest
-
-final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
-
-    override static var runsForEachTargetApplicationUIConfiguration: Bool {
-        true
+struct GraphGesturesModifierTests {
+    private func setupViewModel() async -> GraphViewModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
+        return await MainActor.run { GraphViewModel(model: model) }
     }
-
-    override func setUpWithError() throws {
-        continueAfterFailure = false
+    
+    private func createModifier(viewModel: GraphViewModel,
+                                selectedNodeID: Binding<NodeID?>,
+                                selectedEdgeID: Binding<UUID?>) -> GraphGesturesModifier {
+        GraphGesturesModifier(
+            viewModel: viewModel,
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: selectedNodeID,
+            selectedEdgeID: selectedEdgeID,
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0)  // Add this line
+        )
     }
-
-    @MainActor
-    func testLaunch() throws {
-        let app = XCUIApplication()
-        app.launch()
-
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+    
+    @MainActor @Test func testHitTestNodesInScreenSpace() async {
+        let viewModel = await setupViewModel()
+        _ = createModifier(viewModel: viewModel,
+                                      selectedNodeID: .constant(nil),
+                                      selectedEdgeID: .constant(nil))
+        
+        let nodes = [AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))]
+        let context = GestureContext(zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300), effectiveCentroid: CGPoint.zero)
+        // Compute screen pos: viewCenter (150,150) + zoom * (model - centroid) + offset = (150,150) + 1*(100-0,100-0) + (0,0) = (250,250)
+        let screenTapPos = CGPoint(x: 250, y: 250)
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        let hitNode = HitTestHelper.closestNode(at: screenTapPos, visibleNodes: nodes, context: hitContext)
+        #expect(hitNode != nil, "Should hit node within radius")
+    }
+    
+    @Test func testPointToLineDistance() async {
+        let viewModel = await setupViewModel()
+        let modifier = createModifier(viewModel: viewModel,
+                                      selectedNodeID: .constant(nil),
+                                      selectedEdgeID: .constant(nil))
+        let dist = await MainActor.run {
+            modifier.pointToLineDistance(point: CGPoint(x: 0, y: 1), from: CGPoint.zero, endPoint: CGPoint(x: 2, y: 0))
+        }
+        #expect(dist == 1.0, "Perpendicular distance to line")
+    }
+    
+    @Test func testHandleTap() async {
+        let viewModel = await setupViewModel()
+        var testSelectedNodeID: NodeID?
+        var testSelectedEdgeID: UUID?
+        let selectedNodeBinding = Binding<NodeID?>(
+            get: { testSelectedNodeID },
+            set: { testSelectedNodeID = $0 }
+        )
+        let selectedEdgeBinding = Binding<UUID?>(
+            get: { testSelectedEdgeID },
+            set: { testSelectedEdgeID = $0 }
+        )
+        let modifier = createModifier(viewModel: viewModel,
+                                      selectedNodeID: selectedNodeBinding,
+                                      selectedEdgeID: selectedEdgeBinding)
+        let nodes = [AnyNode(Node(label: 1, position: CGPoint.zero))]
+        let edges = [GraphEdge(from: nodes[0].id, target: nodes[0].id)]  // Self-edge for test
+        let context = GestureContext(zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300), effectiveCentroid: CGPoint.zero)
+        
+        // Compute screen pos for model .zero: (150,150) + 1*(0-0,0-0) + (0,0) = (150,150)
+        let screenTapPos = CGPoint(x: 150, y: 150)
+        _ = await MainActor.run {
+            modifier.handleTap(at: screenTapPos, visibleNodes: nodes, visibleEdges: edges, context: context)
+        }
+        // Assert on mocked bindings
+        #expect(testSelectedNodeID != nil, "Node should be selected after tap")
+        #expect(testSelectedEdgeID == nil, "No edge selected")
     }
 }
 --------------------------------------------------

@@ -153,11 +153,6 @@ import os  // Added for logging
         }
     }
     
-    public func addChild(to parentID: NodeID) async {
-        await model.addChild(to: parentID)
-        await saveAfterDelay()
-    }
-    
     public func deleteNode(withID id: NodeID) async {
         await model.deleteNode(withID: id)
         if selectedNodeID == id { selectedNodeID = nil }

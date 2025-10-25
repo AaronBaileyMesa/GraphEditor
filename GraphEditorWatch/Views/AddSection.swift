@@ -22,7 +22,6 @@ struct AddSection: View {
             addNodeButton
             addToggleNodeButton
             if selectedNodeID != nil {
-                addChildButton
                 edgeTypePicker
                 addEdgeButton
             }
@@ -55,21 +54,6 @@ struct AddSection: View {
                 .font(.caption)
         }
         .accessibilityIdentifier("addToggleNodeButton")
-    }
-    
-    private var addChildButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            if let id = selectedNodeID {
-                Task { await viewModel.addChild(to: id) }
-            }
-            onDismiss()
-        } label: {
-            Label("Child", systemImage: "plus.square")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addChildButton")
     }
     
     private var edgeTypePicker: some View {

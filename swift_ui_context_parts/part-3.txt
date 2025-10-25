@@ -1,17 +1,206 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-24 08:01:50
+Current date: 2025-10-25 09:19:08
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-2. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
-3. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
-4. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-5. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-6. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+2. GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
+3. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+4. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+5. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+6. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift--------------------------------------------------
+File: PersistenceManager.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
+Last modified: 2025-10-02 20:55:48
+
+Contents:
+// Sources/GraphEditorShared/PersistenceManager.swift
+
+import Foundation
+import os  // For Logger
+
+@available(iOS 16.0, watchOS 6.0, *)
+private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "storage")
+
+/// Error types for graph storage operations.
+public enum GraphStorageError: Error {
+    case encodingFailed(Error)
+    case writingFailed(Error)
+    case loadingFailed(Error)
+    case decodingFailed(Error)
+    case inconsistentFiles(String)  // Retained for potential future multi-file use
+    case graphExists(String)  // New: For createNewGraph duplicates
+    case graphNotFound(String)  // New: For load/delete misses
+}
+
+/// File-based JSON persistence conforming to GraphStorage.
+@available(iOS 16.0, watchOS 6.0, *)
+public class PersistenceManager: GraphStorage {
+    private let directory: URL
+    private let defaultGraphName = "default"
+    
+    public init(directoryName: String = "graphs") {
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        self.directory = documents.appendingPathComponent(directoryName)
+        createDirectoryIfNeeded()
+    }
+    
+    private func createDirectoryIfNeeded() {
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        } catch {
+            logger.error("Failed to create directory: \(error.localizedDescription)")
+        }
+    }
+    
+    private func fileURL(for name: String) -> URL {
+        directory.appendingPathComponent("graph-\(name).json")
+    }
+    
+    private func viewStateKey(for name: String) -> String {
+        "graphViewState_\(name)"
+    }
+    
+    struct SavedState: Codable {
+        var version: Int = 1
+        let nodes: [NodeWrapper]
+        let edges: [GraphEdge]
+    }
+    
+    // MARK: - Default (Single-Graph) Methods (Unchanged Behavior)
+    
+    public func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
+        try await save(nodes: nodes, edges: edges, for: defaultGraphName)
+    }
+    
+    public func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        try await load(for: defaultGraphName)
+    }
+    
+    public func clear() async throws {
+        try await deleteGraph(name: defaultGraphName)
+    }
+    
+    public func saveViewState(_ viewState: ViewState) async throws {
+        try saveViewState(viewState, for: defaultGraphName)
+    }
+    
+    public func loadViewState() async throws -> ViewState? {
+        try loadViewState(for: defaultGraphName)
+    }
+    
+    // MARK: - Multi-Graph Methods
+    
+    public func listGraphNames() async throws -> [String] {
+        do {
+            let contents = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)
+            let names = contents
+                .filter { $0.lastPathComponent.hasPrefix("graph-") && $0.pathExtension == "json" }
+                .map { String($0.deletingPathExtension().lastPathComponent.dropFirst(6)) }  // Drop "graph-"
+                .sorted()
+            logger.debug("Listed \(names.count) graphs: \(names)")
+            return names
+        } catch {
+            logger.error("Listing failed: \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
+        }
+    }
+    
+    public func createNewGraph(name: String) async throws {
+        let url = fileURL(for: name)
+        if FileManager.default.fileExists(atPath: url.path) {
+            logger.warning("Graph '\(name)' already exists")
+            throw GraphStorageError.graphExists(name)
+        }
+        // Create empty graph
+        let emptyNodes: [any NodeProtocol] = []
+        let emptyEdges: [GraphEdge] = []
+        try await save(nodes: emptyNodes, edges: emptyEdges, for: name)
+        logger.debug("Created new graph: \(name)")
+    }
+    
+    public func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws {
+        let wrapped = nodes.compactMap { node -> NodeWrapper? in
+            if let plainNode = node as? Node { return .node(plainNode) } else if let toggleNode = node as? ToggleNode { return .toggleNode(toggleNode) } else {
+                logger.error("Unsupported node type: \(String(describing: type(of: node))); skipping.")
+                return nil  // Skip instead of fatalError
+            }
+        }
+        let state = SavedState(nodes: wrapped, edges: edges)
+        do {
+            let data = try JSONEncoder().encode(state)
+            try data.write(to: fileURL(for: name), options: .atomic)  // Ensures full overwrite
+            logger.debug("Saved \(wrapped.count) nodes and \(edges.count) edges for graph '\(name)'")
+        } catch let error as EncodingError {
+            logger.error("Encoding failed for '\(name)': \(error.localizedDescription)")
+            throw GraphStorageError.encodingFailed(error)
+        } catch {
+            logger.error("Writing failed for '\(name)': \(error.localizedDescription)")
+            throw GraphStorageError.writingFailed(error)
+        }
+    }
+    
+    public func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        let url = fileURL(for: name)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            logger.debug("No saved file for '\(name)'; throwing not found")
+            throw GraphStorageError.graphNotFound(name)
+        }
+        do {
+            let data = try Data(contentsOf: url)
+            let state = try JSONDecoder().decode(SavedState.self, from: data)
+            if state.version != 1 {
+                throw GraphStorageError.decodingFailed(NSError(domain: "Invalid version \(state.version) for '\(name)'", code: 0))
+            }
+            let loadedNodes = state.nodes.map { $0.value }
+            logger.debug("Loaded \(loadedNodes.count) nodes and \(state.edges.count) edges for graph '\(name)'")
+            return (loadedNodes, state.edges)
+        } catch let error as DecodingError {
+            logger.error("Decoding failed for '\(name)': \(error.localizedDescription)")
+            throw GraphStorageError.decodingFailed(error)
+        } catch {
+            logger.error("Loading failed for '\(name)': \(error.localizedDescription)")
+            throw GraphStorageError.loadingFailed(error)
+        }
+    }
+    
+    public func deleteGraph(name: String) async throws {
+        let url = fileURL(for: name)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+            // Also clear associated view state
+            UserDefaults.standard.removeObject(forKey: viewStateKey(for: name))
+            UserDefaults.standard.synchronize()
+            logger.debug("Deleted graph '\(name)'")
+        } else {
+            logger.warning("Graph '\(name)' not found for deletion")
+            throw GraphStorageError.graphNotFound(name)
+        }
+    }
+    
+    // MARK: - View State (Per-Graph)
+    
+    public func saveViewState(_ viewState: ViewState, for name: String) throws {
+        let data = try JSONEncoder().encode(viewState)
+        UserDefaults.standard.set(data, forKey: viewStateKey(for: name))
+        UserDefaults.standard.synchronize()  // Ensure immediate write
+        logger.debug("Saved view state for '\(name)'")
+    }
+    
+    public func loadViewState(for name: String) throws -> ViewState? {
+        guard let data = UserDefaults.standard.data(forKey: viewStateKey(for: name)) else {
+            logger.debug("No view state for '\(name)'")
+            return nil
+        }
+        let decoded = try JSONDecoder().decode(ViewState.self, from: data)
+        logger.debug("Loaded view state for '\(name)'")
+        return decoded
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: PhysicsEngine.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/PhysicsEngine.swift
-Last modified: 2025-10-15 08:27:30
+Last modified: 2025-10-25 09:07:26
 
 Contents:
 //
@@ -47,14 +236,15 @@ public class PhysicsEngine {
     internal let positionUpdater: PositionUpdater
     public var useAsymmetricAttraction: Bool = false
     public var alpha: CGFloat = 1.0  // New: Cooling parameter
-    
-    public init(simulationBounds: CGSize) {
-        self.simulationBounds = simulationBounds
-        self.repulsionCalculator = RepulsionCalculator(maxNodesForQuadtree: 200, simulationBounds: simulationBounds)
-        self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor, useAsymmetric: useAsymmetricAttraction)
-        self.centeringCalculator = CenteringCalculator(simulationBounds: simulationBounds)
-        self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)
-    }
+    public var usePreferredAngles: Bool = false  // NEW: Toggle for angular forces (default off)
+        
+        public init(simulationBounds: CGSize) {
+            self.simulationBounds = simulationBounds
+            self.repulsionCalculator = RepulsionCalculator(maxNodesForQuadtree: 200, simulationBounds: simulationBounds)
+            self.attractionCalculator = AttractionCalculator(symmetricFactor: self.symmetricFactor, useAsymmetric: useAsymmetricAttraction, usePreferredAngles: usePreferredAngles)  // UPDATED: Pass flag
+            self.centeringCalculator = CenteringCalculator(simulationBounds: simulationBounds)
+            self.positionUpdater = PositionUpdater(simulationBounds: simulationBounds)
+        }
     
     public func temporaryDampingBoost(steps: Int = 20) {
         dampingBoostSteps = steps
@@ -816,161 +1006,6 @@ struct RepulsionCalculator {
             maxY = max(maxY, node.position.y + node.radius)
         }
         return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: ToggleNode.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-10-21 08:07:24
-
-Contents:
-//
-//  ToggleNode.swift
-//  GraphEditorShared
-//
-//  Created by handcart on [date]; updated for completeness.
-//
-
-import SwiftUI
-import Foundation
-
-@available(iOS 16.0, *)
-@available(watchOS 9.0, *)
-public struct ToggleNode: NodeProtocol, Equatable {
-    public let id: NodeID
-    public let label: Int
-    public var position: CGPoint
-    public var velocity: CGPoint = .zero
-    public var radius: CGFloat = Constants.App.nodeModelRadius  // Use constant for consistency
-    public var isExpanded: Bool = true
-    public var contents: [NodeContent] = []  // NEW: Ordered list, default empty
-    public var fillColor: Color { isExpanded ? .green : .red }
-
-    public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = Constants.App.nodeModelRadius, isExpanded: Bool = true, contents: [NodeContent] = []) {
-        self.id = id
-        self.label = label
-        self.position = position
-        self.velocity = velocity
-        self.radius = radius
-        self.isExpanded = isExpanded
-        self.contents = contents
-    }
-
-    public func with(position: CGPoint, velocity: CGPoint) -> Self {
-        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, contents: contents)
-    }
-
-    public func with(position: CGPoint, velocity: CGPoint, contents: [NodeContent]) -> Self {
-        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, contents: contents)
-    }
-
-    public func handlingTap() -> Self {
-        var updated = self
-        updated.isExpanded.toggle()
-        updated.velocity = .zero  // Reset to prevent immediate jumps
-        return updated
-    }
-    
-    public func shouldHideChildren() -> Bool {
-        !isExpanded
-    }
-    
-    @available(iOS 16.0, *)
-    @available(watchOS 9.0, *)
-    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        AnyView(Circle().fill(fillColor).frame(width: radius * 2 * zoomScale, height: radius * 2 * zoomScale))  // Simple default
-    }
-
-    @available(iOS 16.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let scaledRadius = radius * zoomScale
-        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * zoomScale) : 0
-        let borderRadius = scaledRadius + borderWidth / 2
-
-        // Draw border if selected
-        if borderWidth > 0 {
-            let borderPath = Path(ellipseIn: CGRect(x: position.x - borderRadius, y: position.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-            context.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
-        }
-
-        // Draw node circle
-        let innerPath = Path(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        context.fill(innerPath, with: .color(fillColor))
-
-        // Draw +/- icon centered in node
-        let iconText = isExpanded ? "-" : "+"
-        let iconFontSize = max(8.0, 12.0 * zoomScale)
-        let iconResolved = context.resolve(Text(iconText).foregroundColor(.white).font(.system(size: iconFontSize, weight: .bold)))
-        context.draw(iconResolved, at: position, anchor: .center)
-
-        // Draw label above node
-        let labelFontSize = max(8.0, 12.0 * zoomScale)
-        let labelResolved = context.resolve(Text("\(label)").foregroundColor(.white).font(.system(size: labelFontSize)))
-        let labelPosition = CGPoint(x: position.x, y: position.y - (scaledRadius + 10 * zoomScale))
-        context.draw(labelResolved, at: labelPosition, anchor: .center)
-
-        // NEW: Draw contents list vertically below node
-        if !contents.isEmpty && zoomScale > 0.5 {  // Only if zoomed
-            var yOffset = scaledRadius + 5 * zoomScale  // Start below node
-            let contentFontSize = max(6.0, 8.0 * zoomScale)
-            let maxItems = 3  // Limit for watchOS
-            for content in contents.prefix(maxItems) {
-                let contentText = Text(content.displayText).font(.system(size: contentFontSize)).foregroundColor(.gray)
-                let resolved = context.resolve(contentText)
-                let contentPosition = CGPoint(x: position.x, y: position.y + yOffset)
-                context.draw(resolved, at: contentPosition, anchor: .center)
-                yOffset += 10 * zoomScale  // Line spacing
-            }
-            if contents.count > maxItems {
-                let moreText = Text("+\(contents.count - maxItems) more").font(.system(size: contentFontSize * 0.75)).foregroundColor(.gray)
-                let resolved = context.resolve(moreText)
-                context.draw(resolved, at: CGPoint(x: position.x, y: position.y + yOffset), anchor: .center)
-            }
-        }
-    }
-
-    // Codable conformance (updated for contents array)
-    enum CodingKeys: String, CodingKey {
-        case id, label, positionX, positionY, velocityX, velocityY, radius, isExpanded, contents  // Updated key
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(NodeID.self, forKey: .id)
-        label = try container.decode(Int.self, forKey: .label)
-        radius = try container.decode(CGFloat.self, forKey: .radius)
-        isExpanded = try container.decode(Bool.self, forKey: .isExpanded)
-        contents = try container.decode([NodeContent].self, forKey: .contents)  // NEW: Decode array
-        let posX = try container.decode(CGFloat.self, forKey: .positionX)
-        let posY = try container.decode(CGFloat.self, forKey: .positionY)
-        position = CGPoint(x: posX, y: posY)
-        let velX = try container.decode(CGFloat.self, forKey: .velocityX)
-        let velY = try container.decode(CGFloat.self, forKey: .velocityY)
-        velocity = CGPoint(x: velX, y: velY)
-    }
-
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(id, forKey: .id)
-        try container.encode(label, forKey: .label)
-        try container.encode(radius, forKey: .radius)
-        try container.encode(isExpanded, forKey: .isExpanded)
-        try container.encode(contents, forKey: .contents)  // NEW: Encode array
-        try container.encode(position.x, forKey: .positionX)
-        try container.encode(position.y, forKey: .positionY)
-        try container.encode(velocity.x, forKey: .velocityX)
-        try container.encode(velocity.y, forKey: .velocityY)
-    }
-
-    public static func == (lhs: ToggleNode, rhs: ToggleNode) -> Bool {
-        lhs.id == rhs.id &&
-        lhs.label == rhs.label &&
-        lhs.position == rhs.position &&
-        lhs.velocity == rhs.velocity &&
-        lhs.radius == rhs.radius &&
-        lhs.isExpanded == rhs.isExpanded &&
-        lhs.contents == rhs.contents  // Updated for array
     }
 }
 --------------------------------------------------
