@@ -1,12 +1,102 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-25 09:19:08
+Current date: 2025-10-29 07:41:26
 Table of Contents:
-1. GraphEditorWatch/Views/ContentView.swift
-2. GraphEditorWatch/Views/EdgeMenuView.swift
-3. GraphEditorWatch/Views/EditContentSheet.swift
-4. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+1. GraphEditorWatch/Views/AddSection.swift
+2. GraphEditorWatch/Views/ContentView.swift
+3. GraphEditorWatch/Views/EdgeMenuView.swift
+4. GraphEditorWatch/Views/EditContentSheet.swift
+5. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+File: AddSection.swift
+Path: GraphEditorWatch/Views/AddSection.swift
+Last modified: 2025-10-25 10:13:46
+
+Contents:
+//
+//  AddSection.swift
+//  GraphEditor
+//
+//  Created by handcart on 10/5/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+
+struct AddSection: View {
+    let viewModel: GraphViewModel
+    let selectedNodeID: NodeID?
+    let onDismiss: () -> Void
+    let onAddEdge: (EdgeType) -> Void
+    
+    @State private var selectedEdgeType: EdgeType = .association
+    
+    var body: some View {
+        Group {
+            addNodeButton
+            addToggleNodeButton
+            if selectedNodeID != nil {
+                edgeTypePicker
+                addEdgeButton
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Add section")
+    }
+    
+    private var addNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.addNode(at: .zero) }
+            onDismiss()
+        } label: {
+            Label("Node", systemImage: "plus.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addNodeButton")
+    }
+    
+    private var addToggleNodeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            Task { await viewModel.addToggleNode(at: .zero) }
+            onDismiss()
+        } label: {
+            Label("Toggle Node", systemImage: "plus.circle.fill")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("addToggleNodeButton")
+    }
+    
+    private var edgeTypePicker: some View {
+        Picker("Type", selection: $selectedEdgeType) {
+            Text("Assoc").tag(EdgeType.association)
+            Text("Hier").tag(EdgeType.hierarchy)
+        }
+        .font(.caption2)  // Smaller for compactness
+        .labelsHidden()   // Hide label for space
+        .accessibilityHint("Select edge type")
+        .gridCellColumns(2)
+    }
+    
+    private var addEdgeButton: some View {
+        Button {
+            WKInterfaceDevice.current().play(.click)
+            onAddEdge(selectedEdgeType)
+            onDismiss()
+        } label: {
+            Label("Edge", systemImage: "arrow.right.circle")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .disabled(selectedNodeID == nil)
+        .accessibilityIdentifier("addEdgeButton")
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: ContentView.swift
 Path: GraphEditorWatch/Views/ContentView.swift
 Last modified: 2025-10-23 11:30:40

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-25 09:19:09
+Current date: 2025-10-29 07:41:26
 Table of Contents:
 1. GraphEditorWatch/Views/GraphGesturesModifier.swift
 2. GraphEditorWatch/Views/GraphMenuView.swift
@@ -373,7 +373,7 @@ extension GraphGesturesModifier {
 ----------------------------------------------------------------------------------------------------
 File: GraphMenuView.swift
 Path: GraphEditorWatch/Views/GraphMenuView.swift
-Last modified: 2025-10-24 08:10:00
+Last modified: 2025-10-25 20:18:53
 
 Contents:
 //
@@ -977,7 +977,7 @@ struct MenuButton<LabelContent: View>: View {
 ----------------------------------------------------------------------------------------------------
 File: MenuView.swift
 Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-10-23 13:38:08
+Last modified: 2025-10-25 10:12:04
 
 Contents:
 //
@@ -1007,14 +1007,23 @@ struct MenuView: View {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        if selectedNodeID != nil && selectedEdgeID == nil {
-            NodeMenuView(
+        if let id = selectedNodeID, selectedEdgeID == nil {
+            if viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped is ToggleNode {
+                ToggleNodeMenuView(
+                    viewModel: viewModel,
+                    onDismiss: { showMenu = false },
+                    selectedNodeID: $selectedNodeID,
+                    isAddingEdge: $isAddingEdge
+                )
+            } else {            NodeMenuView(
                 viewModel: viewModel,
                 onDismiss: { showMenu = false },
                 selectedNodeID: $selectedNodeID,
                 isAddingEdge: $isAddingEdge
             )
-        } else if selectedEdgeID != nil {
+            }
+        }
+        else if selectedEdgeID != nil {
             EdgeMenuView(
                 viewModel: viewModel,
                 isSimulatingBinding: isSimulatingBinding,

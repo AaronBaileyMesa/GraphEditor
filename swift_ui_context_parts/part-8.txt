@@ -1,20 +1,20 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-25 09:19:09
+Current date: 2025-10-29 07:41:27
 Table of Contents:
 1. GraphEditorWatch/Views/NodeMenuView.swift
 2. GraphEditorWatch/Views/NodeView.swift
-3. GraphEditorWatch/Views/ViewSection.swift
-4. GraphEditorWatchTests/AccessibilityTests.swift
-5. GraphEditorWatchTests/CoordinateTransformerTests.swift
-6. GraphEditorWatchTests/EditContentSheetTests.swift
-7. GraphEditorWatchTests/GestureTests.swift
-8. GraphEditorWatchTests/GraphEditorWatchTests.swift
-9. GraphEditorWatchTests/GraphGesturesModifierTests.swift--------------------------------------------------
+3. GraphEditorWatch/Views/ToggleNodeMenuView.swift
+4. GraphEditorWatch/Views/ViewSection.swift
+5. GraphEditorWatchTests/AccessibilityTests.swift
+6. GraphEditorWatchTests/CoordinateTransformerTests.swift
+7. GraphEditorWatchTests/EditContentSheetTests.swift
+8. GraphEditorWatchTests/GestureTests.swift
+9. GraphEditorWatchTests/GraphEditorWatchTests.swift--------------------------------------------------
 File: NodeMenuView.swift
 Path: GraphEditorWatch/Views/NodeMenuView.swift
-Last modified: 2025-10-24 07:54:16
+Last modified: 2025-10-25 10:28:06
 
 Contents:
 //
@@ -109,15 +109,17 @@ struct NodeMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // NEW: Helper for edge type buttons (unchanged, but kept as is for this commit)
+    // Edge type button (example; adjust if needed)
     private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
         Button {
             selectedEdgeType = type
+            Self.logger.debug("Selected \(type == .association ? "Association" : "Hierarchy") edge type")
         } label: {
             Text(type == .association ? "Assoc" : "Hier")
-                .font(.caption2)
-                .fontWeight(selectedEdgeType == type ? .bold : .regular)
-                .foregroundColor(selectedEdgeType == type ? .blue : .gray)
+                .font(.caption)
+                .padding(4)
+                .background(selectedEdgeType == type ? Color.blue : Color.gray)
+                .cornerRadius(4)
         }
         .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
     }
@@ -152,12 +154,12 @@ struct NodeMenuView: View {
         MenuButton(
             action: {
                 if let id = selectedNodeID {
-                    Task { await viewModel.model.addChild(to: id) }
+                    Task { await viewModel.model.addPlainChild(to: id) }  // FIXED: Use new addPlainChild method
                 }
                 onDismiss()
             },
             label: {
-                Label("Child", systemImage: "plus.square")
+                Label("Plain Child", systemImage: "plus.square")  // Updated label for clarity
             },
             accessibilityIdentifier: "addChildButton"
         )
@@ -271,6 +273,257 @@ struct NodeView: View {
                 .font(.system(size: max(8.0, 12.0 * zoomScale)))
                 .offset(y: -(node.radius + 10) * zoomScale)  // Position above
         }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: ToggleNodeMenuView.swift
+Path: GraphEditorWatch/Views/ToggleNodeMenuView.swift
+Last modified: 2025-10-25 10:12:04
+
+Contents:
+//
+//  ToggleNodeMenuView.swift
+//  GraphEditor
+//
+//  Created by handcart on 10/25/25.
+//
+
+import SwiftUI
+import WatchKit
+import GraphEditorShared
+import os  // For logging
+
+struct ToggleNodeMenuView: View {
+    let viewModel: GraphViewModel
+    let onDismiss: () -> Void
+    @Binding var selectedNodeID: NodeID?
+    @Binding var isAddingEdge: Bool
+    @State private var selectedEdgeType: EdgeType = .association  // From GraphTypes.swift
+    @FocusState private var isMenuFocused: Bool
+    
+    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "togglenodemenuview")
+    
+    private var nodeLabel: String {
+        if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) {
+            return "\(node.label)"
+        }
+        return ""
+    }
+    
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 8) {
+                // Add Section (inherited from NodeMenuView, with extras)
+                Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    addNodeButton
+                    addToggleNodeButton
+                }
+                .padding(.horizontal, 8)
+                
+                if selectedNodeID != nil {
+                    // Hierarchy-specific adds
+                    HStack(spacing: 8) {
+                        addPlainChildButton
+                        addToggleChildButton
+                    }
+                    .padding(.horizontal, 8)
+                    
+                    HStack(spacing: 8) {
+                        addEdgeButton
+                        reorderChildrenButton  // Future: Reorder childOrder
+                    }
+                    .padding(.horizontal, 8)
+                    
+                    // Edge type buttons
+                    HStack(spacing: 8) {
+                        edgeTypeButton(type: .association)
+                        edgeTypeButton(type: .hierarchy)
+                    }
+                    .padding(.horizontal, 8)
+                }
+                
+                // Edit Section
+                Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                HStack(spacing: 8) {
+                    editContentsButton
+                    deleteNodeButton
+                }
+                .padding(.horizontal, 8)
+                
+                toggleExpandButton.padding(.horizontal, 8)
+            }
+            .padding(4)
+        }
+        .accessibilityIdentifier("toggleNodeMenuGrid")
+        .navigationTitle("Toggle Node \(nodeLabel)")  // Dynamic title
+        .focused($isMenuFocused)
+        .onAppear {
+            isMenuFocused = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                isMenuFocused = true
+            }
+            Self.logger.debug("Toggle Node Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil")")
+        }
+        .onChange(of: isMenuFocused) { _, newValue in
+            Self.logger.debug("Toggle Node Menu focus: \(newValue)")
+            if !newValue {
+                isMenuFocused = true
+            }
+        }
+        .ignoresSafeArea(.keyboard)
+    }
+    
+    // Edge type button (same as NodeMenuView)
+    private func edgeTypeButton(type: EdgeType) -> some View {
+        Button {
+            selectedEdgeType = type
+            Self.logger.debug("Selected \(type == .association ? "Association" : "Hierarchy") edge type")
+        } label: {
+            Text(type == .association ? "Assoc" : "Hier")
+                .font(.caption)
+                .padding(4)
+                .background(selectedEdgeType == type ? Color.blue : Color.gray)
+                .cornerRadius(4)
+        }
+        .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
+    }
+    
+    private var addNodeButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Node", systemImage: "plus.circle")
+            },
+            accessibilityIdentifier: "addNodeButton"
+        )
+    }
+    
+    private var addToggleNodeButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "plus.circle.fill")
+            },
+            accessibilityIdentifier: "addToggleNodeButton"
+        )
+    }
+    
+    // New: Plain child (uses addPlainChild)
+    private var addPlainChildButton: some View {
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.addPlainChild(to: id) }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Plain Child", systemImage: "plus.square")
+            },
+            accessibilityIdentifier: "addPlainChildButton"
+        )
+    }
+    
+    // New: Toggle child (uses addToggleChild)
+    private var addToggleChildButton: some View {
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.addToggleChild(to: id) }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle Child", systemImage: "plus.square.fill")
+            },
+            accessibilityIdentifier: "addToggleChildButton"
+        )
+    }
+    
+    private var addEdgeButton: some View {
+        MenuButton(
+            action: {
+                viewModel.pendingEdgeType = selectedEdgeType
+                isAddingEdge = true
+                onDismiss()
+            },
+            label: {
+                Label("Edge", systemImage: "arrow.right.circle")
+            },
+            accessibilityIdentifier: "addEdgeButton"
+        )
+        .disabled(selectedNodeID == nil)
+    }
+    
+    // Placeholder for reordering (future: navigate to a list view)
+    private var reorderChildrenButton: some View {
+        MenuButton(
+            action: {
+                // TODO: Implement reordering (e.g., present a draggable list of child IDs)
+                Self.logger.debug("Reorder children triggered for node \(nodeLabel)")
+                onDismiss()
+            },
+            label: {
+                Label("Reorder", systemImage: "arrow.up.and.down")
+            },
+            accessibilityIdentifier: "reorderChildrenButton"
+        )
+    }
+    
+    private var editContentsButton: some View {
+        NavigationLink(destination: EditContentSheet(
+            selectedID: selectedNodeID ?? NodeID(),
+            viewModel: viewModel,
+            onSave: { newContents in
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                }
+            }
+        )) {
+            Label("Contents", systemImage: "pencil")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("editContentsButton")
+    }
+    
+    private var toggleExpandButton: some View {
+        MenuButton(
+            action: {
+                Task { await viewModel.toggleSelectedNode() }
+                onDismiss()
+            },
+            label: {
+                Label("Toggle", systemImage: "arrow.up.arrow.down")
+            },
+            accessibilityIdentifier: "toggleExpandCollapseButton"
+        )
+    }
+    
+    private var deleteNodeButton: some View {
+        MenuButton(
+            action: {
+                if let id = selectedNodeID {
+                    Task {
+                        await viewModel.model.deleteNode(withID: id)
+                        viewModel.setSelectedNode(nil)
+                    }
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Delete", systemImage: "trash")
+            },
+            accessibilityIdentifier: "deleteNodeButton",
+            role: .destructive
+        )
     }
 }
 ----------------------------------------------------------------------------------------------------
@@ -842,109 +1095,5 @@ class MockGraphStorage: GraphStorage {
     await model.redo()  // Forward to 2 nodes
     #expect(model.nodes.count == 2, "Redo adds node")
     #expect(model.undoStack.count == 2, "Undo stack updated")
-}
-----------------------------------------------------------------------------------------------------
-File: GraphGesturesModifierTests.swift
-Path: GraphEditorWatchTests/GraphGesturesModifierTests.swift
-Last modified: 2025-10-17 07:44:45
-
-Contents:
-//
-//  GraphGesturesModifierTests.swift
-//  GraphEditorWatch
-//
-//  Created by handcart on 9/25/25.
-//
-import Testing
-import SwiftUI
-@testable import GraphEditorWatch
-@testable import GraphEditorShared
-
-struct GraphGesturesModifierTests {
-    private func setupViewModel() async -> GraphViewModel {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
-        return await MainActor.run { GraphViewModel(model: model) }
-    }
-    
-    private func createModifier(viewModel: GraphViewModel,
-                                selectedNodeID: Binding<NodeID?>,
-                                selectedEdgeID: Binding<UUID?>) -> GraphGesturesModifier {
-        GraphGesturesModifier(
-            viewModel: viewModel,
-            zoomScale: .constant(1.0),
-            offset: .constant(.zero),
-            draggedNode: .constant(nil),
-            dragOffset: .constant(.zero),
-            potentialEdgeTarget: .constant(nil),
-            selectedNodeID: selectedNodeID,
-            selectedEdgeID: selectedEdgeID,
-            viewSize: CGSize(width: 300, height: 300),
-            panStartOffset: .constant(nil),
-            showMenu: .constant(false),
-            maxZoom: 5.0,
-            crownPosition: .constant(0.0),
-            onUpdateZoomRanges: {},
-            isAddingEdge: .constant(false),
-            isSimulating: .constant(true),
-            saturation: .constant(1.0)  // Add this line
-        )
-    }
-    
-    @MainActor @Test func testHitTestNodesInScreenSpace() async {
-        let viewModel = await setupViewModel()
-        _ = createModifier(viewModel: viewModel,
-                                      selectedNodeID: .constant(nil),
-                                      selectedEdgeID: .constant(nil))
-        
-        let nodes = [AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))]
-        let context = GestureContext(zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300), effectiveCentroid: CGPoint.zero)
-        // Compute screen pos: viewCenter (150,150) + zoom * (model - centroid) + offset = (150,150) + 1*(100-0,100-0) + (0,0) = (250,250)
-        let screenTapPos = CGPoint(x: 250, y: 250)
-        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-        let hitNode = HitTestHelper.closestNode(at: screenTapPos, visibleNodes: nodes, context: hitContext)
-        #expect(hitNode != nil, "Should hit node within radius")
-    }
-    
-    @Test func testPointToLineDistance() async {
-        let viewModel = await setupViewModel()
-        let modifier = createModifier(viewModel: viewModel,
-                                      selectedNodeID: .constant(nil),
-                                      selectedEdgeID: .constant(nil))
-        let dist = await MainActor.run {
-            modifier.pointToLineDistance(point: CGPoint(x: 0, y: 1), from: CGPoint.zero, endPoint: CGPoint(x: 2, y: 0))
-        }
-        #expect(dist == 1.0, "Perpendicular distance to line")
-    }
-    
-    @Test func testHandleTap() async {
-        let viewModel = await setupViewModel()
-        var testSelectedNodeID: NodeID?
-        var testSelectedEdgeID: UUID?
-        let selectedNodeBinding = Binding<NodeID?>(
-            get: { testSelectedNodeID },
-            set: { testSelectedNodeID = $0 }
-        )
-        let selectedEdgeBinding = Binding<UUID?>(
-            get: { testSelectedEdgeID },
-            set: { testSelectedEdgeID = $0 }
-        )
-        let modifier = createModifier(viewModel: viewModel,
-                                      selectedNodeID: selectedNodeBinding,
-                                      selectedEdgeID: selectedEdgeBinding)
-        let nodes = [AnyNode(Node(label: 1, position: CGPoint.zero))]
-        let edges = [GraphEdge(from: nodes[0].id, target: nodes[0].id)]  // Self-edge for test
-        let context = GestureContext(zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300), effectiveCentroid: CGPoint.zero)
-        
-        // Compute screen pos for model .zero: (150,150) + 1*(0-0,0-0) + (0,0) = (150,150)
-        let screenTapPos = CGPoint(x: 150, y: 150)
-        _ = await MainActor.run {
-            modifier.handleTap(at: screenTapPos, visibleNodes: nodes, visibleEdges: edges, context: context)
-        }
-        // Assert on mocked bindings
-        #expect(testSelectedNodeID != nil, "Node should be selected after tap")
-        #expect(testSelectedEdgeID == nil, "No edge selected")
-    }
 }
 --------------------------------------------------

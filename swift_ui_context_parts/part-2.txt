@@ -1,17 +1,289 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-25 09:19:07
+Current date: 2025-10-29 07:41:25
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-2. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
-3. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
-4. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-5. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift
-6. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
+2. GraphEditorShared/Sources/GraphEditorShared/GraphModel+TreeSupport.swift
+3. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
+4. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Visibility.swift
+5. GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift
+6. GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
+7. GraphEditorShared/Sources/GraphEditorShared/HitTestContext.swift--------------------------------------------------
+File: GraphModel+Storage.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
+Last modified: 2025-10-25 20:18:48
+
+Contents:
+//
+//  GraphModel+Storage.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 9/19/25.
+//
+import Foundation
+import CoreGraphics
+import os  // Added for Logger
+
+@available(iOS 16.0, watchOS 6.0, *)
+extension GraphModel {
+    private static let logger = Logger.forCategory("graphmodel-storage")  // ADDED: Define local static logger for this extension
+
+    private func syncCollapsedPositions() {
+        for parentIndex in 0..<nodes.count {
+            if let toggle = nodes[parentIndex].unwrapped as? ToggleNode, !toggle.isExpanded {
+                let children = edges.filter { $0.from == nodes[parentIndex].id && $0.type == .hierarchy }.map { $0.target }
+                for (index, childID) in children.enumerated() {
+                    guard let childIndex = nodes.firstIndex(where: { $0.id == childID }) else { continue }
+                    var child = nodes[childIndex]
+                    let angle = CGFloat(index) * (2 * .pi / CGFloat(children.count))
+                    let jitterX = cos(angle) * 5.0
+                    let jitterY = sin(angle) * 5.0
+                    child.position = nodes[parentIndex].position + CGPoint(x: jitterX, y: jitterY)
+                    child.velocity = .zero
+                    nodes[childIndex] = child
+                }
+            }
+        }
+        objectWillChange.send()
+    }
+
+    private func loadFromStorage(for name: String) async throws {
+        Self.logger.infoLog("loadFromStorage started for \(name)")
+        do {
+            let (loadedNodes, loadedEdges) = try await storage.load(for: name)
+            Self.logger.infoLog("loadFromStorage: loaded \(loadedNodes.count) nodes, \(loadedEdges.count) edges for \(name)")
+            self.nodes = loadedNodes.map { AnyNode($0) }
+            self.edges = loadedEdges
+            self.nextNodeLabel = (nodes.map { $0.unwrapped.label }.max() ?? 0) + 1
+        } catch {
+            Self.logger.errorLog("loadFromStorage failed for \(name)", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation with custom error
+        }
+    }
+    
+    public func load() async {
+        Self.logger.infoLog("GraphModel.load() called")
+        do {
+            try await loadFromStorage(for: currentGraphName)
+            syncCollapsedPositions()
+            if let viewState = try storage.loadViewState(for: currentGraphName) {
+                Self.logger.infoLog("Loaded view state: offset \(viewState.offset), zoom \(viewState.zoomScale)")
+            }
+            Self.logger.infoLog("GraphModel.load() succeeded; nodes: \(nodes.count), edges: \(edges.count)")
+        } catch {
+            Self.logger.errorLog("GraphModel.load() failed: \(error.localizedDescription)", error: error)
+        }
+    }
+    
+    public func save() async throws {
+        Self.logger.infoLog("GraphModel.save() called; nodes: \(nodes.count), edges: \(edges.count)")
+        do {
+            try await storage.save(nodes: nodes.map { $0.unwrapped }, edges: edges, for: currentGraphName)
+            Self.logger.infoLog("GraphModel.save() succeeded")
+        } catch {
+            Self.logger.errorLog("GraphModel.save() failed: \(error.localizedDescription)", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+
+    public func clearGraph() async {
+        Self.logger.infoLog("clearGraph called")
+        nodes = []
+        edges = []
+        nextNodeLabel = 1
+        do {
+            try await storage.deleteGraph(name: currentGraphName)
+            Self.logger.infoLog("clearGraph succeeded")
+        } catch {
+            Self.logger.errorLog("clearGraph failed: \(error.localizedDescription)", error: error)
+        }
+        objectWillChange.send()
+    }
+    
+    // Multi-graph methods (integrated into Storage extension)
+    /// Loads the current graph (based on currentGraphName); defaults to empty if not found.
+    public func loadGraph() async {
+        do {
+            try await loadFromStorage(for: currentGraphName)
+            nextNodeLabel = (nodes.map { $0.label }.max() ?? 0) + 1
+            Self.logger.infoLog("Loaded graph '\(self.currentGraphName)' with \(self.nodes.count) nodes and \(self.edges.count) edges")
+            objectWillChange.send()
+        } catch GraphStorageError.graphNotFound(_) {
+            nodes = []
+            edges = []
+            nextNodeLabel = 1
+            Self.logger.warning("Graph '\(self.currentGraphName)' not found; starting empty")
+        } catch {
+            nodes = []
+            edges = []
+            nextNodeLabel = 1
+            Self.logger.errorLog("Failed to load graph '\(self.currentGraphName)'", error: error)
+        }
+    }
+    
+    /// Saves the current graph state under currentGraphName.
+    public func saveGraph() async throws {
+        do {
+            try await save()
+            Self.logger.infoLog("Saved graph '\(self.currentGraphName)'")
+        } catch {
+            Self.logger.errorLog("Failed to save graph '\(self.currentGraphName)'", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)
+        }
+    }
+    
+    /// Creates a new empty graph with the given name and switches to it.
+    public func createNewGraph(name: String) async throws {
+        do {
+            try await storage.createNewGraph(name: name)
+            currentGraphName = name
+            nodes = []
+            edges = []
+            nextNodeLabel = 1
+            undoStack = []
+            redoStack = []
+            objectWillChange.send()
+            Self.logger.infoLog("Created and switched to new graph '\(name)'")
+        } catch {
+            Self.logger.errorLog("Failed to create graph '\(name)'", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+    
+    /// Loads a specific graph by name and switches to it.
+    public func loadGraph(name: String) async {
+        currentGraphName = name
+        await loadGraph()
+    }
+    
+    /// Deletes the graph with the given name (if not current, no change to model).
+    public func deleteGraph(name: String) async throws {
+        do {
+            try await storage.deleteGraph(name: name)
+            if name == currentGraphName {
+                currentGraphName = "default"
+                await loadGraph()
+            }
+            Self.logger.infoLog("Deleted graph '\(name)'")
+        } catch {
+            Self.logger.errorLog("Failed to delete graph '\(name)'", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+    
+    /// Lists all available graph names.
+    public func listGraphNames() async throws -> [String] {
+        do {
+            return try await storage.listGraphNames()
+        } catch {
+            Self.logger.errorLog("Failed to list graph names", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+    
+    public func saveViewState(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID?, selectedEdgeID: UUID?) async throws {
+        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        do {
+            try storage.saveViewState(viewState, for: currentGraphName)
+        } catch {
+            Self.logger.errorLog("Failed to save view state for '\(currentGraphName)'", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+
+    public func loadViewState() async throws -> ViewState? {
+        do {
+            return try storage.loadViewState(for: currentGraphName)
+        } catch {
+            Self.logger.errorLog("Failed to load view state for '\(currentGraphName)'", error: error)
+            throw GraphError.storageFailure(error.localizedDescription)  // Added propagation
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphModel+TreeSupport.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+TreeSupport.swift
+Last modified: 2025-10-27 14:51:40
+
+Contents:
+//
+//  GraphModel+TreeSupport.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 10/27/25.
+//
+
+import Foundation
+import Combine  // If needed
+import os
+
+extension GraphModel {
+    // Removed stored properties—now in main class
+
+    // Tree validation (unchanged, but confirmed working)
+    public func isTree() -> Bool {
+        guard !nodes.isEmpty else { return true }
+        var incomingCounts = Dictionary(nodes.map { ($0.id, 0) }, uniquingKeysWith: { $1 })
+        for edge in edges {
+            incomingCounts[edge.target, default: 0] += 1
+        }
+        let roots = nodes.filter { incomingCounts[$0.id] == 0 }
+        if roots.count != 1 { return false }  // Single root
+
+        var visited = Set<UUID>()
+        var stack = [roots[0].id]
+        while !stack.isEmpty {
+            let current = stack.removeLast()
+            if visited.contains(current) { return false }  // Cycle
+            visited.insert(current)
+            let children = edges.filter { $0.from == current }.map { $0.target }
+            stack.append(contentsOf: children)
+        }
+        return visited.count == nodes.count  // Connected
+    }
+
+    // Mode-enforced addEdge (unchanged)
+    public func addEdge(source: UUID, target: UUID) {
+        if mode == .tree {
+            let tempEdge = GraphEdge(from: source, target: target)
+            edges.append(tempEdge)
+            if !isTree() {
+                edges.removeLast()
+                return
+            }
+            edges.removeLast()
+        }
+        let edge = GraphEdge(from: source, target: target)
+        edges.append(edge)
+        objectWillChange.send()
+        changesPublisher.send()
+    }
+
+    // Updated bulkCollapseAll: No casting needed with protocol inheritance; mutate directly
+    public func bulkCollapseAll() {
+        for i in 0..<nodes.count {
+            nodes[i].bulkCollapse()  // Direct call—types now compatible
+            let childIds = nodes[i].children
+            for childId in childIds {
+                if let childIndex = nodes.firstIndex(where: { $0.id == childId }) {
+                    nodes[childIndex].bulkCollapse()  // Direct mutation
+                }
+            }
+        }
+        objectWillChange.send()
+        changesPublisher.send()
+    }
+
+    // Auto-save hook (unchanged)
+    private func saveState() {
+        changesPublisher.send()
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: GraphModel+Undo.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Undo.swift
-Last modified: 2025-10-14 09:27:58
+Last modified: 2025-10-25 20:18:44
 
 Contents:
 //
@@ -346,7 +618,7 @@ class GraphSimulator {
 ----------------------------------------------------------------------------------------------------
 File: GraphTypes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-10-20 15:08:40
+Last modified: 2025-10-27 14:51:40
 
 Contents:
 //
@@ -360,17 +632,30 @@ import Foundation
 
 public typealias NodeID = UUID
 
+// Updated: Inherit HierarchicalNode for universal tree support
+public protocol NodeProtocol: HierarchicalNode, Equatable {
+    var id: NodeID { get }
+    var label: Int { get }
+    var position: CGPoint { get set }
+    var velocity: CGPoint { get set }
+    var radius: CGFloat { get set }
+    var contents: [NodeContent] { get set }
+    var fillColor: Color { get }
+    // Add other required members if needed (e.g., renderView, draw if common)
+}
+
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)
-public struct Node: NodeProtocol, Equatable {
+public struct Node: NodeProtocol {  // Updated: Conform to NodeProtocol (which now includes HierarchicalNode)
     public let id: NodeID
     public let label: Int
     public var position: CGPoint
     public var velocity: CGPoint = .zero
     public var radius: CGFloat = 10.0
-    public var isExpanded: Bool = true  // Satisfy protocol (always true for basic Node)
-    public var contents: [NodeContent] = []  // NEW: Ordered list, default empty
-    public var fillColor: Color { .red }  // Explicit red for basic nodes
+    public var children: [UUID] = []
+    public var isExpanded: Bool = true
+    public var contents: [NodeContent] = []
+    public var fillColor: Color { .red }
 
     // Init with all params
     public init(id: NodeID = NodeID(), label: Int, position: CGPoint, velocity: CGPoint = .zero, radius: CGFloat = 10.0, isExpanded: Bool = true, contents: [NodeContent] = []) {
@@ -389,6 +674,18 @@ public struct Node: NodeProtocol, Equatable {
     
     public func with(position: CGPoint, velocity: CGPoint, contents: [NodeContent]) -> Self {
         Node(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, contents: contents)
+    }
+}
+
+// Extension for methods only (no stored props)
+extension Node {
+    public mutating func collapse() {
+        isExpanded = false
+    }
+    
+    public mutating func bulkCollapse() {
+        isExpanded = false
+        // Recursion handled in GraphModel for full graph access
     }
 }
 
@@ -493,6 +790,18 @@ public enum NodeWrapper: Codable {
         case .toggleNode(let toggleNode): return toggleNode
         }
     }
+}
+
+public enum GraphMode: Codable {  // Codable for saving
+    case network  // General graphs, allows cycles/associations
+    case tree     // Enforces acyclicity, hierarchy only
+}
+
+public protocol HierarchicalNode {
+    var children: [UUID] { get set }
+    var isExpanded: Bool { get set }
+    mutating func collapse()  // Set isExpanded = false
+    mutating func bulkCollapse()  // Recursive on children (needs graph access)
 }
 ----------------------------------------------------------------------------------------------------
 File: HitTestContext.swift
@@ -616,341 +925,6 @@ public struct HitTestHelper {
         let clampedT = max(0, min(1, (pointVec.dx * lineVec.dx + pointVec.dy * lineVec.dy) / (lineLen * lineLen)))
         let proj = CGPoint(x: from.x + clampedT * lineVec.dx, y: from.y + clampedT * lineVec.dy)
         return hypot(point.x - proj.x, point.y - proj.y)
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: NodeProtocol.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-10-21 08:18:29
-
-Contents:
-// Sources/GraphEditorShared/NodeProtocol.swift
-
-import SwiftUI
-import Foundation
-import os
-
-@available(iOS 15.0, *)
-private var nodeTextCache: [String: GraphicsContext.ResolvedText] = [:]
-private let maxCacheSize = 100  // Arbitrary limit; adjust based on testing
-private let nodeCacheQueue = DispatchQueue(label: "nodeTextCache", attributes: .concurrent)
-private var insertionOrder: [String] = []  // New: Track order
-
-// NEW: Define NodeContent enum here (was missing; added with all primitives)
-public enum NodeContent: Codable, Equatable {
-    case string(String)
-    case date(Date)
-    case number(Double)
-    case boolean(Bool)
-    
-    public var displayText: String {
-        switch self {
-        case .string(let value): return value.prefix(10) + (value.count > 10 ? "…" : "")
-        case .date(let value):
-            let formatter = DateFormatter()
-            formatter.dateStyle = .short
-            formatter.timeStyle = .none
-            formatter.timeZone = TimeZone(secondsFromGMT: 0)  // Force UTC for consistent output
-            return formatter.string(from: value)
-        case .number(let value): return String(format: "%.2f", value)  // Format to 2 decimal places
-        case .boolean(let value): return value ? "True" : "False"
-        }
-    }
-    
-    private enum CodingKeys: String, CodingKey {
-        case type, value
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let type = try container.decode(String.self, forKey: .type)
-        switch type {
-        case "string":
-            let value = try container.decode(String.self, forKey: .value)
-            self = .string(value)
-        case "date":
-            let value = try container.decode(Date.self, forKey: .value)
-            self = .date(value)
-        case "number":
-            let value = try container.decode(Double.self, forKey: .value)
-            self = .number(value)
-        case "boolean":
-            let value = try container.decode(Bool.self, forKey: .value)
-            self = .boolean(value)
-        default:
-            throw DecodingError.dataCorruptedError(forKey: .type, in: container, debugDescription: "Unknown NodeContent type")
-        }
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        switch self {
-        case .string(let value):
-            try container.encode("string", forKey: .type)
-            try container.encode(value, forKey: .value)
-        case .date(let value):
-            try container.encode("date", forKey: .type)
-            try container.encode(value, forKey: .value)
-        case .number(let value):
-            try container.encode("number", forKey: .type)
-            try container.encode(value, forKey: .value)
-        case .boolean(let value):
-            try container.encode("boolean", forKey: .type)
-            try container.encode(value, forKey: .value)
-        }
-    }
-}
-
-/// Protocol for graph nodes, enabling polymorphism for types like standard or toggleable nodes.
-/// Conformers must provide core properties; defaults are available for common behaviors.
-@available(iOS 16.0, *)
-@available(watchOS 9.0, *)
-public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeID {
-    
-    /// Unique identifier for the node.
-    var id: NodeID { get }
-    
-    /// Permanent label for the node (e.g., for display and accessibility).
-    var label: Int { get }
-    
-    /// Current position in the graph canvas.
-    var position: CGPoint { get set }
-    
-    /// Velocity vector for physics simulation.
-    var velocity: CGPoint { get set }
-    
-    /// Radius for rendering and hit detection.
-    var radius: CGFloat { get set }
-    
-    /// Expansion state for hierarchical nodes (e.g., true shows children).
-    var isExpanded: Bool { get set }
-    
-    // Data payload for the node
-    // Ordered list of data payloads for the node (replaces single optional content)
-    var contents: [NodeContent] { get set }
-    
-    /// Mass for physics calculations (default: 1.0).
-    var mass: CGFloat { get }
-    
-    /// Creates a copy with updated position and velocity.
-    func with(position: CGPoint, velocity: CGPoint) -> Self
-    
-    /// Creates a copy with updated position, velocity, and optional new contents list.
-    func with(position: CGPoint, velocity: CGPoint, contents: [NodeContent]) -> Self
-    
-    /// Renders the node as a SwiftUI view, customizable by zoom and selection.
-    /// - Parameters:
-    ///   - zoomScale: Current zoom level of the canvas.
-    ///   - isSelected: Whether the node is selected (e.g., for border highlight).
-    /// - Returns: A SwiftUI view representing the node.
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView
-    
-    /// Handles tap gestures, returning a mutated copy (immutable pattern).
-    /// - Returns: Updated node after tap (e.g., toggled state).
-    func handlingTap() -> Self
-    
-    /// Indicates if the node is visible in the graph.
-    var isVisible: Bool { get }
-    
-    /// Configurable fill color for the node's roundel.
-    var fillColor: Color { get }
-    
-    /// Determines if child nodes (via outgoing edges) should be hidden.
-    /// - Returns: True if children should be hidden (e.g., collapsed toggle).
-    func shouldHideChildren() -> Bool
-    
-    /// Draws the node in a GraphicsContext for efficient Canvas rendering.
-    /// - Parameters:
-    ///   - context: The GraphicsContext to draw into.
-    ///   - position: Center position for drawing.
-    ///   - zoomScale: Current zoom level.
-    ///   - isSelected: Whether to draw selection highlights.
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool)
-}
-
-extension NodeProtocol {
-    public var isVisible: Bool { true }  // Default visible
-    
-    public var fillColor: Color { .blue }  // Default fill
-    
-    public var mass: CGFloat { 1.0 }  // Default mass
-    
-    public func shouldHideChildren() -> Bool { false }  // Default: show children
-    
-    public func handlingTap() -> Self { self }  // Default: no-op
-    
-    public func with(position: CGPoint, velocity: CGPoint) -> Self {
-        var newSelf = self
-        newSelf.position = position
-        newSelf.velocity = velocity
-        return newSelf
-    }
-    
-    public func with(position: CGPoint, velocity: CGPoint, contents: [NodeContent]) -> Self {
-        var newSelf = self
-        newSelf.position = position
-        newSelf.velocity = velocity
-        newSelf.contents = contents
-        return newSelf
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        AnyView(Circle().fill(fillColor).frame(width: radius * 2 * zoomScale, height: radius * 2 * zoomScale))
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-        let scaledRadius = radius * zoomScale
-        let path = CGPath(ellipseIn: CGRect(x: position.x - scaledRadius, y: position.y - scaledRadius, width: scaledRadius * 2, height: scaledRadius * 2), transform: nil)
-        context.fill(Path(path), with: .color(fillColor))
-        context.stroke(Path(path), with: .color(isSelected ? Color.green : Color.white), lineWidth: 2 * zoomScale)
-        
-        let textKey = "\(label)_\(zoomScale)"
-        var labelResolved: GraphicsContext.ResolvedText?
-        nodeCacheQueue.sync {
-            if let cached = nodeTextCache[textKey] {
-                labelResolved = cached
-            } else {
-                let text = Text("\(label)").font(.system(size: 12 * zoomScale)).foregroundColor(.white)
-                let resolved = context.resolve(text)
-                nodeTextCache[textKey] = resolved
-                insertionOrder.append(textKey)
-                if nodeTextCache.count > maxCacheSize {
-                    let oldestKey = insertionOrder.removeFirst()
-                    nodeTextCache.removeValue(forKey: oldestKey)
-                }
-                labelResolved = resolved
-            }
-        }
-        context.draw(labelResolved!, at: position, anchor: .center)
-        
-        // NEW: Draw contents list vertically below node
-        if !contents.isEmpty && zoomScale > 0.5 {  // Only if zoomed
-            var yOffset = scaledRadius + 5 * zoomScale  // Start below node
-            let contentFontSize = max(6.0, 8.0 * zoomScale)
-            let maxItems = 3  // Limit for watchOS
-            for content in contents.prefix(maxItems) {
-                let contentText = Text(content.displayText).font(.system(size: contentFontSize)).foregroundColor(.gray)
-                let resolved = context.resolve(contentText)
-                let contentPosition = CGPoint(x: position.x, y: position.y + yOffset)
-                context.draw(resolved, at: contentPosition, anchor: .center)
-                yOffset += 10 * zoomScale  // Line spacing
-            }
-            if contents.count > maxItems {
-                let moreText = Text("+\(contents.count - maxItems) more").font(.system(size: contentFontSize * 0.75)).foregroundColor(.gray)
-                let resolved = context.resolve(moreText)
-                context.draw(resolved, at: CGPoint(x: position.x, y: position.y + yOffset), anchor: .center)
-            }
-        }
-    }
-}
-
-@available(iOS 16.0, *)
-@available(watchOS 9.0, *)
-public struct AnyNode: NodeProtocol {
-    // NEW: Add the static logger here (moved from protocol)
-    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodeprotocol")
-    
-    private var base: any NodeProtocol  // var for mutability
-    
-    public var contents: [NodeContent] {
-        get { base.contents }
-        set { base.contents = newValue }
-    }
-    
-    public var unwrapped: any NodeProtocol { base }
-    
-    public var id: NodeID { base.id }
-    public var label: Int { base.label }
-    public var position: CGPoint {
-        get { base.position }
-        set { base.position = newValue }
-    }
-    public var velocity: CGPoint {
-        get { base.velocity }
-        set { base.velocity = newValue }
-    }
-    public var radius: CGFloat {
-        get { base.radius }
-        set { base.radius = newValue }
-    }
-    public var isExpanded: Bool {
-        get { base.isExpanded }
-        set { base.isExpanded = newValue }
-    }
-    public var isVisible: Bool { base.isVisible }
-    public var fillColor: Color { base.fillColor }
-    public var mass: CGFloat { base.mass }
-    
-    public init(_ base: any NodeProtocol) {
-        self.base = base
-    }
-    
-    public func with(position: CGPoint, velocity: CGPoint) -> Self {
-        var newBase = base
-        newBase.position = position
-        newBase.velocity = velocity
-        return AnyNode(newBase)
-    }
-    
-    public func with(position: CGPoint, velocity: CGPoint, contents: [NodeContent]) -> Self {
-        var newBase = base
-        newBase.position = position
-        newBase.velocity = velocity
-        newBase.contents = contents
-        return AnyNode(newBase)
-    }
-    
-    public func handlingTap() -> Self {
-        AnyNode(base.handlingTap())
-    }
-    
-    public func shouldHideChildren() -> Bool {
-        base.shouldHideChildren()
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func renderView(zoomScale: CGFloat, isSelected: Bool) -> AnyView {
-        base.renderView(zoomScale: zoomScale, isSelected: isSelected)
-    }
-    
-    @available(iOS 15.0, *)
-    @available(watchOS 9.0, *)
-    public func draw(in context: GraphicsContext, at position: CGPoint, zoomScale: CGFloat, isSelected: Bool) {
-#if DEBUG
-        Self.logger.debug("Drawing node \(label) at (\(position.x), \(position.y)), isSelected: \(isSelected), zoom: \(zoomScale)")
-#endif
-        base.draw(in: context, at: position, zoomScale: zoomScale, isSelected: isSelected)
-    }
-    
-    public static func == (lhs: AnyNode, rhs: AnyNode) -> Bool {
-        lhs.id == rhs.id && lhs.position == rhs.position && lhs.velocity == rhs.velocity &&
-        lhs.isExpanded == rhs.isExpanded && lhs.contents == rhs.contents  // Updated for array
-    }
-    
-    public init(from decoder: Decoder) throws {
-        let wrapper = try NodeWrapper(from: decoder)
-        self.base = wrapper.value
-    }
-    
-    public func encode(to encoder: Encoder) throws {
-        let wrapper: NodeWrapper
-        if let node = base as? Node {
-            wrapper = .node(node)
-        } else if let toggleNode = base as? ToggleNode {
-            wrapper = .toggleNode(toggleNode)
-        } else {
-            throw EncodingError.invalidValue(base, EncodingError.Context(codingPath: [], debugDescription: "Unsupported node type"))
-        }
-        try wrapper.encode(to: encoder)
     }
 }
 --------------------------------------------------

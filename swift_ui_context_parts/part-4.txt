@@ -1,17 +1,363 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-25 09:19:08
+Current date: 2025-10-29 07:41:26
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-2. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-3. GraphEditorWatch/GraphEditorWatch.swift
-4. GraphEditorWatch/Models/AppConstants.swift
-5. GraphEditorWatch/ViewModels/GraphViewModel.swift
-6. GraphEditorWatch/Views/AddSection.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+3. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+4. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+5. GraphEditorWatch/GraphEditorWatch.swift
+6. GraphEditorWatch/Models/AppConstants.swift
+7. GraphEditorWatch/ViewModels/GraphViewModel.swift--------------------------------------------------
+File: Quadtree.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+Last modified: 2025-09-19 13:45:29
+
+Contents:
+//
+//  Quadtree.swift
+//  GraphEditorShared
+//
+//  Created by [original author]; updated for completeness and consistency.
+//
+
+import Foundation
+import CoreGraphics
+
+@available(iOS 16.0, *)
+@available(watchOS 9.0, *)
+public class Quadtree {  // Public for consistency and test access
+    let bounds: CGRect
+    public var centerOfMass: CGPoint = .zero
+    public var totalMass: CGFloat = 0
+    public var children: [Quadtree]?
+    var nodes: [any NodeProtocol] = []  // Existential array for protocol conformance
+    
+    public init(bounds: CGRect) {
+        self.bounds = bounds
+    }
+    
+    public func insert(_ node: any NodeProtocol, depth: Int = 0) {
+        // Guard against invalid bounds or excessive depth
+        guard bounds.width >= Constants.Physics.minQuadSize,
+              bounds.height >= Constants.Physics.minQuadSize,
+              depth <= Constants.Physics.maxQuadtreeDepth else {
+            nodes.append(node)
+            updateCenterOfMass(with: node)
+            return
+        }
+        
+        if let children = children {
+            // Existing subdivided quad: Insert into appropriate child
+            let quadrant = getQuadrant(for: node.position)
+            children[quadrant].insert(node, depth: depth + 1)
+            aggregateFromChildren()  // Update aggregates post-insert
+        } else if !nodes.isEmpty {
+            // Leaf with nodes: Subdivide and redistribute all (including new node)
+            subdivide()
+            guard let children = children else {
+                // Failed to subdivide (too small); append to leaf
+                nodes.append(node)
+                updateCenterOfMass(with: node)
+                return
+            }
+            // Redistribute existing nodes
+            for existing in nodes {
+                let quadrant = getQuadrant(for: existing.position)
+                children[quadrant].insert(existing, depth: depth + 1)
+            }
+            nodes = []  // Clear leaf nodes after redistribution
+            // Insert the new node
+            let quadrant = getQuadrant(for: node.position)
+            children[quadrant].insert(node, depth: depth + 1)
+            aggregateFromChildren()
+        } else {
+            // Empty leaf: Simply append
+            nodes.append(node)
+            updateCenterOfMass(with: node)
+        }
+    }
+    
+    public func batchInsert(_ batchNodes: [any NodeProtocol], depth: Int = 0) {
+        guard depth <= Constants.Physics.maxQuadtreeDepth,
+              bounds.width >= Constants.Physics.minQuadSize,
+              bounds.height >= Constants.Physics.minQuadSize else {
+            appendBatchAndUpdateCOM(batchNodes)
+            return
+        }
+
+        if let children {
+            distribute(batchNodes, to: children, depth: depth + 1)
+            aggregateFromChildren()
+        } else {
+            let allNodes = nodes + batchNodes
+            if allNodes.isEmpty { return }
+            if allNodes.count <= 1 {
+                appendBatchAndUpdateCOM(batchNodes)
+            } else {
+                subdivide()
+                if let children {
+                    nodes = []
+                    distribute(allNodes, to: children, depth: depth + 1)
+                    aggregateFromChildren()
+                } else {
+                    appendBatchAndUpdateCOM(batchNodes)
+                }
+            }
+        }
+    }
+
+    private func appendBatchAndUpdateCOM(_ batch: [any NodeProtocol]) {
+        nodes.append(contentsOf: batch)
+        for node in batch {
+            updateCenterOfMass(with: node)
+        }
+    }
+
+    private func distribute(_ nodesToDistribute: [any NodeProtocol], to children: [Quadtree], depth: Int) {
+        var childBatches: [[any NodeProtocol]] = Array(repeating: [], count: 4)
+        for node in nodesToDistribute {
+            let quadrant = getQuadrant(for: node.position)
+            childBatches[quadrant].append(node)
+        }
+        for index in 0..<4 where !childBatches[index].isEmpty {
+            children[index].batchInsert(childBatches[index], depth: depth)
+        }
+    }
+    
+    private func aggregateFromChildren() {
+        // Recompute totalMass and centerOfMass from children (bottom-up weighted average)
+        centerOfMass = .zero
+        totalMass = 0
+        guard let children = children else { return }
+        for child in children where child.totalMass > 0 {
+            let newTotalMass = totalMass + child.totalMass
+            centerOfMass = (centerOfMass * totalMass + child.centerOfMass * child.totalMass) / newTotalMass
+            totalMass = newTotalMass
+        }
+    }
+    
+    private func subdivide() {
+        let halfWidth = bounds.width / 2
+        let halfHeight = bounds.height / 2
+        guard halfWidth >= Constants.Physics.minQuadSize && halfHeight >= Constants.Physics.minQuadSize else {
+            return  // Too small to subdivide
+        }
+        children = [
+            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY, width: halfWidth, height: halfHeight)),      // SW
+            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY, width: halfWidth, height: halfHeight)), // SE
+            Quadtree(bounds: CGRect(x: bounds.minX, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight)), // NW
+            Quadtree(bounds: CGRect(x: bounds.minX + halfWidth, y: bounds.minY + halfHeight, width: halfWidth, height: halfHeight)) // NE
+        ]
+    }
+    
+    private func getQuadrant(for point: CGPoint) -> Int {
+        let midX = bounds.midX
+        let midY = bounds.midY
+        if point.x < midX {
+            return point.y < midY ? 0 : 2  // 0: SW, 2: NW
+        } else {
+            return point.y < midY ? 1 : 3  // 1: SE, 3: NE
+        }
+    }
+    
+    private func updateCenterOfMass(with node: any NodeProtocol) {
+        // Incremental update assuming unit mass per node (extend protocol if variable mass needed)
+        let newTotalMass = totalMass + 1
+        if newTotalMass > 0 {
+            centerOfMass = (centerOfMass * totalMass + node.position) / newTotalMass
+        }
+        totalMass = newTotalMass
+    }
+    
+    public func computeForce(on queryNode: any NodeProtocol, theta: CGFloat = 0.5) -> CGPoint {
+        guard totalMass > 0 else { return .zero }
+        
+        if !nodes.isEmpty {
+            // Leaf: Compute exact repulsion from each node
+            var force: CGPoint = .zero
+            for leafNode in nodes where leafNode.id != queryNode.id {
+                force += repulsionForce(from: leafNode.position, target: queryNode.position)
+            }
+            return force
+        }
+        
+        // Internal node: Use Barnes-Hut approximation
+        let delta = centerOfMass - queryNode.position
+        let dist = max(hypot(delta.x, delta.y), Constants.Physics.distanceEpsilon)  // Fixed: Use hypot instead of .magnitude
+        if (bounds.width / dist) < theta || children == nil {
+            return repulsionForce(from: centerOfMass, target: queryNode.position, mass: totalMass)
+        } else {
+            var force: CGPoint = .zero
+            if let children = children {
+                for child in children {
+                    force += child.computeForce(on: queryNode, theta: theta)
+                }
+            }
+            return force
+        }
+    }
+    
+    public func queryNearby(position: CGPoint, radius: CGFloat) -> [any NodeProtocol] {
+        var results: [any NodeProtocol] = []
+        func traverse(quadTree: Quadtree) {
+            // Quick reject: Check if quad intersects query circle
+            let closestX = max(quadTree.bounds.minX, min(position.x, quadTree.bounds.maxX))
+            let closestY = max(quadTree.bounds.minY, min(position.y, quadTree.bounds.maxY))
+            let distToQuad = hypot(closestX - position.x, closestY - position.y)
+            let quadDiagonalHalf = hypot(quadTree.bounds.width / 2, quadTree.bounds.height / 2)
+            if distToQuad > radius + quadDiagonalHalf { return }  // No intersection
+            
+            if let children = quadTree.children {
+                // Traverse children
+                for child in children {
+                    traverse(quadTree: child)
+                }
+            } else {
+                // Leaf: Check individual nodes
+                for node in quadTree.nodes {
+                    let delta = node.position - position
+                    if hypot(delta.x, delta.y) < radius {
+                        results.append(node)
+                    }
+                }
+            }
+        }
+        traverse(quadTree: self)
+        return results
+    }
+    
+    private func repulsionForce(from: CGPoint, target: CGPoint, mass: CGFloat = 1) -> CGPoint {
+        let deltaX = target.x - from.x
+        let deltaY = target.y - from.y
+        let distSquared = deltaX * deltaX + deltaY * deltaY
+        let epsilonSquared = Constants.Physics.distanceEpsilon * Constants.Physics.distanceEpsilon
+        if distSquared < epsilonSquared {
+            // Jitter to avoid singularity
+            return CGPoint(
+                x: CGFloat.random(in: -0.01...0.01),
+                y: CGFloat.random(in: -0.01...0.01)
+            ) * Constants.Physics.repulsion * mass
+        }
+        let dist = sqrt(distSquared)
+        let forceMagnitude = Constants.Physics.repulsion * mass / distSquared
+        return CGPoint(x: (deltaX / dist) * forceMagnitude, y: (deltaY / dist) * forceMagnitude)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: RepulsionCalculator.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+Last modified: 2025-09-15 10:22:34
+
+Contents:
+//
+//  RepulsionCalculator.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct RepulsionCalculator {
+    private let maxNodesForQuadtree: Int
+    private let simulationBounds: CGSize
+
+    init(maxNodesForQuadtree: Int, simulationBounds: CGSize) {
+        self.maxNodesForQuadtree = maxNodesForQuadtree
+        self.simulationBounds = simulationBounds
+    }
+
+    func computeRepulsions(nodes: [any NodeProtocol]) -> ([NodeID: CGPoint], Quadtree?) {
+        var forces: [NodeID: CGPoint] = [:]
+        let useQuadtree = nodes.count > maxNodesForQuadtree && simulationBounds.width >= Constants.Physics.minQuadSize && simulationBounds.height >= Constants.Physics.minQuadSize
+        let quadtree: Quadtree? = useQuadtree ? buildQuadtree(nodes: nodes) : nil
+
+        for node in nodes {
+            var repulsion: CGPoint = .zero
+            if let quadtree = quadtree {
+                let dynamicTheta: CGFloat = nodes.count > 100 ? 1.5 : (nodes.count > 50 ? 1.2 : 0.8)
+                repulsion = quadtreeRepulsion(for: node, quadtree: quadtree, theta: dynamicTheta)  // Updated call
+            } else {
+                for otherNode in nodes where otherNode.id != node.id {
+                    repulsion += repulsionForce(repellerPosition: otherNode.position, queryPosition: node.position)
+                }
+            }
+            forces[node.id] = (forces[node.id] ?? .zero) + repulsion
+        }
+        return (forces, quadtree)  // New: Return tuple
+    }
+
+    public func buildQuadtree(nodes: [any NodeProtocol]) -> Quadtree {
+        let boundingBox = boundingBox(nodes: nodes)  // Calls local func
+        let quadtree = Quadtree(bounds: boundingBox)
+        for node in nodes {
+            quadtree.insert(node)
+        }
+        return quadtree
+    }
+
+    private func repulsionForce(repellerPosition: CGPoint, queryPosition: CGPoint, mass: CGFloat = 1.0) -> CGPoint {
+        let deltaX = queryPosition.x - repellerPosition.x
+        let deltaY = queryPosition.y - repellerPosition.y
+        let distanceSquared = max(deltaX * deltaX + deltaY * deltaY, Constants.Physics.distanceEpsilon)
+        let distance = sqrt(distanceSquared)
+        let forceMagnitude = Constants.Physics.repulsion * mass / distanceSquared
+        return CGPoint(x: (deltaX / distance) * forceMagnitude, y: (deltaY / distance) * forceMagnitude)
+    }
+    
+    private func quadtreeRepulsion(for node: any NodeProtocol, quadtree: Quadtree, theta: CGFloat) -> CGPoint {  // Added theta
+        var force = CGPoint.zero
+        func calculateRepulsion(quadTree: Quadtree) {
+            if quadTree.children == nil {
+                for other in quadTree.nodes where other.id != node.id {
+                    force += repulsionForce(repellerPosition: other.position, queryPosition: node.position, mass: 1.0)
+                }
+                return
+            }
+
+            let deltaX = quadTree.centerOfMass.x - node.position.x
+            let deltaY = quadTree.centerOfMass.y - node.position.y
+            let distance = hypot(deltaX, deltaY)
+            let width = quadTree.bounds.width
+
+            if width / distance < theta && distance > 0 {  // Use theta
+                let approxForce = repulsionForce(repellerPosition: quadTree.centerOfMass, queryPosition: node.position, mass: quadTree.totalMass)
+                force += approxForce
+            } else {
+                if let children = quadTree.children {
+                    calculateRepulsion(quadTree: children[0])
+                    calculateRepulsion(quadTree: children[1])
+                    calculateRepulsion(quadTree: children[2])
+                    calculateRepulsion(quadTree: children[3])
+                }
+            }
+        }
+
+        calculateRepulsion(quadTree: quadtree)
+        return force
+    }
+
+    // Added missing boundingBox func
+    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
+        guard !nodes.isEmpty else { return .zero }
+        var minX = nodes[0].position.x, minY = nodes[0].position.y
+        var maxX = nodes[0].position.x, maxY = nodes[0].position.y
+        for node in nodes {
+            minX = min(minX, node.position.x - node.radius)
+            minY = min(minY, node.position.y - node.radius)
+            maxX = max(maxX, node.position.x + node.radius)
+            maxY = max(maxY, node.position.y + node.radius)
+        }
+        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: ToggleNode.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-Last modified: 2025-10-25 08:04:43
+Last modified: 2025-10-27 14:51:40
 
 Contents:
 //
@@ -26,7 +372,7 @@ import Foundation
 
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)
-public struct ToggleNode: NodeProtocol, Equatable {
+public struct ToggleNode: NodeProtocol, HierarchicalNode, Equatable {  // Updated: Added HierarchicalNode
     public let id: NodeID
     public let label: Int
     public var position: CGPoint
@@ -47,7 +393,9 @@ public struct ToggleNode: NodeProtocol, Equatable {
         self.isExpanded = isExpanded
         self.contents = contents
         self.children = children
-        self.childOrder = childOrder ?? children  // Default to children order if not specified
+        // Validate childOrder to be a permutation of children
+        let validatedOrder = (childOrder ?? children).filter { children.contains($0) }
+        self.childOrder = validatedOrder.isEmpty ? children : validatedOrder
     }
 
     public func with(position: CGPoint, velocity: CGPoint) -> Self {
@@ -60,7 +408,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
 
     public func handlingTap() -> Self {
         var updated = self
-        updated.isExpanded.toggle()
+        updated.collapse()  // Reuse protocol method
         updated.velocity = .zero  // Reset to prevent immediate jumps
         return updated
     }
@@ -70,9 +418,7 @@ public struct ToggleNode: NodeProtocol, Equatable {
     }
 
     public func with(childOrder: [NodeID]) -> Self {  // NEW: Method to update order independently
-        // Ensure childOrder is a permutation of children (validation for safety)
-        let validatedOrder = childOrder.filter { children.contains($0) }
-        return ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, contents: contents, children: children, childOrder: validatedOrder.isEmpty ? children : validatedOrder)
+        ToggleNode(id: id, label: label, position: position, velocity: velocity, radius: radius, isExpanded: isExpanded, contents: contents, children: children, childOrder: childOrder)
     }
 
     public func shouldHideChildren() -> Bool {
@@ -132,6 +478,16 @@ public struct ToggleNode: NodeProtocol, Equatable {
                 context.draw(resolved, at: CGPoint(x: position.x, y: position.y + yOffset), anchor: .center)
             }
         }
+    }
+
+    // NEW: HierarchicalNode methods
+    public mutating func collapse() {
+        isExpanded = false
+    }
+    
+    public mutating func bulkCollapse() {
+        isExpanded = false
+        // Recursion handled in GraphModel for full graph access
     }
 
     // Codable conformance (updated for contents array and childOrder)
@@ -341,7 +697,7 @@ extension CGFloat {
 ----------------------------------------------------------------------------------------------------
 File: GraphEditorWatch.swift
 Path: GraphEditorWatch/GraphEditorWatch.swift
-Last modified: 2025-10-15 13:36:46
+Last modified: 2025-10-25 20:19:01
 
 Contents:
 //
@@ -433,7 +789,7 @@ struct AppConstants {
 ----------------------------------------------------------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-22 07:45:44
+Last modified: 2025-10-25 20:18:57
 
 Contents:
 //
@@ -589,11 +945,6 @@ import os  // Added for logging
         if let id = selectedNodeID {
             await toggleExpansion(for: id)
         }
-    }
-    
-    public func addChild(to parentID: NodeID) async {
-        await model.addChild(to: parentID)
-        await saveAfterDelay()
     }
     
     public func deleteNode(withID id: NodeID) async {
@@ -787,111 +1138,6 @@ extension GraphViewModel {
                 }
             }
         }
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: AddSection.swift
-Path: GraphEditorWatch/Views/AddSection.swift
-Last modified: 2025-10-21 12:24:42
-
-Contents:
-//
-//  AddSection.swift
-//  GraphEditor
-//
-//  Created by handcart on 10/5/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-struct AddSection: View {
-    let viewModel: GraphViewModel
-    let selectedNodeID: NodeID?
-    let onDismiss: () -> Void
-    let onAddEdge: (EdgeType) -> Void
-    
-    @State private var selectedEdgeType: EdgeType = .association
-    
-    var body: some View {
-        Group {
-            addNodeButton
-            addToggleNodeButton
-            if selectedNodeID != nil {
-                addChildButton
-                edgeTypePicker
-                addEdgeButton
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Add section")
-    }
-    
-    private var addNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.addNode(at: .zero) }
-            onDismiss()
-        } label: {
-            Label("Node", systemImage: "plus.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addNodeButton")
-    }
-    
-    private var addToggleNodeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.addToggleNode(at: .zero) }
-            onDismiss()
-        } label: {
-            Label("Toggle Node", systemImage: "plus.circle.fill")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addToggleNodeButton")
-    }
-    
-    private var addChildButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            if let id = selectedNodeID {
-                Task { await viewModel.addChild(to: id) }
-            }
-            onDismiss()
-        } label: {
-            Label("Child", systemImage: "plus.square")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("addChildButton")
-    }
-    
-    private var edgeTypePicker: some View {
-        Picker("Type", selection: $selectedEdgeType) {
-            Text("Assoc").tag(EdgeType.association)
-            Text("Hier").tag(EdgeType.hierarchy)
-        }
-        .font(.caption2)  // Smaller for compactness
-        .labelsHidden()   // Hide label for space
-        .accessibilityHint("Select edge type")
-        .gridCellColumns(2)
-    }
-    
-    private var addEdgeButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            onAddEdge(selectedEdgeType)
-            onDismiss()
-        } label: {
-            Label("Edge", systemImage: "arrow.right.circle")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .disabled(selectedNodeID == nil)
-        .accessibilityIdentifier("addEdgeButton")
     }
 }
 --------------------------------------------------
