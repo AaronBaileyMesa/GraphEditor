@@ -170,7 +170,9 @@ struct NodeMenuView: View {
                     Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
                 }
             }
-        )) {
+        )
+            .environment(\.disableCanvasFocus, true)  // NEW: Set flag on destination
+        ) {
             Label("Contents", systemImage: "pencil")
                 .labelStyle(.titleAndIcon)
                 .font(.caption)

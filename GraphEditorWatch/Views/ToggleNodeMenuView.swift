@@ -17,6 +17,7 @@ struct ToggleNodeMenuView: View {
     @Binding var isAddingEdge: Bool
     @State private var selectedEdgeType: EdgeType = .association  // From GraphTypes.swift
     @FocusState private var isMenuFocused: Bool
+    @State private var showEditSheet = false  // NEW: Moved here to struct level
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "togglenodemenuview")
     
@@ -64,31 +65,19 @@ struct ToggleNodeMenuView: View {
                 Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     editContentsButton
-                    deleteNodeButton
+                    deleteNodeButton  // Assuming this exists; from your truncated code
                 }
                 .padding(.horizontal, 8)
-                
-                toggleExpandButton.padding(.horizontal, 8)
             }
-            .padding(4)
         }
-        .accessibilityIdentifier("toggleNodeMenuGrid")
-        .navigationTitle("Toggle Node \(nodeLabel)")  // Dynamic title
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isMenuFocused = true
-            }
-            Self.logger.debug("Toggle Node Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil")")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isMenuFocused = true }
         }
         .onChange(of: isMenuFocused) { _, newValue in
-            Self.logger.debug("Toggle Node Menu focus: \(newValue)")
-            if !newValue {
-                isMenuFocused = true
-            }
+            if !newValue { isMenuFocused = true }
         }
-        .ignoresSafeArea(.keyboard)
     }
     
     // Edge type button (same as NodeMenuView)
@@ -194,22 +183,30 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    private var editContentsButton: some View {
-        NavigationLink(destination: EditContentSheet(
-            selectedID: selectedNodeID ?? NodeID(),
-            viewModel: viewModel,
-            onSave: { newContents in
-                if let id = selectedNodeID {
-                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
-                }
+    private var editContentsButton: some View {  // UPDATED: Now a simple return
+            Button {
+                WKInterfaceDevice.current().play(.click)  // Optional haptic
+                showEditSheet = true
+            } label: {
+                Label("Contents", systemImage: "pencil")
+                    .labelStyle(.titleAndIcon)
+                    .font(.caption)
             }
-        )) {
-            Label("Contents", systemImage: "pencil")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
+            .accessibilityIdentifier("editContentsButton")
+            .sheet(isPresented: $showEditSheet) {
+                EditContentSheet(
+                    selectedID: selectedNodeID ?? NodeID(),
+                    viewModel: viewModel,
+                    onSave: { newContents in
+                        if let id = selectedNodeID {
+                            Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                        }
+                        showEditSheet = false  // Auto-dismiss on save
+                    }
+                )
+                .environment(\.disableCanvasFocus, true)  // Keep for safety
+            }
         }
-        .accessibilityIdentifier("editContentsButton")
-    }
     
     private var toggleExpandButton: some View {
         MenuButton(

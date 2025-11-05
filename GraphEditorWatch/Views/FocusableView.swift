@@ -16,6 +16,7 @@ struct FocusableView<Content: View>: View {
     }
     
     let content: Content
+    @Environment(\.disableCanvasFocus) private var disableCanvasFocus
     @FocusState private var isFocused: Bool
     
     init(@ViewBuilder content: () -> Content) {
@@ -27,18 +28,20 @@ struct FocusableView<Content: View>: View {
             .id("CrownFocusableCanvas")
             .focused($isFocused)
             .onAppear {
-                isFocused = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    isFocused = true  // Double-focus for WatchOS reliability
+                if !disableCanvasFocus {  // NEW: Only set if not disabled
+                    isFocused = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        isFocused = true
+                    }
                 }
             }
             .onChange(of: isFocused) { oldValue, newValue in
+                if disableCanvasFocus { return }  // NEW: Early exit if disabled
                 #if DEBUG
-                Self.logger.debug("Canvas focus changed: from \(oldValue) to \(newValue)")
+                Self.logger.debug("Canvas focus changed: from \(oldValue) to \(newValue). Disable flag: \(disableCanvasFocus)")
                 #endif
-                
                 if !newValue {
-                    isFocused = true  // Auto-recover focus loss
+                    isFocused = true
                 }
             }
     }

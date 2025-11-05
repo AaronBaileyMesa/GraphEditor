@@ -7,6 +7,7 @@
 
 import SwiftUI
 import GraphEditorShared
+@available(watchOS 10.0, *)
 
 struct EditContentSheet: View {
     let selectedID: NodeID
@@ -15,12 +16,13 @@ struct EditContentSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var contents: [NodeContent] = []
     @State private var selectedType: DataType? = nil  // Changed to optional DataType
+    @State private var selectedComponent: DateField? = nil  // NEW: Add this for date component focus (e.g., year/month/day)
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberString: String = ""  // Changed to string for custom input
     @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
-
+    
     var body: some View {
         ScrollViewReader { proxy in
             List {
@@ -44,20 +46,22 @@ struct EditContentSheet: View {
                 }
             }
             .focused($isSheetFocused)
+            .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
             .onAppear {
                 isSheetFocused = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isSheetFocused = true }
                 if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
                     contents = node.contents
                 }
             }
             .onChange(of: isSheetFocused) { _, newValue in
-                if !newValue { isSheetFocused = true }  // Auto-recover focus
+                print("Sheet focus changed to: \(newValue)")
+                //if !newValue { isSheetFocused = true }  // Auto-recover focus
             }
             .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
         }
+        
     }
-
+    
     private func contentsSection(proxy: ScrollViewProxy) -> some View {
         Section(
             header: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
@@ -79,63 +83,137 @@ struct EditContentSheet: View {
                         Text(displayText(for: contents[index]))
                             .font(.caption)  // Smaller font for compactness
                             .onTapGesture {
-                                editingIndex = index  // Tap to edit
+                                editingIndex = index  // Enter edit mode on tap
+                                proxy.scrollTo(index, anchor: .top)  // Scroll to edited item
                             }
-                            .swipeActions {  // Moved inside ForEach, per row
+                            .swipeActions {
                                 Button("Delete", role: .destructive) {
-                                    contents.remove(at: index)  // Use captured index
+                                    contents.remove(at: index)
                                 }
                             }
                     }
                 }
-                .onMove { indices, newOffset in
-                    contents.move(fromOffsets: indices, toOffset: newOffset)  // Drag to reorder
-                }
             }
             
-            if let type = selectedType {  // Show inputs only if a type is selected
-                if type == .string {
+            if let type = selectedType {
+                switch type {
+                case .string:
                     TextField("Enter text", text: $stringValue)
-                } else if type == .date {
-                    DatePicker("Date", selection: $dateValue, displayedComponents: .date)
-                        .labelsHidden()
-                } else if type == .number {
+                        .focused($isSheetFocused)
+                        .onSubmit { addStringContent() }
+                case .date:
+                    GraphicalDatePicker(date: $dateValue)  // INTEGRATED: Custom picker for date input
+                        .frame(height: 150)  // Match picker height
+                        .onChange(of: dateValue) { _, _ in addDateContent() }  // Auto-add on change (optional)
+                case .number:
                     NumericKeypadView(text: $numberString)
+                        .focused($isSheetFocused)
+                        .onSubmit { addNumberContent() }
                 }
             }
         }
-        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
     }
     
-    // NEW: Inline edit view for an item (compact, type-specific)
+    // UPDATED: Full implementation of inlineEditView with GraphicalDatePicker integration
     private func inlineEditView(for index: Int) -> some View {
-        let content = contents[index]
+        let binding = Binding<NodeContent>(
+            get: { contents[index] },
+            set: { contents[index] = $0 }
+        )
+        
         return Group {
-            switch content {
-            case .string(var str):
-                TextField("Edit String", text: Binding(get: { str }, set: { str = $0; contents[index] = .string(str) }))
-            case .date(var date):
-                DatePicker("Edit Date", selection: Binding(get: { date }, set: { date = $0; contents[index] = .date(date) }), displayedComponents: .date)
-                    .labelsHidden()
-            case .number(var num):
-                let numString = Binding<String>(
-                    get: { String(num) },
-                    set: { if let newNum = Double($0) { contents[index] = .number(newNum) } }
-                )
-                NumericKeypadView(text: numString)
-            case .boolean(var bool):
-                Toggle("Edit Boolean", isOn: Binding(get: { bool }, set: { bool = $0; contents[index] = .boolean(bool) }))
+            switch binding.wrappedValue {
+            case .string(let str):
+                TextField("Edit text", text: Binding(
+                    get: { str },
+                    set: { binding.wrappedValue = .string($0) }
+                ))
+                .focused($isSheetFocused)
+            case .date(let dateVal):
+                GraphicalDatePicker(date: Binding(  // INTEGRATED: Use custom picker for date editing
+                    get: { dateVal },
+                    set: { binding.wrappedValue = .date($0) }
+                ))
+                .frame(height: 150)  // Ensure it fits in the list row
+                .onChange(of: selectedComponent) { _, newComponent in
+                    // Optional: Handle focus on specific date parts (e.g., jump to year/month/day)
+                    if let component = newComponent {
+                        print("Focusing on \(component.description)")
+                        // Add logic to scroll/highlight in GraphicalDatePicker if extended
+                    }
+                }
+            case .number(let num):
+                TextField("Edit number", value: Binding<Double?>(  // FIXED: Use optional Double? for if-let in setter
+                    get: { num },
+                    set: { if let value = $0 { binding.wrappedValue = .number(value) } }
+                ), format: .number)
+                .focused($isSheetFocused)
+            case .boolean(let boolVal):
+                Toggle("Edit boolean", isOn: Binding(
+                    get: { boolVal },
+                    set: { binding.wrappedValue = .boolean($0) }
+                ))
             }
-            Button("Done") { editingIndex = nil }  // Exit edit mode
+        }
+        .onTapGesture {
+            // Optional: Set selectedComponent for date if tapped (e.g., default to .day)
+            if case .date = binding.wrappedValue {
+                selectedComponent = .day
+            }
         }
     }
     
-    // NEW: Add any pending new content before saving
+    // FIXED: Define missing add*Content functions (append to contents and reset states)
+    private func addStringContent() {
+        if !stringValue.isEmpty {
+            contents.append(.string(stringValue))
+            stringValue = ""
+        }
+        selectedType = nil  // Reset selection
+    }
+
+    private func addDateContent() {
+        contents.append(.date(dateValue))
+        dateValue = Date()  // Reset to current date
+        selectedType = nil
+    }
+
+    private func addNumberContent() {
+        if let num = Double(numberString) {
+            contents.append(.number(num))
+            numberString = ""
+        }
+        selectedType = nil
+    }
+    
+    // Helper: Display text for content (extracted for clarity)
+    private func displayText(for content: NodeContent) -> String {
+        switch content {
+        case .string(let value): return value
+        case .date(let value): return value.formatted(date: .abbreviated, time: .omitted)
+        case .number(let value): return String(value)
+        case .boolean(let value): return value ? "True" : "False"
+        }
+    }
+    
     private func addPendingContent() {
-        if let type = selectedType, let newContent = createNewContent(for: type) {
-            contents.append(newContent)
-            resetInputFields()
-            selectedType = nil  // Hide after adding (optional; can remove if you want to keep open)
+        // Existing logic to add pending inputs (e.g., stringValue, dateValue, numberString)
+        if let type = selectedType {
+            switch type {
+            case .string:
+                if !stringValue.isEmpty {
+                    contents.append(.string(stringValue))
+                    stringValue = ""
+                }
+            case .date:
+                contents.append(.date(dateValue))
+            case .number:
+                if let num = Double(numberString) {
+                    contents.append(.number(num))
+                    numberString = ""
+                }
+            }
+            selectedType = nil  // Reset after adding
         }
     }
     
@@ -150,16 +228,6 @@ struct EditContentSheet: View {
             } else {
                 return nil  // Or handle invalid input
             }
-        }
-    }
-    
-    // Unchanged helpers: displayText, dateFormatter, resetInputFields
-    private func displayText(for content: NodeContent) -> String {
-        switch content {
-        case .string(let str): return "String: \(str.prefix(20))"
-        case .date(let date): return "Date: \(dateFormatter.string(from: date))"
-        case .number(let num): return "Number: \(num)"
-        case .boolean(let bool): return "Boolean: \(bool ? "True" : "False")"
         }
     }
     
@@ -254,7 +322,7 @@ struct NumericKeypadView: View {
 // MARK: - Custom Segmented Control for Data Types (watchOS-compatible version, with toggle behavior)
 struct DataTypeSegmentedControl: View {
     @Binding var selectedType: DataType?
-   
+    
     var body: some View {
         HStack(spacing: 4) {  // Compact spacing for watchOS
             ForEach(DataType.allCases) { type in
@@ -293,6 +361,19 @@ enum DataType: String, CaseIterable, Identifiable {
     case date = "date"
     case string = "string"
     case number = "number"
-   
+    
     var id: String { rawValue }
+}
+
+// MARK: - Enum for date fields (already present, but included for completeness)
+enum DateField: Hashable {
+    case year, month, day
+    
+    var description: String {  // NEW: Add this computed property
+        switch self {
+        case .year: return "year"
+        case .month: return "month"
+        case .day: return "day"
+        }
+    }
 }

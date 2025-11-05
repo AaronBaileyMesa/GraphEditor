@@ -1,13 +1,366 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-29 07:41:26
+Current date: 2025-11-04 12:17:18
 Table of Contents:
-1. GraphEditorWatch/Views/AddSection.swift
-2. GraphEditorWatch/Views/ContentView.swift
-3. GraphEditorWatch/Views/EdgeMenuView.swift
-4. GraphEditorWatch/Views/EditContentSheet.swift
-5. GraphEditorWatch/Views/EditSection.swift--------------------------------------------------
+1. GraphEditorWatch/ViewModels/GraphViewModel.swift
+2. GraphEditorWatch/Views/AddSection.swift
+3. GraphEditorWatch/Views/ContentView.swift
+4. GraphEditorWatch/Views/EdgeMenuView.swift--------------------------------------------------
+File: GraphViewModel.swift
+Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
+Last modified: 2025-10-25 20:18:57
+
+Contents:
+//
+//  GraphViewModel.swift
+//  GraphEditorWatch
+//
+//  Created by handcart on 10/3/25.
+//
+
+import Combine
+import GraphEditorShared
+import WatchKit  // For WKApplication
+import os  // Added for logging
+
+@MainActor public class GraphViewModel: ObservableObject {
+    @Published public var model: GraphModel
+    @Published public var selectedEdgeID: UUID?
+    @Published public var pendingEdgeType: EdgeType = .association
+    @Published public var selectedNodeID: UUID?
+    @Published public var offset: CGPoint = .zero
+    @Published public var zoomScale: CGFloat = 1.0
+    @Published public var currentGraphName: String = "default"  // Sync with model; standardized to "default"
+        
+    private var saveTimer: Timer?
+    private var cancellable: AnyCancellable?
+    
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
+    }
+    
+    var isSelectedToggleNode: Bool {
+        guard let id = selectedNodeID else { return false }
+        return model.nodes.first { $0.id == id }?.unwrapped is ToggleNode
+    }
+    
+    public var canUndo: Bool {
+        model.canUndo
+    }
+    
+    public var canRedo: Bool {
+        model.canRedo
+    }
+    
+    private var pauseObserver: NSObjectProtocol?
+    private var resumeObserver: NSObjectProtocol?
+    
+    private var resumeTimer: Timer?
+    
+    public var effectiveCentroid: CGPoint {
+        /*
+        let visibleNodes = model.visibleNodes()
+        if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
+            return node.position
+        } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
+                  let from = visibleNodes.first(where: { $0.id == edge.from }),
+                  let target = visibleNodes.first(where: { $0.id == edge.target }) {
+            return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
+        }
+        return centroid(of: visibleNodes) ?? .zero  // Fix unwrap
+         */
+        return model.centroid ?? .zero
+    }
+    
+    public enum AppFocusState: Equatable {
+        case graph
+        case node(UUID)
+        case edge(UUID)
+        case menu
+    }
+
+    @Published public var focusState: AppFocusState = .graph
+    
+    public init(model: GraphModel) {
+        self.model = model
+        self.currentGraphName = model.currentGraphName  // Sync on init
+        cancellable = model.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+        
+        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in  // Ensure main for publishes
+                await self?.model.pauseSimulation()
+            }
+        }
+        
+        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in  // Ensure main for publishes
+                await self?.resumeSimulationAfterDelay()
+            }
+        }
+    }
+    
+    public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
+        var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes.map { $0.unwrapped })
+        if graphBounds.width < 100 || graphBounds.height < 100 {
+            graphBounds = graphBounds.insetBy(dx: -50, dy: -50)
+        }
+        let contentPadding: CGFloat = Constants.App.contentPadding
+        let paddedWidth = graphBounds.width + 2 * contentPadding
+        let paddedHeight = graphBounds.height + 2 * contentPadding
+        let fitWidth = viewSize.width / paddedWidth
+        let fitHeight = viewSize.height / paddedHeight
+        let calculatedMin = min(fitWidth, fitHeight)
+        let minZoom = max(calculatedMin, 0.5)
+        let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
+        
+#if DEBUG
+        GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
+        #endif
+        
+        return (minZoom, maxZoom)
+    }
+    
+    public func addNode(at position: CGPoint) async {
+        await model.addNode(at: position)
+    }
+    
+    public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
+        await model.addToggleNode(at: position)
+        await saveAfterDelay()
+    }
+    
+    public func addEdge(from fromID: NodeID, to targetID: NodeID, type: EdgeType = .association) async {
+        await model.addEdge(from: fromID, target: targetID, type: type)
+        await saveAfterDelay()
+    }
+    
+    public func undo() async {
+        await model.undo()
+        await saveAfterDelay()
+    }
+    
+    public func redo() async {
+        await model.redo()
+        await saveAfterDelay()
+    }
+    
+    public func deleteSelected() async {
+        await model.deleteSelected(selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        await saveAfterDelay()
+    }
+    
+    public func toggleExpansion(for nodeID: NodeID) async {
+        await model.toggleExpansion(for: nodeID)
+        await saveAfterDelay()
+    }
+    
+    public func toggleSelectedNode() async {  // NEW: Add this method to fix 'no member 'toggleSelectedNode''
+        if let id = selectedNodeID {
+            await toggleExpansion(for: id)
+        }
+    }
+    
+    public func deleteNode(withID id: NodeID) async {
+        await model.deleteNode(withID: id)
+        if selectedNodeID == id { selectedNodeID = nil }
+        // Deleting a node may also invalidate an edge selection
+        selectedEdgeID = nil
+        await saveAfterDelay()
+    }
+    
+    public func clearGraph() async {
+        await model.clearGraph()
+        await saveAfterDelay()
+    }
+    
+    public func pauseSimulation() async {
+        await model.pauseSimulation()
+    }
+    
+    public func resumeSimulation() async {
+        await model.resumeSimulation()
+    }
+    
+    public func resumeSimulationAfterDelay() async {
+        resumeTimer?.invalidate()
+        resumeTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { [weak self] _ in
+            Task { @MainActor in  // Hop to main for safe access
+                guard let self = self else { return }
+                if WKApplication.shared().applicationState == .active {
+                    await self.model.resumeSimulation()  // Consistent async call
+                }
+            }
+        }
+    }
+    
+    // Fixed: handleTap with proper scoping, removed invalid SwiftUI Text, added ToggleNode update logic (assumes model.updateNode method; adjust if needed)
+    public func handleTap(at modelPos: CGPoint) async {
+        await model.pauseSimulation()
+        
+        #if DEBUG
+        GraphViewModel.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
+        #endif
+        
+        // Efficient hit test with queryNearby
+        let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
+        let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
+        
+        #if DEBUG
+        GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
+        #endif
+        
+        // Sort by distance to get closest (if multiple)
+        let sortedNearby = nearbyNodes.sorted {
+            hypot($0.position.x - modelPos.x, $0.position.y - modelPos.y) < hypot($1.position.x - modelPos.x, $1.position.y - modelPos.y)
+        }
+        
+        if let tappedNode = sortedNearby.first {
+            selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
+            selectedEdgeID = nil
+            
+            #if DEBUG
+            GraphViewModel.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
+            #endif
+            
+            model.objectWillChange.send()  // Trigger UI refresh
+        } else {
+            // Miss: Clear selections
+            selectedNodeID = nil
+            selectedEdgeID = nil
+            
+            #if DEBUG
+            GraphViewModel.logger.debug("Tap missed; cleared selections")
+            #endif
+        }
+        
+        focusState = selectedNodeID.map { .node($0) } ?? .graph
+        objectWillChange.send()
+        await resumeSimulationAfterDelay()
+    }
+    
+    public func setSelectedNode(_ id: UUID?) {
+        selectedNodeID = id
+        focusState = id.map { .node($0) } ?? .graph
+        objectWillChange.send()
+    }
+
+    public func setSelectedEdge(_ id: UUID?) {
+        selectedEdgeID = id
+        focusState = id.map { .edge($0) } ?? .graph
+        objectWillChange.send()
+    }
+    
+    public func centerGraph() {
+        // UPDATED: Enhanced to recalculate based on bounds
+        let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
+        let (minZoom, _) = calculateZoomRanges(for: viewSize)
+        zoomScale = minZoom
+        offset = .zero
+        objectWillChange.send()
+    }
+}
+
+extension GraphViewModel {
+    // MARK: - Multi-Graph Support
+    
+    /// Creates a new empty graph and switches to it, resetting view state.
+    public func createNewGraph(name: String) async throws {
+        // Save current view state before switching
+        try saveViewState()
+        
+        try await model.createNewGraph(name: name)
+        currentGraphName = model.currentGraphName  // Sync
+        
+        // Reset view state for new graph
+        offset = .zero
+        zoomScale = 1.0
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        focusState = .graph
+        
+        await resumeSimulation()
+        objectWillChange.send()
+    }
+    
+    /// Loads a specific graph by name, switches to it, and loads its view state.
+    public func loadGraph(name: String) async throws {
+        // Save current view state before switching
+        try saveViewState()
+        
+        await model.loadGraph(name: name)
+        currentGraphName = model.currentGraphName  // Sync
+        
+        // Load view state for the new graph
+        if let viewState = try model.storage.loadViewState(for: currentGraphName) {
+            offset = viewState.offset
+            zoomScale = viewState.zoomScale
+            selectedNodeID = viewState.selectedNodeID
+            selectedEdgeID = viewState.selectedEdgeID
+        } else {
+            // Default if no view state
+            offset = .zero
+            zoomScale = 1.0
+            selectedNodeID = nil
+            selectedEdgeID = nil
+        }
+        focusState = .graph
+        
+        await resumeSimulation()
+        objectWillChange.send()
+    }
+    
+    /// Deletes a graph by name.
+    public func deleteGraph(name: String) async throws {
+        try await model.deleteGraph(name: name)
+    }
+    
+    /// Lists all graph names.
+    public func listGraphNames() async throws -> [String] {
+        try await model.listGraphNames()
+    }
+}
+
+extension GraphViewModel {
+    // MARK: - View State Persistence
+    
+    /// Saves current view state for the current graph.
+    public func saveViewState() throws {
+        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        try model.storage.saveViewState(viewState, for: currentGraphName)
+        
+        #if DEBUG
+        GraphViewModel.logger.debug("Saved view state for '\(self.currentGraphName)'")
+        #endif
+    }
+}
+
+extension GraphViewModel {
+    // MARK: - Helpers
+    
+    private func saveAfterDelay() async {
+        saveTimer?.invalidate()
+        saveTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                do {
+                    try await self?.model.saveGraph()
+                    try self?.saveViewState()
+                } catch {
+                    #if DEBUG
+                    GraphViewModel.logger.error("Save failed: \(error.localizedDescription)")
+                    #endif
+                }
+            }
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: AddSection.swift
 Path: GraphEditorWatch/Views/AddSection.swift
 Last modified: 2025-10-25 10:13:46
@@ -573,482 +926,6 @@ struct EdgeMenuView: View {
         .buttonStyle(.bordered)
         .tint(.gray)
         .accessibilityLabel("Reverse Edge")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: EditContentSheet.swift
-Path: GraphEditorWatch/Views/EditContentSheet.swift
-Last modified: 2025-10-24 12:37:37
-
-Contents:
-//
-//  EditContentSheet.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/19/25.
-//
-
-import SwiftUI
-import GraphEditorShared
-
-struct EditContentSheet: View {
-    let selectedID: NodeID
-    let viewModel: GraphViewModel
-    let onSave: ([NodeContent]) -> Void
-    @Environment(\.dismiss) private var dismiss
-    @State private var contents: [NodeContent] = []
-    @State private var selectedType: DataType? = nil  // Changed to optional DataType
-    @State private var stringValue: String = ""
-    @State private var dateValue: Date = Date()
-    @State private var numberString: String = ""  // Changed to string for custom input
-    @FocusState private var isSheetFocused: Bool
-    @State private var editingIndex: Int?  // NEW: Track item being edited inline
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                contentsSection(proxy: proxy)
-            }
-            .navigationTitle("Contents")  // Changed to "Contents" as requested
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {  // Use toolbar for Save/Cancel with icons
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(action: { dismiss() }) {
-                        Image(systemName: "xmark")
-                    }.foregroundColor(.red)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(action: {
-                        addPendingContent()  // Add any pending input before saving
-                        onSave(contents)
-                    }) {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                }
-            }
-            .focused($isSheetFocused)
-            .onAppear {
-                isSheetFocused = true
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { isSheetFocused = true }
-                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents
-                }
-            }
-            .onChange(of: isSheetFocused) { _, newValue in
-                if !newValue { isSheetFocused = true }  // Auto-recover focus
-            }
-            .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
-        }
-    }
-
-    private func contentsSection(proxy: ScrollViewProxy) -> some View {
-        Section(
-            header: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
-        ) {
-            if contents.isEmpty {
-                Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
-            } else {
-                ForEach(contents.indices, id: \.self) { index in
-                    if editingIndex == index {
-                        // Inline edit mode (tap to enter)
-                        inlineEditView(for: index)
-                            .swipeActions {  // Moved inside ForEach, per row
-                                Button("Delete", role: .destructive) {
-                                    contents.remove(at: index)  // Use captured index
-                                    editingIndex = nil  // Reset if deleted while editing
-                                }
-                            }
-                    } else {
-                        Text(displayText(for: contents[index]))
-                            .font(.caption)  // Smaller font for compactness
-                            .onTapGesture {
-                                editingIndex = index  // Tap to edit
-                            }
-                            .swipeActions {  // Moved inside ForEach, per row
-                                Button("Delete", role: .destructive) {
-                                    contents.remove(at: index)  // Use captured index
-                                }
-                            }
-                    }
-                }
-                .onMove { indices, newOffset in
-                    contents.move(fromOffsets: indices, toOffset: newOffset)  // Drag to reorder
-                }
-            }
-            
-            if let type = selectedType {  // Show inputs only if a type is selected
-                if type == .string {
-                    TextField("Enter text", text: $stringValue)
-                } else if type == .date {
-                    DatePicker("Date", selection: $dateValue, displayedComponents: .date)
-                        .labelsHidden()
-                } else if type == .number {
-                    NumericKeypadView(text: $numberString)
-                }
-            }
-        }
-        .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))  // Reduce padding for compactness
-    }
-    
-    // NEW: Inline edit view for an item (compact, type-specific)
-    private func inlineEditView(for index: Int) -> some View {
-        let content = contents[index]
-        return Group {
-            switch content {
-            case .string(var str):
-                TextField("Edit String", text: Binding(get: { str }, set: { str = $0; contents[index] = .string(str) }))
-            case .date(var date):
-                DatePicker("Edit Date", selection: Binding(get: { date }, set: { date = $0; contents[index] = .date(date) }), displayedComponents: .date)
-                    .labelsHidden()
-            case .number(var num):
-                let numString = Binding<String>(
-                    get: { String(num) },
-                    set: { if let newNum = Double($0) { contents[index] = .number(newNum) } }
-                )
-                NumericKeypadView(text: numString)
-            case .boolean(var bool):
-                Toggle("Edit Boolean", isOn: Binding(get: { bool }, set: { bool = $0; contents[index] = .boolean(bool) }))
-            }
-            Button("Done") { editingIndex = nil }  // Exit edit mode
-        }
-    }
-    
-    // NEW: Add any pending new content before saving
-    private func addPendingContent() {
-        if let type = selectedType, let newContent = createNewContent(for: type) {
-            contents.append(newContent)
-            resetInputFields()
-            selectedType = nil  // Hide after adding (optional; can remove if you want to keep open)
-        }
-    }
-    
-    // Helper to create new content (updated for DataType)
-    private func createNewContent(for type: DataType) -> NodeContent? {
-        switch type {
-        case .string: return stringValue.isEmpty ? nil : .string(stringValue)
-        case .date: return .date(dateValue)
-        case .number:
-            if let num = Double(numberString) {
-                return .number(num)
-            } else {
-                return nil  // Or handle invalid input
-            }
-        }
-    }
-    
-    // Unchanged helpers: displayText, dateFormatter, resetInputFields
-    private func displayText(for content: NodeContent) -> String {
-        switch content {
-        case .string(let str): return "String: \(str.prefix(20))"
-        case .date(let date): return "Date: \(dateFormatter.string(from: date))"
-        case .number(let num): return "Number: \(num)"
-        case .boolean(let bool): return "Boolean: \(bool ? "True" : "False")"
-        }
-    }
-    
-    private let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .none
-        return formatter
-    }()
-    
-    private func resetInputFields() {
-        stringValue = ""
-        dateValue = Date()
-        numberString = ""  // Reset string instead
-    }
-}
-
-struct NumericKeypadView: View {
-    @Binding var text: String
-    
-    let columns = [
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2)
-    ]
-    
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(text.isEmpty ? "0" : text)
-                .font(.system(size: 12, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(4)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(4)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            
-            LazyVGrid(columns: columns, spacing: 2) {
-                keypadButton("7") { appendDigit("7") }
-                keypadButton("8") { appendDigit("8") }
-                keypadButton("9") { appendDigit("9") }
-                keypadButton("4") { appendDigit("4") }
-                keypadButton("5") { appendDigit("5") }
-                keypadButton("6") { appendDigit("6") }
-                keypadButton("1") { appendDigit("1") }
-                keypadButton("2") { appendDigit("2") }
-                keypadButton("3") { appendDigit("3") }
-                keypadButton(".") { appendDigit(".") }
-                keypadButton("0") { appendDigit("0") }
-                keypadButton("-") { toggleNegative() }
-            }
-            
-            keypadButton("⌫", background: Color.red.opacity(0.2)) {
-                deleteLastCharacter()
-            }
-            .font(.system(size: 10))
-        }
-        .font(.system(size: 10))
-    }
-    
-    private func keypadButton(_ label: String, background: Color = Color.gray.opacity(0.1), action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 20)
-                .background(background)
-                .cornerRadius(4)
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private func appendDigit(_ digit: String) {
-        if digit == "." && text.contains(".") { return }
-        text += digit
-    }
-    
-    private func toggleNegative() {
-        if text.hasPrefix("-") {
-            text.removeFirst()
-        } else if !text.isEmpty || text == "0" {
-            text = "-" + text
-        }
-    }
-    
-    private func deleteLastCharacter() {
-        if !text.isEmpty {
-            text.removeLast()
-        }
-    }
-}
-
-// MARK: - Custom Segmented Control for Data Types (watchOS-compatible version, with toggle behavior)
-struct DataTypeSegmentedControl: View {
-    @Binding var selectedType: DataType?
-   
-    var body: some View {
-        HStack(spacing: 4) {  // Compact spacing for watchOS
-            ForEach(DataType.allCases) { type in
-                Button {
-                    if selectedType == type {
-                        selectedType = nil  // Deselect and hide inputs
-                    } else {
-                        selectedType = type  // Select and show inputs
-                    }
-                } label: {
-                    Group {
-                        if type == .date {
-                            Image(systemName: "calendar")
-                        } else if type == .string {
-                            Text("A")
-                        } else {
-                            Text("123")
-                        }
-                    }
-                    .font(.caption2)  // Small font for watchOS
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(selectedType == type ? Color.blue : Color.gray.opacity(0.3))
-                    .foregroundColor(selectedType == type ? .white : .primary)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)  // Avoid default button styling
-            }
-        }
-        .frame(maxWidth: .infinity)  // Stretch to fill available width
-    }
-}
-
-// MARK: - Enum for the three options
-enum DataType: String, CaseIterable, Identifiable {
-    case date = "date"
-    case string = "string"
-    case number = "number"
-   
-    var id: String { rawValue }
-}
-----------------------------------------------------------------------------------------------------
-File: EditSection.swift
-Path: GraphEditorWatch/Views/EditSection.swift
-Last modified: 2025-10-23 10:03:44
-
-Contents:
-//
-//  EditSection.swift
-//  GraphEditor
-//
-//  Created by handcart on 10/5/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-struct EditSection: View {
-    let viewModel: GraphViewModel
-    let selectedNodeID: NodeID?
-    let selectedEdgeID: UUID?
-    let onDismiss: () -> Void
-    let onEditNode: () -> Void
-    
-    @State private var isProcessing = false
-    
-    private func findSelectedEdge() -> GraphEdge? {
-        viewModel.model.edges.first { $0.id == selectedEdgeID }
-    }
-    
-    private func clearSelections() {
-        viewModel.setSelectedNode(nil)
-        viewModel.setSelectedEdge(nil)
-    }
-    
-    var body: some View {
-        Group {
-            if selectedNodeID != nil {
-                editContentsLink
-                if viewModel.isSelectedToggleNode {
-                    toggleExpandButton
-                }
-                deleteNodeButton
-            }
-            if selectedEdgeID != nil,
-               let selectedEdge = findSelectedEdge() {
-                edgeInfoText(selectedEdge: selectedEdge)
-                deleteEdgeButton(selectedEdge: selectedEdge)
-                if selectedEdge.type == .hierarchy {
-                    reverseEdgeButton(selectedEdge: selectedEdge)
-                }
-            }
-        }
-        .foregroundColor(isProcessing ? .gray : .primary)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Edit section")
-    }
-    
-    private func edgeInfoText(selectedEdge: GraphEdge) -> some View {
-        let fromID = selectedEdge.from
-        let targetID = selectedEdge.target
-        let fromLabel = viewModel.model.nodes.first(where: { $0.id == fromID })?.label ?? 0
-        let toLabel = viewModel.model.nodes.first(where: { $0.id == targetID })?.label ?? 0
-        return Text("\(fromLabel) → \(toLabel) (\(selectedEdge.type.rawValue))")
-            .font(.caption2)
-            .foregroundColor(.secondary)
-            .gridCellColumns(2)
-            .accessibilityLabel("Edge info")
-    }
-    
-    private var editContentsLink: some View {
-        NavigationLink(destination: EditContentSheet(
-            selectedID: selectedNodeID ?? NodeID(),
-            viewModel: viewModel,
-            onSave: { newContents in
-                if let id = selectedNodeID {
-                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
-                }
-            }
-        )) {
-            Label("Contents", systemImage: "pencil")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("editContentsButton")
-    }
-    
-    private var toggleExpandButton: some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task { await viewModel.toggleSelectedNode() }
-            onDismiss()
-        } label: {
-            Label("Toggle", systemImage: "arrow.up.arrow.down")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .accessibilityIdentifier("toggleExpandCollapseButton")
-    }
-    
-    private var deleteNodeButton: some View {
-        Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            if let id = selectedNodeID {
-                Task {
-                    isProcessing = true
-                    await viewModel.model.deleteNode(withID: id)
-                    clearSelections()
-                    isProcessing = false
-                }
-            }
-            onDismiss()
-        } label: {
-            Label("Del Node", systemImage: "trash")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .disabled(isProcessing)
-        .accessibilityIdentifier("deleteNodeButton")
-    }
-    
-    private func deleteEdgeButton(selectedEdge: GraphEdge) -> some View {
-        let fromID = selectedEdge.from
-        let targetID = selectedEdge.target
-        let isBi = viewModel.model.isBidirectionalBetween(fromID, targetID)
-        return Button(role: .destructive) {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                isProcessing = true
-                await viewModel.model.snapshot()
-                if isBi {
-                    let pair = viewModel.model.edgesBetween(fromID, targetID)
-                    viewModel.model.edges.removeAll { pair.contains($0) }
-                } else {
-                    viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                }
-                await viewModel.model.startSimulation()
-                clearSelections()
-                isProcessing = false
-            }
-            onDismiss()
-        } label: {
-            Label(isBi ? "Del Both" : "Del Edge", systemImage: "trash.slash")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .disabled(isProcessing)
-        .accessibilityIdentifier("deleteEdgeButton")
-    }
-    
-    private func reverseEdgeButton(selectedEdge: GraphEdge) -> some View {
-        Button {
-            WKInterfaceDevice.current().play(.click)
-            Task {
-                isProcessing = true
-                await viewModel.model.snapshot()
-                viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                viewModel.model.edges.append(GraphEdge(from: selectedEdge.target, target: selectedEdge.from, type: .hierarchy))
-                await viewModel.model.startSimulation()
-                clearSelections()
-                isProcessing = false
-            }
-            onDismiss()
-        } label: {
-            Label("Reverse", systemImage: "arrow.left.arrow.right")
-                .labelStyle(.titleAndIcon)
-                .font(.caption)
-        }
-        .disabled(isProcessing)
-        .accessibilityIdentifier("reverseNodeButton")
     }
 }
 --------------------------------------------------

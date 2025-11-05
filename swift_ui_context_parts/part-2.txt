@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-29 07:41:25
+Current date: 2025-11-04 12:17:17
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphModel+TreeSupport.swift
@@ -618,7 +618,7 @@ class GraphSimulator {
 ----------------------------------------------------------------------------------------------------
 File: GraphTypes.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphTypes.swift
-Last modified: 2025-10-27 14:51:40
+Last modified: 2025-10-29 08:20:26
 
 Contents:
 //
@@ -631,18 +631,6 @@ import SwiftUI
 import Foundation
 
 public typealias NodeID = UUID
-
-// Updated: Inherit HierarchicalNode for universal tree support
-public protocol NodeProtocol: HierarchicalNode, Equatable {
-    var id: NodeID { get }
-    var label: Int { get }
-    var position: CGPoint { get set }
-    var velocity: CGPoint { get set }
-    var radius: CGFloat { get set }
-    var contents: [NodeContent] { get set }
-    var fillColor: Color { get }
-    // Add other required members if needed (e.g., renderView, draw if common)
-}
 
 @available(iOS 16.0, *)
 @available(watchOS 9.0, *)

@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-10-29 07:41:25
+Current date: 2025-11-04 12:17:18
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
 2. GraphEditorShared/Sources/GraphEditorShared/PersistenceManager.swift
@@ -10,7 +10,7 @@ Table of Contents:
 5. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift--------------------------------------------------
 File: NodeProtocol.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/NodeProtocol.swift
-Last modified: 2025-10-21 08:18:29
+Last modified: 2025-10-29 08:26:21
 
 Contents:
 // Sources/GraphEditorShared/NodeProtocol.swift
@@ -114,6 +114,10 @@ public protocol NodeProtocol: Identifiable, Equatable, Codable where ID == NodeI
     /// Expansion state for hierarchical nodes (e.g., true shows children).
     var isExpanded: Bool { get set }
     
+    var children: [UUID] { get set }
+    mutating func collapse()
+    mutating func bulkCollapse()
+    
     // Data payload for the node
     // Ordered list of data payloads for the node (replaces single optional content)
     var contents: [NodeContent] { get set }
@@ -169,6 +173,14 @@ extension NodeProtocol {
     public var mass: CGFloat { 1.0 }  // Default mass
     
     public func shouldHideChildren() -> Bool { false }  // Default: show children
+    
+    public mutating func collapse() {
+        isExpanded = false
+    }
+
+    public mutating func bulkCollapse() {
+        collapse()  // Full recursion handled in GraphModel
+    }
     
     public func handlingTap() -> Self { self }  // Default: no-op
     
@@ -274,6 +286,20 @@ public struct AnyNode: NodeProtocol {
         get { base.isExpanded }
         set { base.isExpanded = newValue }
     }
+    
+    public var children: [UUID] {
+        get { base.children }
+        set { base.children = newValue }
+    }
+
+    public mutating func collapse() {
+        base.collapse()
+    }
+
+    public mutating func bulkCollapse() {
+        base.bulkCollapse()
+    }
+    
     public var isVisible: Bool { base.isVisible }
     public var fillColor: Color { base.fillColor }
     public var mass: CGFloat { base.mass }
