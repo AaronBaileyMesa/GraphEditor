@@ -15,8 +15,8 @@ struct EditContentSheet: View {
     let onSave: ([NodeContent]) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var contents: [NodeContent] = []
-    @State private var selectedType: DataType? = nil  // Changed to optional DataType
-    @State private var selectedComponent: DateField? = nil  // NEW: Add this for date component focus (e.g., year/month/day)
+    @State private var selectedType: DataType?
+    @State private var selectedComponent: DateField?
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberString: String = ""  // Changed to string for custom input
@@ -30,17 +30,20 @@ struct EditContentSheet: View {
             }
             .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {  // Use toolbar for Save/Cancel with icons
+            .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: { dismiss() }) {
+                    Button {
+                        dismiss()
+                    } label: {
                         Image(systemName: "xmark")
-                    }.foregroundColor(.red)
+                    }
+                    .foregroundColor(.red)
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(action: {
+                    Button {
                         addPendingContent()  // Add any pending input before saving
                         onSave(contents)
-                    }) {
+                    } label: {
                         Image(systemName: "square.and.arrow.down")
                     }
                 }
@@ -55,11 +58,9 @@ struct EditContentSheet: View {
             }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
-                //if !newValue { isSheetFocused = true }  // Auto-recover focus
             }
             .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
         }
-        
     }
     
     private func contentsSection(proxy: ScrollViewProxy) -> some View {
@@ -133,7 +134,7 @@ struct EditContentSheet: View {
                 GraphicalDatePicker(date: Binding(  // INTEGRATED: Use custom picker for date editing
                     get: { dateVal },
                     set: { binding.wrappedValue = .date($0) }
-                ))
+                                                 ))
                 .frame(height: 150)  // Ensure it fits in the list row
                 .onChange(of: selectedComponent) { _, newComponent in
                     // Optional: Handle focus on specific date parts (e.g., jump to year/month/day)
@@ -146,7 +147,7 @@ struct EditContentSheet: View {
                 TextField("Edit number", value: Binding<Double?>(  // FIXED: Use optional Double? for if-let in setter
                     get: { num },
                     set: { if let value = $0 { binding.wrappedValue = .number(value) } }
-                ), format: .number)
+                                                                ), format: .number)
                 .focused($isSheetFocused)
             case .boolean(let boolVal):
                 Toggle("Edit boolean", isOn: Binding(
@@ -171,13 +172,13 @@ struct EditContentSheet: View {
         }
         selectedType = nil  // Reset selection
     }
-
+    
     private func addDateContent() {
         contents.append(.date(dateValue))
         dateValue = Date()  // Reset to current date
         selectedType = nil
     }
-
+    
     private func addNumberContent() {
         if let num = Double(numberString) {
             contents.append(.number(num))
@@ -358,9 +359,9 @@ struct DataTypeSegmentedControl: View {
 
 // MARK: - Enum for the three options
 enum DataType: String, CaseIterable, Identifiable {
-    case date = "date"
-    case string = "string"
-    case number = "number"
+    case date
+    case string
+    case number
     
     var id: String { rawValue }
 }
