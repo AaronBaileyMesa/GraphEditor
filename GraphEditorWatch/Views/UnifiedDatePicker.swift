@@ -33,7 +33,7 @@ struct UnifiedDatePicker: View {
         }
         .tabViewStyle(.page)  // Enables swiping between components
         .frame(height: 100)  // Compact for watch
-        .onChange(of: selectedComponent) { _ in
+        .onChange(of: selectedComponent) { 
             WKInterfaceDevice.current().play(.click)  // Haptic feedback
         }
     }

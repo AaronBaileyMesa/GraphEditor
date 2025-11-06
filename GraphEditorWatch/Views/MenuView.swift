@@ -33,15 +33,15 @@ struct MenuView: View {
                     selectedNodeID: $selectedNodeID,
                     isAddingEdge: $isAddingEdge
                 )
-            } else {            NodeMenuView(
-                viewModel: viewModel,
-                onDismiss: { showMenu = false },
-                selectedNodeID: $selectedNodeID,
-                isAddingEdge: $isAddingEdge
-            )
+            } else {
+                NodeMenuView(
+                    viewModel: viewModel,
+                    onDismiss: { showMenu = false },
+                    selectedNodeID: $selectedNodeID,
+                    isAddingEdge: $isAddingEdge
+                )
             }
-        }
-        else if selectedEdgeID != nil {
+        } else if selectedEdgeID != nil {
             EdgeMenuView(
                 viewModel: viewModel,
                 isSimulatingBinding: isSimulatingBinding,

@@ -128,7 +128,6 @@ struct GraphicalDatePicker: View {
         .font(.caption2)  // For arrows
         .padding(.horizontal, 2)
         .zIndex(1)
-        //.focusSection()
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Navigate months and years")
     }
@@ -143,7 +142,7 @@ struct GraphicalDatePicker: View {
         let days = generateDays()
         return VStack(spacing: 2) {  // Reduced spacing for compactness
             HStack(spacing: 0) {
-                ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { index, day in
+                ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { _, day in
                     Text(day).frame(width: cellSize, height: cellSize / 2).font(.caption2).foregroundColor(.gray)
                 }
             }
@@ -153,13 +152,13 @@ struct GraphicalDatePicker: View {
                         let index = week * 7 + dayIndex
                         if index < days.count {  // Split: Check index first (non-optional Bool)
                             if let dayDate = days[index] {  // Now isolated optional binding
-                                Button(action: { selectDay(dayDate) }) {
+                                Button(action: { selectDay(dayDate) }, label: {
                                     Text("\(calendar.component(.day, from: dayDate))")
                                         .frame(width: cellSize, height: cellSize)
                                         .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
                                         .clipShape(Circle())
                                         .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
-                                }
+                                })
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
                             } else {

@@ -76,7 +76,7 @@ struct GraphGesturesModifier: ViewModifier {
             }
         
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 10.0)
-            .updating($isLongPressing) { currentState, gestureState, transaction in
+            .updating($isLongPressing) { currentState, gestureState, _ in
                 gestureState = currentState  // Track if actively pressing
             }
             .onEnded { _ in

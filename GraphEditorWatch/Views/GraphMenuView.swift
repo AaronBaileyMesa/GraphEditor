@@ -133,7 +133,7 @@ struct GraphMenuView: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }
-        .onChange(of: showOverlays) { newValue in
+        .onChange(of: showOverlays) { _, _ in
             // Any additional logic from ViewSection
         }
         .accessibilityIdentifier("overlaysToggle")
@@ -145,7 +145,7 @@ struct GraphMenuView: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }
-        .onChange(of: isSimulatingBinding.wrappedValue) { newValue in
+        .onChange(of: isSimulatingBinding.wrappedValue) { _, newValue in
             viewModel.model.isSimulating = newValue
             if newValue {
                 Task { await viewModel.model.startSimulation() }
