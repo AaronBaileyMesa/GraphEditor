@@ -97,6 +97,30 @@ struct GestureUtils {
             viewSize: context.viewSize
         )
     }
+}
+
+struct Line: Shape, Animatable {
+    var from: CGPoint
+    var end: CGPoint
     
-    // Add any other utility functions extracted from the original file here
+    var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
+        get { AnimatablePair(from.animatableData, end.animatableData) }
+        set {
+            from.animatableData = newValue.first
+            end.animatableData = newValue.second
+        }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: end)
+        return path
+    }
+}
+
+extension CGRect {
+    init(center: CGPoint, size: CGSize) {
+        self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+    }
 }

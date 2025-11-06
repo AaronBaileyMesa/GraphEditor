@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 import os  // Added for logging
 
-struct ContentView: View { // siwftlint:disable type_body_length
+struct ContentView: View { // swiftlint:disable:this type_body_length
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
     
     @ObservedObject var viewModel: GraphViewModel
@@ -182,21 +182,6 @@ struct ContentView: View { // siwftlint:disable type_body_length
                 saturation: $saturation  // NEW: Pass the binding here
             ))
         }
-        /*.overlay(alignment: .bottom) {
-            HStack(spacing: 20) {
-                if wristSide == .left {
-                    addNodeButton(in: geo)
-                    menuButton(in: geo)
-                } else {
-                    menuButton(in: geo)
-                    addNodeButton(in: geo)
-                }
-            }
-            .padding(.bottom, 1)
-            .padding(.horizontal, 15)
-            .transition(.move(edge: .bottom))
-        }*/
-        // In ContentView.swift (inside body, where .sheet(isPresented: $showMenu) is)
         .sheet(isPresented: $showMenu) {
             NavigationStack {  // NEW: Wrap in NavigationStack for push navigation
                 MenuView(
@@ -310,7 +295,6 @@ struct ContentView: View { // siwftlint:disable type_body_length
         .accessibilityLabel("Menu")
     }
 }
-
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
