@@ -16,18 +16,20 @@ struct GraphicalDatePicker: View {
     // NEW: Reference date for crown value (e.g., 1970-01-01)
     private let referenceDate = Date(timeIntervalSince1970: 0)
     
-    // NEW: Computed Double binding for crown (months since reference)
+    // UPDATED: Computed Double binding for crown (months since reference), with clamping
     private var crownValue: Binding<Double> {
         Binding<Double>(
             get: { Calendar.current.dateComponents([.month], from: referenceDate, to: displayMonth).month.map(Double.init) ?? 0.0 },
             set: { newMonths in
-                displayMonth = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
+                var newDate = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
+                newDate = max(minDate, min(maxDate, newDate))  // Clamp to min/max
+                displayMonth = newDate
             }
         )
     }
     
     private let calendar = Calendar.current
-    private let daysOfWeek = DateFormatter().shortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]
+    private let daysOfWeek = DateFormatter().veryShortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]  // Single letters
     
     init(date: Binding<Date>) {
         _date = date
@@ -37,56 +39,111 @@ struct GraphicalDatePicker: View {
     var body: some View {
         GeometryReader { geometry in
             let cellSize = geometry.size.width / 7  // Responsive grid
-            VStack(spacing: 4) {
-                header(cellSize: cellSize)
-                calendarGrid(cellSize: cellSize)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
-                .onEnded { value in
-                    if value.translation.width < -50 { nextMonth() }
-                    if value.translation.width > 50 { previousMonth() }
+            let weeks = numberOfWeeks  // NEW: Compute actual weeks for dynamic height
+            let computedHeight = headerHeight(cellSize: cellSize) + weekdayHeight(cellSize: cellSize) + (CGFloat(weeks) * rowHeight(cellSize: cellSize)) + (CGFloat(weeks - 1) * 2)  // Dynamic calc with spacing
+            ScrollView {  // NEW: Wrap for scrolling if too tall (e.g., 6 weeks)
+                VStack(spacing: 2) {  // Reduced spacing for compactness
+                    header(cellSize: cellSize)
+                    calendarGrid(cellSize: cellSize)
                 }
-            )
-        }
-        .frame(height: 150)
-        .digitalCrownRotation(
-            crownValue,
-            from: -1200.0,  // ~100 years back (12*100)
-            through: 1200.0,  // ~100 years forward
-            sensitivity: .high,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true,
-            onChange: { event in
-                updateFromCrown(event.offset)  // UPDATED: Pass event.offset (Double) from DigitalCrownEvent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
+                    .onEnded { value in
+                        if value.translation.width < -50 { nextMonth() }
+                        if value.translation.width > 50 { previousMonth() }
+                    }
+                )
+                .digitalCrownRotation(  // Attached to main VStack
+                    crownValue,
+                    from: monthsToMinDate,
+                    through: monthsToMaxDate,
+                    sensitivity: .high,
+                    isContinuous: false,
+                    isHapticFeedbackEnabled: false
+                )
             }
-        )
+            .frame(height: min(computedHeight, 180))  // NEW: Dynamic height, capped at 180 for watch constraints; scrolls if exceeded
+            .scrollIndicators(.never)  // Hide indicators for clean look
+            .scrollBounceBehavior(.basedOnSize)  // Minimal bounce
+        }
     }
+    
+    // NEW: Helper to compute number of weeks (for dynamic height)
+    private var numberOfWeeks: Int {
+        let days = generateDays()
+        return (days.count + 6) / 7  // Ceiling division for weeks
+    }
+    
+    // NEW: Height helpers (estimates; adjust if needed based on testing)
+    private func headerHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
+    private func weekdayHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
+    private func rowHeight(cellSize: CGFloat) -> CGFloat { cellSize }
+    
+    // UPDATED: Dynamic crown range (months from reference to min/max)
+    private var monthsToMinDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: minDate).month ?? -1200) }
+    private var monthsToMaxDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: maxDate).month ?? 1200) }
     
     private var minDate: Date { calendar.date(byAdding: .year, value: -100, to: Date()) ?? Date.distantPast }
     private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
     
+    // UPDATED: Arrows pushed to edges with Spacer, closer pairs (spacing:0), smaller font for text
     private func header(cellSize: CGFloat) -> some View {
-        HStack {
-            Button(action: previousMonth) { Image(systemName: "chevron.left") }
-            Text(monthYearString).font(.caption).frame(maxWidth: .infinity)
-            Button(action: nextMonth) { Image(systemName: "chevron.right") }
+        HStack(spacing: 0) {  // No overall spacing; use Spacer for edges
+            HStack(spacing: 0) {  // Left pair close together
+                Button(action: previousYear) {
+                    Image(systemName: "chevron.left.2").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: previousMonth) {
+                    Image(systemName: "chevron.left").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            Spacer()  // Push text to center
+            
+            Text(monthYearString)
+                .font(.system(size: 10))  // Smaller font
+                .frame(maxWidth: .infinity, alignment: .center)
+            
+            Spacer()  // Push right pair to edge
+            
+            HStack(spacing: 0) {  // Right pair close together
+                Button(action: nextMonth) {
+                    Image(systemName: "chevron.right").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: nextYear) {
+                    Image(systemName: "chevron.right.2").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+            }
         }
-        .font(.caption2)
-        .padding(.horizontal, 4)
+        .font(.caption2)  // For arrows
+        .padding(.horizontal, 2)
+        .zIndex(1)
+        //.focusSection()
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Navigate months and years")
     }
     
     private var monthYearString: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
+        formatter.dateFormat = "yyyy-MM"  // UPDATED: ISO format (e.g., "2025-12")
         return formatter.string(from: displayMonth)
     }
     
     private func calendarGrid(cellSize: CGFloat) -> some View {
         let days = generateDays()
-        return VStack(spacing: 2) {
+        return VStack(spacing: 2) {  // Reduced spacing for compactness
             HStack(spacing: 0) {
-                ForEach(daysOfWeek, id: \.self) { day in
+                ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { index, day in
                     Text(day).frame(width: cellSize, height: cellSize / 2).font(.caption2).foregroundColor(.gray)
                 }
             }
@@ -132,15 +189,31 @@ struct GraphicalDatePicker: View {
     
     private func selectDay(_ newDate: Date) {
         date = newDate
-        WKInterfaceDevice.current().play(.success)  // Haptic on select
+        WKInterfaceDevice.current().play(.click)  // Gentler haptic
     }
     
-    private func previousMonth() { displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth) ?? displayMonth }
-    private func nextMonth() { displayMonth = calendar.date(byAdding: .month, value: 1, to: displayMonth) ?? displayMonth }
+    // UPDATED: Added clamping to min/max
+    private func previousMonth() {
+        if let new = calendar.date(byAdding: .month, value: -1, to: displayMonth), new >= minDate {
+            displayMonth = new
+        }
+    }
+    private func nextMonth() {
+        if let new = calendar.date(byAdding: .month, value: 1, to: displayMonth), new <= maxDate {
+            displayMonth = new
+        }
+    }
     
-    private func updateFromCrown(_ value: Double) {
-        let months = Int(value)
-        displayMonth = calendar.date(byAdding: .month, value: months, to: referenceDate) ?? displayMonth
+    // NEW: Year navigation with clamping
+    private func previousYear() {
+        if let new = calendar.date(byAdding: .year, value: -1, to: displayMonth), new >= minDate {
+            displayMonth = new
+        }
+    }
+    private func nextYear() {
+        if let new = calendar.date(byAdding: .year, value: 1, to: displayMonth), new <= maxDate {
+            displayMonth = new
+        }
     }
     
     private func isSelected(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, inSameDayAs: date) }

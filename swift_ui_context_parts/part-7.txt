@@ -1,16 +1,13 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 12:17:19
+Current date: 2025-11-04 20:55:38
 Table of Contents:
 1. GraphEditorWatch/Views/GraphCanvasView.swift
 2. GraphEditorWatch/Views/GraphGesturesModifier.swift
-3. GraphEditorWatch/Views/GraphMenuView.swift
-4. GraphEditorWatch/Views/GraphsMenuView.swift
-5. GraphEditorWatch/Views/GraphUtilities.swift
-6. GraphEditorWatch/Views/InnerView.swift
-7. GraphEditorWatch/Views/MenuButton.swift
-8. GraphEditorWatch/Views/MenuView.swift--------------------------------------------------
+3. GraphEditorWatch/Views/GraphicalDatePicker.swift
+4. GraphEditorWatch/Views/GraphMenuView.swift
+5. GraphEditorWatch/Views/GraphsMenuView.swift--------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
 Last modified: 2025-10-17 07:47:32
@@ -491,6 +488,161 @@ extension GraphGesturesModifier {
     }
 }
 ----------------------------------------------------------------------------------------------------
+File: GraphicalDatePicker.swift
+Path: GraphEditorWatch/Views/GraphicalDatePicker.swift
+Last modified: 2025-11-04 15:51:24
+
+Contents:
+//
+//  GraphicalDatePicker.swift
+//  GraphEditor
+//
+//  Created by handcart on 11/4/25.
+//
+
+import SwiftUI
+import GraphEditorShared
+@available(watchOS 10.0, *)
+
+struct GraphicalDatePicker: View {
+    @Binding var date: Date
+    @State private var displayMonth: Date  // Keep as Date for display
+    
+    // NEW: Reference date for crown value (e.g., 1970-01-01)
+    private let referenceDate = Date(timeIntervalSince1970: 0)
+    
+    // NEW: Computed Double binding for crown (months since reference)
+    private var crownValue: Binding<Double> {
+        Binding<Double>(
+            get: { Calendar.current.dateComponents([.month], from: referenceDate, to: displayMonth).month.map(Double.init) ?? 0.0 },
+            set: { newMonths in
+                displayMonth = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
+            }
+        )
+    }
+    
+    private let calendar = Calendar.current
+    private let daysOfWeek = DateFormatter().shortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]
+    
+    init(date: Binding<Date>) {
+        _date = date
+        _displayMonth = State(initialValue: date.wrappedValue)
+    }
+    
+    var body: some View {
+        GeometryReader { geometry in
+            let cellSize = geometry.size.width / 7  // Responsive grid
+            VStack(spacing: 4) {
+                header(cellSize: cellSize)
+                calendarGrid(cellSize: cellSize)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
+                .onEnded { value in
+                    if value.translation.width < -50 { nextMonth() }
+                    if value.translation.width > 50 { previousMonth() }
+                }
+            )
+        }
+        .frame(height: 150)
+        .digitalCrownRotation(
+            crownValue,
+            from: -1200.0,  // ~100 years back (12*100)
+            through: 1200.0,  // ~100 years forward
+            sensitivity: .high,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true,
+            onChange: { event in
+                updateFromCrown(event.offset)  // UPDATED: Pass event.offset (Double) from DigitalCrownEvent
+            }
+        )
+    }
+    
+    private var minDate: Date { calendar.date(byAdding: .year, value: -100, to: Date()) ?? Date.distantPast }
+    private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
+    
+    private func header(cellSize: CGFloat) -> some View {
+        HStack {
+            Button(action: previousMonth) { Image(systemName: "chevron.left") }
+            Text(monthYearString).font(.caption).frame(maxWidth: .infinity)
+            Button(action: nextMonth) { Image(systemName: "chevron.right") }
+        }
+        .font(.caption2)
+        .padding(.horizontal, 4)
+    }
+    
+    private var monthYearString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMMM yyyy"
+        return formatter.string(from: displayMonth)
+    }
+    
+    private func calendarGrid(cellSize: CGFloat) -> some View {
+        let days = generateDays()
+        return VStack(spacing: 2) {
+            HStack(spacing: 0) {
+                ForEach(daysOfWeek, id: \.self) { day in
+                    Text(day).frame(width: cellSize, height: cellSize / 2).font(.caption2).foregroundColor(.gray)
+                }
+            }
+            ForEach(0..<6) { week in  // Up to 6 weeks
+                HStack(spacing: 0) {
+                    ForEach(0..<7) { dayIndex in
+                        let index = week * 7 + dayIndex
+                        if index < days.count {  // Split: Check index first (non-optional Bool)
+                            if let dayDate = days[index] {  // Now isolated optional binding
+                                Button(action: { selectDay(dayDate) }) {
+                                    Text("\(calendar.component(.day, from: dayDate))")
+                                        .frame(width: cellSize, height: cellSize)
+                                        .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
+                                        .clipShape(Circle())
+                                        .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
+                            } else {
+                                Color.clear.frame(width: cellSize, height: cellSize)
+                            }
+                        } else {
+                            Color.clear.frame(width: cellSize, height: cellSize)
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    private func generateDays() -> [Date?] {
+        guard let monthInterval = calendar.dateInterval(of: .month, for: displayMonth) else { return [] }  // Bind the Optional here
+        
+        let firstWeekday = calendar.component(.weekday, from: monthInterval.start) - 1  // Compute as non-Optional after guard
+        
+        var days: [Date?] = Array(repeating: nil, count: firstWeekday)  // Leading blanks
+        let range = calendar.range(of: .day, in: .month, for: displayMonth) ?? (1..<2)  // Use Range<Int> (1..<2)
+        days += range.map { day in calendar.date(byAdding: .day, value: day - 1, to: monthInterval.start) }
+        
+        while days.count % 7 != 0 { days.append(nil) }  // Trailing blanks
+        return days
+    }
+    
+    private func selectDay(_ newDate: Date) {
+        date = newDate
+        WKInterfaceDevice.current().play(.success)  // Haptic on select
+    }
+    
+    private func previousMonth() { displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth) ?? displayMonth }
+    private func nextMonth() { displayMonth = calendar.date(byAdding: .month, value: 1, to: displayMonth) ?? displayMonth }
+    
+    private func updateFromCrown(_ value: Double) {
+        let months = Int(value)
+        displayMonth = calendar.date(byAdding: .month, value: months, to: referenceDate) ?? displayMonth
+    }
+    
+    private func isSelected(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, inSameDayAs: date) }
+    private func isToday(_ dayDate: Date) -> Bool { calendar.isDateInToday(dayDate) }
+    private func isCurrentMonth(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, equalTo: displayMonth, toGranularity: .month) }
+}
+----------------------------------------------------------------------------------------------------
 File: GraphMenuView.swift
 Path: GraphEditorWatch/Views/GraphMenuView.swift
 Last modified: 2025-10-25 20:18:53
@@ -887,281 +1039,6 @@ struct GraphsMenuView: View {
             accessibilityIdentifier: "deleteGraphButton",
             role: .destructive
         )
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphUtilities.swift
-Path: GraphEditorWatch/Views/GraphUtilities.swift
-Last modified: 2025-10-15 15:26:26
-
-Contents:
-// GraphUtilities.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/19/25.
-//
-import SwiftUI
-import GraphEditorShared
-import CoreGraphics
-
-struct ViewSizeKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-struct NodeWrapper: Equatable, Identifiable {
-    let id: UUID?
-    let node: (any NodeProtocol)?
-    
-    init(node: (any NodeProtocol)?) {
-        self.node = node
-        self.id = node?.id
-    }
-    
-    static func == (lhs: NodeWrapper, rhs: NodeWrapper) -> Bool {
-        lhs.id == rhs.id
-    }
-}
-
-struct InnerViewConfig {
-    let geo: GeometryProxy
-    let viewModel: GraphViewModel
-    let zoomScale: Binding<CGFloat>
-    let offset: Binding<CGSize>
-    let draggedNode: Binding<NodeWrapper>
-    let dragOffset: Binding<CGPoint>
-    let potentialEdgeTarget: Binding<NodeWrapper>
-    let panStartOffset: Binding<CGSize?>
-    let showMenu: Binding<Bool>
-    let showOverlays: Binding<Bool>
-    let maxZoom: CGFloat
-    let crownPosition: Binding<Double>
-    let updateZoomRangesHandler: (CGSize) -> Void
-    let selectedNodeID: Binding<NodeID?>
-    let selectedEdgeID: Binding<UUID?>
-    let canvasFocus: FocusState<Bool>
-    let onCenterGraph: () -> Void
-    let isAddingEdge: Binding<Bool>
-    let isSimulating: Binding<Bool>
-    let saturation: Binding<Double>  // NEW: Add this binding
-    
-    init(
-        geo: GeometryProxy,
-        viewModel: GraphViewModel,
-        zoomScale: Binding<CGFloat>,
-        offset: Binding<CGSize>,
-        draggedNode: Binding<NodeWrapper>,
-        dragOffset: Binding<CGPoint>,
-        potentialEdgeTarget: Binding<NodeWrapper>,
-        panStartOffset: Binding<CGSize?>,
-        showMenu: Binding<Bool>,
-        showOverlays: Binding<Bool>,
-        maxZoom: CGFloat,
-        crownPosition: Binding<Double>,
-        updateZoomRangesHandler: @escaping (CGSize) -> Void,
-        selectedNodeID: Binding<NodeID?>,
-        selectedEdgeID: Binding<UUID?>,
-        canvasFocus: FocusState<Bool>,
-        onCenterGraph: @escaping () -> Void,
-        isAddingEdge: Binding<Bool>,
-        isSimulating: Binding<Bool>,
-        saturation: Binding<Double>  // NEW: Add this param
-    ) {
-        self.geo = geo
-        self.viewModel = viewModel
-        self.zoomScale = zoomScale
-        self.offset = offset
-        self.draggedNode = draggedNode
-        self.dragOffset = dragOffset
-        self.potentialEdgeTarget = potentialEdgeTarget
-        self.panStartOffset = panStartOffset
-        self.showMenu = showMenu
-        self.showOverlays = showOverlays
-        self.maxZoom = maxZoom
-        self.crownPosition = crownPosition
-        self.updateZoomRangesHandler = updateZoomRangesHandler
-        self.selectedNodeID = selectedNodeID
-        self.selectedEdgeID = selectedEdgeID
-        self.canvasFocus = canvasFocus
-        self.onCenterGraph = onCenterGraph
-        self.isAddingEdge = isAddingEdge
-        self.isSimulating = isSimulating
-        self.saturation = saturation  // NEW
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: InnerView.swift
-Path: GraphEditorWatch/Views/InnerView.swift
-Last modified: 2025-10-15 15:26:26
-
-Contents:
-//
-//  InnerView.swift
-//  GraphEditor
-//
-//  Created by handcart on 9/19/25.
-//
-
-// InnerView.swift
-
-import SwiftUI
-import GraphEditorShared
-
-struct InnerView: View {
-    let config: InnerViewConfig  // This now references the one from GraphUtilities.swift
-    
-    var body: some View {
-        let draggedNodeBinding = Binding<(any NodeProtocol)?>(
-            get: { config.draggedNode.wrappedValue.node },
-            set: { config.draggedNode.wrappedValue = NodeWrapper(node: $0) }
-        )
-        let potentialEdgeTargetBinding = Binding<(any NodeProtocol)?>(
-            get: { config.potentialEdgeTarget.wrappedValue.node },
-            set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
-        )
-        
-        let canvasView = GraphCanvasView(
-            viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
-            offset: config.offset,
-            draggedNode: draggedNodeBinding,
-            dragOffset: config.dragOffset,
-            potentialEdgeTarget: potentialEdgeTargetBinding,
-            selectedNodeID: config.selectedNodeID,
-            viewSize: config.geo.size,
-            panStartOffset: config.panStartOffset,
-            showMenu: config.showMenu,
-            maxZoom: config.maxZoom,
-            crownPosition: config.crownPosition,
-            onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
-            selectedEdgeID: config.selectedEdgeID,
-            showOverlays: config.showOverlays,
-            isAddingEdge: config.isAddingEdge,
-            isSimulating: config.isSimulating,
-            saturation: config.saturation  // NEW: Pass the binding here
-        )
-            .accessibilityIdentifier("GraphCanvas")
-            .focused(config.canvasFocus.projectedValue)
-            .focusable()
-        canvasView
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: MenuButton.swift
-Path: GraphEditorWatch/Views/MenuButton.swift
-Last modified: 2025-10-24 07:54:16
-
-Contents:
-//
-//  MenuButton.swift
-//  GraphEditorWatch
-//
-//  Created by handcart on 2025-10-23.
-//
-
-import SwiftUI
-import WatchKit
-
-struct MenuButton<LabelContent: View>: View {
-    let action: () -> Void
-    let label: () -> LabelContent
-    let accessibilityIdentifier: String?
-    let role: ButtonRole?
-    
-    init(
-        action: @escaping () -> Void,
-        @ViewBuilder label: @escaping () -> LabelContent,
-        accessibilityIdentifier: String? = nil,
-        role: ButtonRole? = nil
-    ) {
-        self.action = action
-        self.label = label
-        self.accessibilityIdentifier = accessibilityIdentifier
-        self.role = role
-    }
-    
-    var body: some View {
-        Button(role: role) {
-            WKInterfaceDevice.current().play(.click)
-            action()
-        } label: {
-            label()
-        }
-        .font(.caption)
-        .labelStyle(.titleAndIcon)
-        .accessibilityIdentifier(accessibilityIdentifier ?? "")
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: MenuView.swift
-Path: GraphEditorWatch/Views/MenuView.swift
-Last modified: 2025-10-25 10:12:04
-
-Contents:
-//
-//  MenuView.swift
-//  GraphEditor
-//
-//  Created by handcart on 8/20/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-import os
-
-struct MenuView: View {
-    let viewModel: GraphViewModel
-    let isSimulatingBinding: Binding<Bool>
-    let onCenterGraph: () -> Void
-    @Binding var showMenu: Bool
-    @Binding var showOverlays: Bool
-    @Binding var selectedNodeID: NodeID?
-    @Binding var selectedEdgeID: UUID?
-    
-    @FocusState private var isMenuFocused: Bool
-    @State private var isAddingEdge: Bool = false
-    
-    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
-    
-    var body: some View {
-        if let id = selectedNodeID, selectedEdgeID == nil {
-            if viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped is ToggleNode {
-                ToggleNodeMenuView(
-                    viewModel: viewModel,
-                    onDismiss: { showMenu = false },
-                    selectedNodeID: $selectedNodeID,
-                    isAddingEdge: $isAddingEdge
-                )
-            } else {            NodeMenuView(
-                viewModel: viewModel,
-                onDismiss: { showMenu = false },
-                selectedNodeID: $selectedNodeID,
-                isAddingEdge: $isAddingEdge
-            )
-            }
-        }
-        else if selectedEdgeID != nil {
-            EdgeMenuView(
-                viewModel: viewModel,
-                isSimulatingBinding: isSimulatingBinding,
-                onCenterGraph: onCenterGraph,
-                showMenu: $showMenu,
-                showOverlays: $showOverlays,
-                selectedEdgeID: $selectedEdgeID,
-                onDismiss: { showMenu = false }
-            )
-        } else {
-            GraphMenuView(
-                viewModel: viewModel,
-                isSimulatingBinding: isSimulatingBinding,
-                showMenu: $showMenu,
-                showOverlays: $showOverlays,
-                onDismiss: { showMenu = false }
-            )
-        }
     }
 }
 --------------------------------------------------

@@ -1,13 +1,364 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 12:17:20
+Current date: 2025-11-04 20:55:40
 Table of Contents:
-1. GraphEditorWatchTests/GraphGesturesModifierTests.swift
-2. GraphEditorWatchTests/GraphModelTests.swift
-3. GraphEditorWatchTests/MenuViewTests.swift
-4. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-5. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+1. GraphEditorWatchTests/GestureTests.swift
+2. GraphEditorWatchTests/GraphEditorWatchTests.swift
+3. GraphEditorWatchTests/GraphGesturesModifierTests.swift
+4. GraphEditorWatchTests/GraphModelTests.swift
+5. GraphEditorWatchTests/MenuViewTests.swift
+6. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+7. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+File: GestureTests.swift
+Path: GraphEditorWatchTests/GestureTests.swift
+Last modified: 2025-10-10 13:16:11
+
+Contents:
+//
+//  GestureTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/22/25.
+//
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+struct GestureTests {
+    private func setupModel() async -> GraphModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
+        await MainActor.run { model.nodes = [] }
+        await MainActor.run { model.edges = [] }
+        await model.addNode(at: CGPoint(x: 0, y: 0))
+        await model.addNode(at: CGPoint(x: 50, y: 50))
+        await model.stopSimulation()  // Ensure no ongoing simulation
+        return model
+    }
+    
+    @Test func testDragCreatesEdge() async throws {
+        let model = await setupModel()
+        #expect((await model.edges).isEmpty, "No edges initially")
+        
+        // Ensure at least two nodes exist before indexing
+        let currentCount = await model.nodes.count
+        if currentCount < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+            await model.stopSimulation()
+        }
+        
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let draggedNode = await model.nodes[0]
+        let potentialEdgeTarget = await model.nodes[1]
+        let initialPosition = draggedNode.position
+        
+        let mockTranslation = CGSize(width: 50, height: 50)
+        let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
+        let initialPositionUpdated = CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y)  // NEW: Compute expected position if moved
+        
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
+            await viewModel.model.snapshot()
+            if dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped)
+            } else {
+                if potentialEdgeTarget.id != draggedNode.id {
+                    let fromID = draggedNode.id
+                    let targetID = potentialEdgeTarget.id
+                    let initialEdges = await MainActor.run { viewModel.model.edges }  // Capture initial for comparison on MainActor
+                    let edgeExists = initialEdges.contains { $0.from == fromID && $0.target == targetID } ||
+                                     initialEdges.contains { $0.from == targetID && $0.target == fromID }
+                    if !edgeExists {
+                        await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: targetID)) }
+                    } else {
+                        await MainActor.run {
+                            viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: initialPositionUpdated, velocity: .zero)
+                        }
+                    }
+                    await viewModel.model.startSimulation()
+                    await viewModel.model.stopSimulation()  // Wait for completion
+                }
+            }
+        }
+        
+        let finalEdgeCount = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount == 1, "Edge created after simulated drag")
+        let newEdge = await MainActor.run { viewModel.model.edges.first! }
+        #expect(newEdge.from == draggedNode.id, "Edge from correct node")
+        #expect(newEdge.target == potentialEdgeTarget.id, "Edge to correct node")
+        let node0PositionAfter = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfter, initialPosition, accuracy: 1e-5), "Position unchanged on edge create")  // Corrected expectation
+    }
+    @Test func testShortDragAsTap() async throws {
+        let model = await setupModel()
+        #expect((await model.edges).isEmpty, "No edges initially")
+        
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let draggedNode = await model.nodes[0]
+        let initialPosition = draggedNode.position
+        let initialEdgeCount = (await model.edges).count
+        
+        let mockTranslation = CGSize(width: 1, height: 1)  // Small, < tapThreshold
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == draggedNode.id }) {
+            _ = index  // Silence unused warning
+            await viewModel.model.snapshot()
+            if dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped; assume no side effects for this test)
+            } else {
+                // Drag branch skipped due to small distance
+            }
+        }
+        
+        let edgeCountAfter = await MainActor.run { model.edges.count }
+        #expect(edgeCountAfter == initialEdgeCount, "No edge created on short drag")
+        let node0PositionAfterTap = await MainActor.run { model.nodes[0].position }
+        #expect(approximatelyEqual(node0PositionAfterTap, initialPosition, accuracy: 1e-5), "Position unchanged")
+    }
+    
+    @Test func testDragMovesNodeIfEdgeExists() async throws {
+        let model = await setupModel()
+        
+        // Ensure at least two nodes exist before indexing
+        let currentCount = await model.nodes.count
+        if currentCount < 2 {
+            await model.addNode(at: .zero)
+            await model.addNode(at: CGPoint(x: 100, y: 100))
+            await model.startSimulation()
+            await model.stopSimulation()
+        }
+
+        let fromID = (await model.nodes[0]).id
+        let toID = (await model.nodes[1]).id
+        await MainActor.run { model.edges.append(GraphEdge(from: fromID, target: toID)) }
+        #expect((await model.edges).count == 1, "Edge exists initially")
+        
+        let viewModel = await MainActor.run { GraphViewModel(model: model) }
+        let params = await prepareDragParameters(model: model)
+        
+        if let index = (await viewModel.model.nodes).firstIndex(where: { $0.id == params.draggedNode.id }) {
+            await viewModel.model.snapshot()
+            if params.dragDistance < AppConstants.tapThreshold {
+                // Tap logic (skipped)
+            } else {
+                await performDragAction(viewModel: viewModel, draggedNode: params.draggedNode, potentialEdgeTarget: params.potentialEdgeTarget, dragOffset: params.dragOffset, index: index)
+            }
+        }
+        
+        let finalEdgeCount2 = await MainActor.run { viewModel.model.edges.count }
+        #expect(finalEdgeCount2 == 1, "No new edge created")
+        // OPTIONAL: If you want to verify post-simulation (e.g., position changed but not exactly by offset), add looser checks here
+    }
+    
+    private struct DragParameters {
+        let draggedNode: any NodeProtocol
+        let potentialEdgeTarget: any NodeProtocol
+        let initialPosition: CGPoint
+        let mockTranslation: CGSize
+        let dragOffset: CGPoint
+        let dragDistance: CGFloat
+    }
+    
+    private func prepareDragParameters(model: GraphModel) async -> DragParameters {
+        let draggedNode = await model.nodes[0]
+        let potentialEdgeTarget = await model.nodes[1]
+        let initialPosition = draggedNode.position
+        
+        let mockTranslation = CGSize(width: 50, height: 50)
+        let dragOffset = CGPoint(x: mockTranslation.width / 1.0, y: mockTranslation.height / 1.0)
+        let dragDistance = hypot(mockTranslation.width, mockTranslation.height)
+        
+        return DragParameters(
+            draggedNode: draggedNode,
+            potentialEdgeTarget: potentialEdgeTarget,
+            initialPosition: initialPosition,
+            mockTranslation: mockTranslation,
+            dragOffset: dragOffset,
+            dragDistance: dragDistance
+        )
+    }
+    
+    private func performDragAction(viewModel: GraphViewModel, draggedNode: any NodeProtocol, potentialEdgeTarget: any NodeProtocol, dragOffset: CGPoint, index: Int) async {
+        if potentialEdgeTarget.id != draggedNode.id {
+            let fromID = draggedNode.id
+            let toID = potentialEdgeTarget.id
+            let edgeExists = await MainActor.run {
+                let edges = viewModel.model.edges
+                let forwardMatch = edges.contains { $0.from == fromID && $0.target == toID }
+                let reverseMatch = edges.contains { $0.from == toID && $0.target == fromID }
+                return forwardMatch || reverseMatch
+            }
+            if !edgeExists {
+                await MainActor.run { viewModel.model.edges.append(GraphEdge(from: fromID, target: toID)) }
+                await viewModel.model.startSimulation()
+                await viewModel.model.stopSimulation()
+            } else {
+                await MainActor.run {
+                    let currentPos = viewModel.model.nodes[index].position
+                    viewModel.model.nodes[index] = viewModel.model.nodes[index].with(position: CGPoint(x: currentPos.x + dragOffset.x, y: currentPos.y + dragOffset.y), velocity: .zero)
+                }
+                let posAfterImmediateMove = await MainActor.run { viewModel.model.nodes[0].position }
+                let initialPosition = draggedNode.position
+                #expect(!approximatelyEqual(posAfterImmediateMove, initialPosition, accuracy: 1e-5), "Position changed on move")
+                #expect(approximatelyEqual(posAfterImmediateMove, CGPoint(x: initialPosition.x + dragOffset.x, y: initialPosition.y + dragOffset.y), accuracy: 1e-5), "Moved by offset")
+                await viewModel.model.startSimulation()  // Keep this if needed for side effects, but checks are now before it
+                await viewModel.model.stopSimulation()
+            }
+        }
+    }
+    
+    func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
+        return hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: GraphEditorWatchTests.swift
+Path: GraphEditorWatchTests/GraphEditorWatchTests.swift
+Last modified: 2025-10-09 08:04:41
+
+Contents:
+import Testing
+import Foundation
+import CoreGraphics
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+import XCTest
+import SwiftUI
+
+class MockGraphStorage: GraphStorage {
+    // In-memory single-graph (default) storage for convenience in tests
+    var nodes: [any NodeProtocol] = []
+    var edges: [GraphEdge] = []
+    var savedViewState: ViewState?
+
+    // In-memory multi-graph storage
+    private var graphs: [String: (nodes: [any NodeProtocol], edges: [GraphEdge])] = [:]
+    private var viewStates: [String: ViewState] = [:]
+    private let defaultName = "default"
+
+    // MARK: - Single-graph (default) methods
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws {
+        self.nodes = nodes
+        self.edges = edges
+        // Keep default graph in sync
+        graphs[defaultName] = (nodes, edges)
+    }
+
+    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        return (nodes, edges)
+    }
+
+    func clear() async throws {
+        nodes = []
+        edges = []
+        savedViewState = nil
+        graphs[defaultName] = ([], [])
+        viewStates.removeValue(forKey: defaultName)
+    }
+
+    func saveViewState(_ viewState: ViewState) async throws {
+        savedViewState = viewState
+        viewStates[defaultName] = viewState
+    }
+
+    func loadViewState() async throws -> ViewState? {
+        return savedViewState
+    }
+
+    // MARK: - Multi-graph methods
+    func listGraphNames() async throws -> [String] {
+        var names = Set(graphs.keys)
+        names.insert(defaultName)
+        return Array(names).sorted()
+    }
+
+    func createNewGraph(name: String) async throws {
+        if graphs[name] != nil {
+            throw GraphStorageError.graphExists(name)
+        }
+        graphs[name] = ([], [])
+        viewStates.removeValue(forKey: name)
+    }
+
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws {
+        graphs[name] = (nodes, edges)
+        if name == defaultName {
+            self.nodes = nodes
+            self.edges = edges
+        }
+    }
+
+    func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge]) {
+        if name == defaultName {
+            return (nodes, edges)
+        }
+        if let state = graphs[name] {
+            return state
+        }
+        throw GraphStorageError.graphNotFound(name)
+    }
+
+    func deleteGraph(name: String) async throws {
+        if name == defaultName {
+            nodes = []
+            edges = []
+            savedViewState = nil
+            graphs[defaultName] = ([], [])
+            viewStates.removeValue(forKey: defaultName)
+            return
+        }
+        guard graphs.removeValue(forKey: name) != nil else {
+            throw GraphStorageError.graphNotFound(name)
+        }
+        viewStates.removeValue(forKey: name)
+    }
+
+    // MARK: - View state per graph (sync variants required by protocol)
+    func saveViewState(_ viewState: ViewState, for name: String) throws {
+        viewStates[name] = viewState
+        if name == defaultName {
+            savedViewState = viewState
+        }
+    }
+
+    func loadViewState(for name: String) throws -> ViewState? {
+        if name == defaultName {
+            return savedViewState ?? viewStates[name]
+        }
+        return viewStates[name]
+    }
+}
+
+@MainActor @Test func testUndoRedoRoundTrip() async {
+    let storage = MockGraphStorage()
+    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+    try? await model.loadGraph()  // Explicit load to start empty
+    let initialNode = AnyNode(Node(id: UUID(), label: 1, position: .zero))
+    await model.snapshot()  // Pre-add initial (appends empty)
+    model.nodes = [initialNode]  // "Add" initial
+    let newNode = AnyNode(Node(id: UUID(), label: 2, position: .zero))
+    await model.snapshot()  // Pre-add new (appends [initial])
+    model.nodes.append(newNode)  // Add new
+    await model.undo()  // Back to 1 node
+    #expect(model.nodes.count == 1, "Undo removes node")
+    #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
+    #expect(model.redoStack.count == 1, "Redo stack populated")
+    await model.redo()  // Forward to 2 nodes
+    #expect(model.nodes.count == 2, "Redo adds node")
+    #expect(model.undoStack.count == 2, "Undo stack updated")
+}
+----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifierTests.swift
 Path: GraphEditorWatchTests/GraphGesturesModifierTests.swift
 Last modified: 2025-10-17 07:44:45
