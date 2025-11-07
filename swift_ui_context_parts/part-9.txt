@@ -1,15 +1,55 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 20:55:40
+Current date: 2025-11-07 08:38:19
 Table of Contents:
-1. GraphEditorWatchTests/GestureTests.swift
-2. GraphEditorWatchTests/GraphEditorWatchTests.swift
-3. GraphEditorWatchTests/GraphGesturesModifierTests.swift
-4. GraphEditorWatchTests/GraphModelTests.swift
-5. GraphEditorWatchTests/MenuViewTests.swift
-6. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
-7. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+1. GraphEditorWatchTests/EditContentSheetTests.swift
+2. GraphEditorWatchTests/GestureTests.swift
+3. GraphEditorWatchTests/GraphEditorWatchTests.swift
+4. GraphEditorWatchTests/GraphGesturesModifierTests.swift
+5. GraphEditorWatchTests/GraphModelTests.swift
+6. GraphEditorWatchTests/MenuViewTests.swift
+7. GraphEditorWatchUITests/GraphEditorWatchUITests.swift
+8. GraphEditorWatchUITests/GraphEditorWatchUITestsLaunchTests.swift--------------------------------------------------
+File: EditContentSheetTests.swift
+Path: GraphEditorWatchTests/EditContentSheetTests.swift
+Last modified: 2025-10-21 08:23:20
+
+Contents:
+//
+//  EditContentSheetTests.swift
+//  GraphEditor
+//
+//  Created by handcart on 9/25/25.
+//
+import Testing
+import SwiftUI
+@testable import GraphEditorWatch
+@testable import GraphEditorShared
+
+struct EditContentSheetTests {
+    private func setupViewModel() async -> GraphViewModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = await GraphModel(storage: storage, physicsEngine: physicsEngine)
+        return await GraphViewModel(model: model)
+    }
+    
+    @MainActor @Test func testSaveStringContent() async {
+        let viewModel = await setupViewModel()
+        let nodeID = NodeID()
+        var savedContent: [NodeContent]?
+        let sheet = EditContentSheet(selectedID: nodeID, viewModel: viewModel) { content in
+            savedContent = content
+        }
+        // Simulate input: Since @State is private, this is placeholder; use XCUITest for full simulation or expose states for testing
+        // For example, assume manual set: sheet.selectedType = "String"; sheet.stringValue = "test"; then call onSave
+        // Placeholder assertion (adapt based on actual simulation logic)
+        _ = sheet  // Use to silence warning
+        #expect(savedContent == nil, "Initially nil; add simulation to set [.string(\"test\")]")
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: GestureTests.swift
 Path: GraphEditorWatchTests/GestureTests.swift
 Last modified: 2025-10-10 13:16:11

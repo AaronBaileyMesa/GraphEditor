@@ -7,6 +7,7 @@
 
 import SwiftUI
 import GraphEditorShared
+import WatchKit  // Added for screenBounds
 @available(watchOS 10.0, *)
 
 struct GraphicalDatePicker: View {
@@ -31,41 +32,33 @@ struct GraphicalDatePicker: View {
     private let calendar = Calendar.current
     private let daysOfWeek = DateFormatter().veryShortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]  // Single letters
     
+    // NEW: Fixed cellSize based on device screen width (removes need for GeometryReader)
+    private let cellSize: CGFloat = WKInterfaceDevice.current().screenBounds.width / 7.0
+    
     init(date: Binding<Date>) {
         _date = date
         _displayMonth = State(initialValue: date.wrappedValue)
     }
     
     var body: some View {
-        GeometryReader { geometry in
-            let cellSize = geometry.size.width / 7  // Responsive grid
-            let weeks = numberOfWeeks  // NEW: Compute actual weeks for dynamic height
-            let computedHeight = headerHeight(cellSize: cellSize) + weekdayHeight(cellSize: cellSize) + (CGFloat(weeks) * rowHeight(cellSize: cellSize)) + (CGFloat(weeks - 1) * 2)  // Dynamic calc with spacing
-            ScrollView {  // NEW: Wrap for scrolling if too tall (e.g., 6 weeks)
-                VStack(spacing: 2) {  // Reduced spacing for compactness
-                    header(cellSize: cellSize)
-                    calendarGrid(cellSize: cellSize)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
-                    .onEnded { value in
-                        if value.translation.width < -50 { nextMonth() }
-                        if value.translation.width > 50 { previousMonth() }
-                    }
-                )
-                .digitalCrownRotation(  // Attached to main VStack
-                    crownValue,
-                    from: monthsToMinDate,
-                    through: monthsToMaxDate,
-                    sensitivity: .high,
-                    isContinuous: false,
-                    isHapticFeedbackEnabled: false
-                )
-            }
-            .frame(height: min(computedHeight, 180))  // NEW: Dynamic height, capped at 180 for watch constraints; scrolls if exceeded
-            .scrollIndicators(.never)  // Hide indicators for clean look
-            .scrollBounceBehavior(.basedOnSize)  // Minimal bounce
+        VStack(spacing: 2) {  // Reduced spacing for compactness
+            header()
+            calendarGrid()
         }
+        .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
+            .onEnded { value in
+                if value.translation.width < -50 { nextMonth() }
+                if value.translation.width > 50 { previousMonth() }
+            }
+        )
+        .digitalCrownRotation(  // Attached to main VStack
+            crownValue,
+            from: monthsToMinDate,
+            through: monthsToMaxDate,
+            sensitivity: .high,
+            isContinuous: false,
+            isHapticFeedbackEnabled: false
+        )
     }
     
     // NEW: Helper to compute number of weeks (for dynamic height)
@@ -75,9 +68,9 @@ struct GraphicalDatePicker: View {
     }
     
     // NEW: Height helpers (estimates; adjust if needed based on testing)
-    private func headerHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
-    private func weekdayHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
-    private func rowHeight(cellSize: CGFloat) -> CGFloat { cellSize }
+    private func headerHeight() -> CGFloat { cellSize / 2 }
+    private func weekdayHeight() -> CGFloat { cellSize / 2 }
+    private func rowHeight() -> CGFloat { cellSize }
     
     // UPDATED: Dynamic crown range (months from reference to min/max)
     private var monthsToMinDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: minDate).month ?? -1200) }
@@ -87,7 +80,7 @@ struct GraphicalDatePicker: View {
     private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
     
     // UPDATED: Arrows pushed to edges with Spacer, closer pairs (spacing:0), smaller font for text
-    private func header(cellSize: CGFloat) -> some View {
+    private func header() -> some View {
         HStack(spacing: 0) {  // No overall spacing; use Spacer for edges
             HStack(spacing: 0) {  // Left pair close together
                 Button(action: previousYear) {
@@ -127,7 +120,6 @@ struct GraphicalDatePicker: View {
         }
         .font(.caption2)  // For arrows
         .padding(.horizontal, 2)
-        .zIndex(1)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Navigate months and years")
     }
@@ -138,12 +130,12 @@ struct GraphicalDatePicker: View {
         return formatter.string(from: displayMonth)
     }
     
-    private func calendarGrid(cellSize: CGFloat) -> some View {
+    private func calendarGrid() -> some View {
         let days = generateDays()
         return VStack(spacing: 2) {  // Reduced spacing for compactness
             HStack(spacing: 0) {
                 ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { _, day in
-                    Text(day).frame(width: cellSize, height: cellSize / 2).font(.caption2).foregroundColor(.gray)
+                    Text(day).frame(width: cellSize, height: weekdayHeight()).font(.caption2).foregroundColor(.gray)
                 }
             }
             ForEach(0..<6) { week in  // Up to 6 weeks
@@ -154,7 +146,7 @@ struct GraphicalDatePicker: View {
                             if let dayDate = days[index] {  // Now isolated optional binding
                                 Button(action: { selectDay(dayDate) }, label: {
                                     Text("\(calendar.component(.day, from: dayDate))")
-                                        .frame(width: cellSize, height: cellSize)
+                                        .frame(width: cellSize, height: rowHeight())
                                         .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
                                         .clipShape(Circle())
                                         .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
@@ -162,10 +154,10 @@ struct GraphicalDatePicker: View {
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
                             } else {
-                                Color.clear.frame(width: cellSize, height: cellSize)
+                                Color.clear.frame(width: cellSize, height: rowHeight())
                             }
                         } else {
-                            Color.clear.frame(width: cellSize, height: cellSize)
+                            Color.clear.frame(width: cellSize, height: rowHeight())
                         }
                     }
                 }

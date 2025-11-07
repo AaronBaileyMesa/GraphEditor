@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 20:55:37
+Current date: 2025-11-07 08:38:15
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Storage.swift
 2. GraphEditorShared/Sources/GraphEditorShared/GraphModel+TreeSupport.swift
@@ -204,7 +204,7 @@ extension GraphModel {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel+TreeSupport.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+TreeSupport.swift
-Last modified: 2025-10-27 14:51:40
+Last modified: 2025-11-06 09:34:31
 
 Contents:
 //
@@ -262,9 +262,9 @@ extension GraphModel {
 
     // Updated bulkCollapseAll: No casting needed with protocol inheritance; mutate directly
     public func bulkCollapseAll() {
-        for i in 0..<nodes.count {
-            nodes[i].bulkCollapse()  // Direct call—types now compatible
-            let childIds = nodes[i].children
+        for nodeIndex in 0..<nodes.count {
+            nodes[nodeIndex].bulkCollapse()  // Direct call—types now compatible
+            let childIds = nodes[nodeIndex].children
             for childId in childIds {
                 if let childIndex = nodes.firstIndex(where: { $0.id == childId }) {
                     nodes[childIndex].bulkCollapse()  // Direct mutation

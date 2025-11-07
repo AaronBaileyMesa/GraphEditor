@@ -1,12 +1,12 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 20:55:38
+Current date: 2025-11-07 08:38:16
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
-2. GraphEditorWatch/Views/AddSection.swift
-3. GraphEditorWatch/Views/ContentView.swift
-4. GraphEditorWatch/Views/EdgeMenuView.swift--------------------------------------------------
+2. GraphEditorWatch/Views/AccessibleCanvas.swift
+3. GraphEditorWatch/Views/AddSection.swift
+4. GraphEditorWatch/Views/BoundingBoxOverlay.swift--------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
 Last modified: 2025-10-25 20:18:57
@@ -361,6 +361,328 @@ extension GraphViewModel {
     }
 }
 ----------------------------------------------------------------------------------------------------
+File: AccessibleCanvas.swift
+Path: GraphEditorWatch/Views/AccessibleCanvas.swift
+Last modified: 2025-11-06 11:07:22
+
+Contents:
+//
+//  AccessibleCanvas.swift
+//  GraphEditor
+//
+//  Created by handcart on 11/6/25.
+//
+
+import SwiftUI
+import GraphEditorShared
+import os
+
+struct AccessibleCanvas: View {
+    private static var logger: Logger {
+        Logger(subsystem: "io.handcart.GraphEditor", category: "accessiblecanvas")
+    }
+    
+    let viewModel: GraphViewModel
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let draggedNode: (any NodeProtocol)?
+    let dragOffset: CGPoint
+    let potentialEdgeTarget: (any NodeProtocol)?
+    let selectedNodeID: NodeID?
+    let viewSize: CGSize
+    let selectedEdgeID: UUID?
+    let showOverlays: Bool
+    let saturation: Double  // NEW: Add this
+    
+    struct RenderContext {
+        let graphicsContext: GraphicsContext
+        let size: CGSize
+        let effectiveCentroid: CGPoint
+        let zoomScale: CGFloat
+        let offset: CGSize
+        let visibleNodes: [any NodeProtocol]
+    }
+    
+    var body: some View {
+        ZStack {
+            Canvas { context, size in
+                // Define visibleNodes and visibleEdges
+                let visibleNodes = viewModel.model.visibleNodes()
+                let visibleEdges = viewModel.model.visibleEdges()  // Fix: Use visibleEdges() instead of all edges
+                
+                #if DEBUG
+                Self.logger.debug("Visible: \(visibleNodes.count)")
+                #endif
+                
+                let effectiveCentroid = viewModel.effectiveCentroid
+                
+                let renderContext = RenderContext(
+                    graphicsContext: context,
+                    size: size,
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    visibleNodes: visibleNodes
+                )
+                
+                // NEW: Compute selected/non-selected sets
+                let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
+                let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
+                let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
+                let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
+                
+                // Draw non-selected edges (lines) with desaturated color
+                drawEdges(renderContext: renderContext, visibleEdges: nonSelectedEdges, saturation: saturation, isSelected: false)
+                
+                // Draw selected edge (line) with full color if any
+                if let edge = selectedEdge {
+                    drawSingleEdgeLine(renderContext: renderContext, edge: edge, saturation: 1.0, isSelected: true)
+                }
+                
+                // Draw non-selected nodes with desaturated color
+                for node in nonSelectedNodes {
+                    drawSingleNode(renderContext: renderContext, node: node, saturation: saturation, isSelected: false)
+                }
+                
+                // Draw selected node with full color if any
+                if let node = selectedNode {
+                    drawSingleNode(renderContext: renderContext, node: node, saturation: 1.0, isSelected: true)
+                }
+                
+                // Draw non-selected arrows with desaturated color
+                drawArrows(renderContext: renderContext, visibleEdges: nonSelectedEdges, saturation: saturation, isSelected: false)
+                
+                // Draw selected arrow with full color if any
+                if let edge = selectedEdge {
+                    drawSingleArrow(renderContext: renderContext, edge: edge, saturation: 1.0, isSelected: true)
+                }
+                
+                // Draw dragged node and potential edge (keep full color)
+                drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
+            }
+            
+            if showOverlays {
+                BoundingBoxOverlay(viewModel: viewModel, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
+            }
+        }
+    }
+    
+    // NEW: Updated single node draw with saturation param
+    private func drawSingleNode(renderContext: RenderContext, node: any NodeProtocol, saturation: Double, isSelected: Bool) {
+        let screenPos = CoordinateTransformer.modelToScreen(
+            node.position,
+            effectiveCentroid: renderContext.effectiveCentroid,
+            zoomScale: renderContext.zoomScale,
+            offset: renderContext.offset,
+            viewSize: renderContext.size
+        )
+        let scaledRadius = node.radius * renderContext.zoomScale
+        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 0
+        let borderRadius = scaledRadius + borderWidth / 2
+        
+        // Draw border if selected
+        if borderWidth > 0 {
+            let borderPath = Path(ellipseIn: CGRect(x: screenPos.x - borderRadius, y: screenPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
+            renderContext.graphicsContext.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        }
+        
+        // Use node's own fill color as base, respecting per-node colors (e.g., ToggleNode green/red)
+        let baseColor = node.fillColor
+        let nodeColor = desaturatedColor(baseColor, saturation: saturation)
+        // Draw node circle
+        let innerPath = Path(ellipseIn: CGRect(x: screenPos.x - scaledRadius, y: screenPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
+        renderContext.graphicsContext.fill(innerPath, with: .color(nodeColor))
+        
+        // Draw label centered inside node
+        let labelFontSize = max(8.0, 12.0 * renderContext.zoomScale)
+        let labelText = Text("\(node.label)").foregroundColor(.white).font(.system(size: labelFontSize))
+        let labelResolved = renderContext.graphicsContext.resolve(labelText)
+        let labelPosition = CGPoint(x: screenPos.x, y: screenPos.y)  // Center
+        renderContext.graphicsContext.draw(labelResolved, at: labelPosition, anchor: .center)
+        
+        // NEW: Draw contents list vertically below node
+        if !node.contents.isEmpty && renderContext.zoomScale > 0.5 {  // Only if zoomed
+            var yOffset = scaledRadius + 5 * renderContext.zoomScale  // Start below node
+            let contentFontSize = max(6.0, 8.0 * renderContext.zoomScale)
+            let maxItems = 3  // Limit for watchOS
+            for content in node.contents.prefix(maxItems) {
+                let contentText = Text(content.displayText).font(.system(size: contentFontSize)).foregroundColor(.gray)
+                let resolved = renderContext.graphicsContext.resolve(contentText)
+                let contentPosition = CGPoint(x: screenPos.x, y: screenPos.y + yOffset)
+                renderContext.graphicsContext.draw(resolved, at: contentPosition, anchor: .center)
+                yOffset += 10 * renderContext.zoomScale  // Line spacing
+            }
+            if node.contents.count > maxItems {
+                let moreText = Text("+\(node.contents.count - maxItems) more").font(.system(size: contentFontSize * 0.75)).foregroundColor(.gray)
+                let resolved = renderContext.graphicsContext.resolve(moreText)
+                renderContext.graphicsContext.draw(resolved, at: CGPoint(x: screenPos.x, y: screenPos.y + yOffset), anchor: .center)
+            }
+        }
+        
+        #if DEBUG
+        Self.logger.debug("Drawing node \(node.label) at x=\(screenPos.x), y=\(screenPos.y)")
+        #endif
+    }
+    
+    // NEW: Updated single edge line draw with saturation param
+    private func drawSingleEdgeLine(renderContext: RenderContext, edge: GraphEdge, saturation: Double, isSelected: Bool) {
+        guard let fromNode = renderContext.visibleNodes.first(where: { $0.id == edge.from }),
+              let toNode = renderContext.visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        
+        let fromScreen = CoordinateTransformer.modelToScreen(
+            fromNode.position,
+            effectiveCentroid: renderContext.effectiveCentroid,
+            zoomScale: renderContext.zoomScale,
+            offset: renderContext.offset,
+            viewSize: renderContext.size
+        )
+        let toScreen = CoordinateTransformer.modelToScreen(
+            toNode.position,
+            effectiveCentroid: renderContext.effectiveCentroid,
+            zoomScale: renderContext.zoomScale,
+            offset: renderContext.offset,
+            viewSize: renderContext.size
+        )
+        
+        let linePath = Path { path in
+            path.move(to: fromScreen)
+            path.addLine(to: toScreen)
+        }
+        
+        let baseColor: Color = isSelected ? .red : .white
+        let edgeColor = desaturatedColor(baseColor, saturation: saturation)
+        let lineWidth: CGFloat = 2.0
+        
+        renderContext.graphicsContext.stroke(linePath, with: .color(edgeColor), lineWidth: lineWidth)
+        
+        #if DEBUG
+        Self.logger.debug("Drawing edge from x=\(fromScreen.x), y=\(fromScreen.y) to x=\(toScreen.x), y=\(toScreen.y) with color \(edgeColor.description)")
+        #endif
+    }
+    
+    // NEW: Updated single arrow draw with saturation param
+    private func drawSingleArrow(renderContext: RenderContext, edge: GraphEdge, saturation: Double, isSelected: Bool) {
+        guard let fromNode = renderContext.visibleNodes.first(where: { $0.id == edge.from }),
+              let toNode = renderContext.visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        
+        let fromScreen = CoordinateTransformer.modelToScreen(
+            fromNode.position,
+            effectiveCentroid: renderContext.effectiveCentroid,
+            zoomScale: renderContext.zoomScale,
+            offset: renderContext.offset,
+            viewSize: renderContext.size
+        )
+        let toScreen = CoordinateTransformer.modelToScreen(
+            toNode.position,
+            effectiveCentroid: renderContext.effectiveCentroid,
+            zoomScale: renderContext.zoomScale,
+            offset: renderContext.offset,
+            viewSize: renderContext.size
+        )
+        
+        let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+        let length = hypot(direction.dx, direction.dy)
+        if length <= 0 { return }
+        
+        let unitDx = direction.dx / length
+        let unitDy = direction.dy / length
+        let toRadiusScreen = toNode.radius * renderContext.zoomScale
+        let boundaryPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
+                                    y: toScreen.y - unitDy * toRadiusScreen)
+        
+        let lineAngle = atan2(unitDy, unitDx)
+        let arrowLength: CGFloat = 10.0
+        let arrowAngle: CGFloat = .pi / 6
+        let arrowPoint1 = CGPoint(
+            x: boundaryPoint.x - arrowLength * cos(lineAngle - arrowAngle),
+            y: boundaryPoint.y - arrowLength * sin(lineAngle - arrowAngle)
+        )
+        let arrowPoint2 = CGPoint(
+            x: boundaryPoint.x - arrowLength * cos(lineAngle + arrowAngle),
+            y: boundaryPoint.y - arrowLength * sin(lineAngle + arrowAngle)
+        )
+        
+        let arrowPath = Path { path in
+            path.move(to: boundaryPoint)
+            path.addLine(to: arrowPoint1)
+            path.move(to: boundaryPoint)
+            path.addLine(to: arrowPoint2)
+        }
+        
+        let baseColor: Color = isSelected ? .red : .white
+        let arrowColor = desaturatedColor(baseColor, saturation: saturation)
+        let arrowLineWidth: CGFloat = 3.0
+        
+        renderContext.graphicsContext.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
+        
+        #if DEBUG
+        Self.logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundaryPoint.x), y=\(boundaryPoint.y)")
+        #endif
+    }
+    
+    // Updated drawEdges to accept saturation and isSelected
+    private func drawEdges(renderContext: RenderContext, visibleEdges: [GraphEdge], saturation: Double, isSelected: Bool) {
+        for edge in visibleEdges {
+            drawSingleEdgeLine(renderContext: renderContext, edge: edge, saturation: saturation, isSelected: isSelected)
+        }
+    }
+    
+    // Updated drawArrows to accept saturation and isSelected
+    private func drawArrows(renderContext: RenderContext, visibleEdges: [GraphEdge], saturation: Double, isSelected: Bool) {
+        for edge in visibleEdges {
+            drawSingleArrow(renderContext: renderContext, edge: edge, saturation: saturation, isSelected: isSelected)
+        }
+    }
+    
+    private func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, size: CGSize, effectiveCentroid: CGPoint) {
+        // Draw dragged node and potential edge
+        if let dragged = draggedNode {
+            let draggedScreen = CoordinateTransformer.modelToScreen(
+                dragged.position + dragOffset,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: size
+            )
+            context.fill(Circle().path(in: CGRect(center: draggedScreen, size: CGSize(width: Constants.App.nodeModelRadius * 2 * zoomScale, height: Constants.App.nodeModelRadius * 2 * zoomScale))), with: .color(.green))
+            
+            if let target = potentialEdgeTarget {
+                let targetScreen = CoordinateTransformer.modelToScreen(
+                    target.position,
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: size
+                )
+                let tempLinePath = Path { path in
+                    path.move(to: draggedScreen)
+                    path.addLine(to: targetScreen)
+                }
+                context.stroke(tempLinePath, with: .color(.green), lineWidth: 2.0)
+            }
+        }
+    }
+    
+    // Proper desaturation by scaling original saturation (hardcoded for known colors on watchOS)
+    private func desaturatedColor(_ color: Color, saturation: Double) -> Color {
+        // Hardcode hues for known system colors (since no UIColor on watchOS)
+        switch color {
+        case .red:
+            return Color(hue: 0, saturation: saturation, brightness: 1)  // Scales sat from original 1
+        case .green:
+            return Color(hue: 120/360, saturation: saturation, brightness: 1)
+        case .blue:
+            return Color(hue: 240/360, saturation: saturation, brightness: 1)
+        case .gray:
+            return color  // Grays stay as-is (sat=0)
+        case .white:
+            return color  // White stays white (sat=0)
+        default:
+            return color  // Fallback for unknown
+        }
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: AddSection.swift
 Path: GraphEditorWatch/Views/AddSection.swift
 Last modified: 2025-10-25 10:13:46
@@ -450,482 +772,49 @@ struct AddSection: View {
     }
 }
 ----------------------------------------------------------------------------------------------------
-File: ContentView.swift
-Path: GraphEditorWatch/Views/ContentView.swift
-Last modified: 2025-10-23 11:30:40
-
-Contents:
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-import Foundation
-import CoreGraphics
-import os  // Added for logging
-
-struct ContentView: View { // siwftlint:disable type_body_length
-    private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
-    
-    @ObservedObject var viewModel: GraphViewModel
-    @State private var zoomScale: CGFloat = 1.0
-    @State private var offset: CGSize = .zero
-    @State private var draggedNode: NodeWrapper = NodeWrapper(node: nil)
-    @State private var dragOffset: CGPoint = .zero
-    @State private var potentialEdgeTarget: NodeWrapper = NodeWrapper(node: nil)
-    @State private var selectedNodeID: NodeID?
-    @State private var selectedEdgeID: UUID?
-    @State private var panStartOffset: CGSize?
-    @State private var showMenu: Bool = false
-    @State private var showOverlays: Bool = false
-    @FocusState private var canvasFocus: Bool
-    @State private var minZoom: CGFloat = AppConstants.defaultMinZoom
-    @State private var maxZoom: CGFloat = AppConstants.defaultMaxZoom
-    @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2
-    @State private var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
-    @State private var showEditSheet: Bool = false
-    @State private var isAddingEdge: Bool = false
-    @State private var viewSize: CGSize = .zero
-    @State private var isSimulating: Bool = false
-    @State private var saturation: Double = 1.0
-    
-    // NEW: Custom Bindings to sync @State with ViewModel (two-way)
-    private var selectedNodeIDBinding: Binding<NodeID?> {
-        Binding(
-            get: { selectedNodeID },
-            set: { newValue in
-                selectedNodeID = newValue
-                viewModel.selectedNodeID = newValue  // Sync to ViewModel
-            }
-        )
-    }
-    
-    private var selectedEdgeIDBinding: Binding<UUID?> {
-        Binding(
-            get: { selectedEdgeID },
-            set: { newValue in
-                selectedEdgeID = newValue
-                viewModel.selectedEdgeID = newValue  // Sync to ViewModel
-            }
-        )
-    }
-    
-    var body: some View {
-        let geoView = GeometryReader { geo in
-            let baseView = mainContent(in: geo)
-                .onAppear {
-                    Task { await viewModel.resumeSimulation() }
-                    updateZoomRanges(for: geo.size)
-                    wristSide = WKInterfaceDevice.current().wristLocation
-                    
-#if DEBUG
-                    logger.debug("Geometry size: width=\(geo.size.width), height=\(geo.size.height)")
-#endif
-                    
-                    canvasFocus = true
-                    
-                    let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
-                    zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
-                    
-#if DEBUG
-                    logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
-#endif
-                    
-                    viewSize = geo.size  // New: Set viewSize here
-                }
-                .onChange(of: viewModel.model.nodes) { _, _ in
-                    updateZoomRanges(for: viewSize)  // New: Use viewSize
-                }
-                .onChange(of: viewModel.model.edges) { _, _ in
-                    updateZoomRanges(for: viewSize)  // New: Use viewSize
-                }
-                .onChange(of: crownPosition) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
-#endif
-                    
-                    handleCrownRotation(newValue: newValue)
-                }
-                .onChange(of: canvasFocus) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
-#endif
-                    
-                    if !newValue { canvasFocus = true }
-                }
-            
-            let intermediateView = baseView
-                .onChange(of: zoomScale) { oldValue, newValue in
-                    let normalized = (newValue - minZoom) / (maxZoom - minZoom)
-                    let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
-                    if abs(targetCrown - crownPosition) > 0.01 {
-                        crownPosition = targetCrown
-                        
-#if DEBUG
-                        logger.debug("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(self.crownPosition)")
-#endif
-                    }
-                }
-                .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-                    
-                    selectedNodeID = newValue  // Sync to local @State
-                    viewModel.objectWillChange.send()  // Force re-render if needed
-                }
-                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-                    
-                    selectedEdgeID = newValue
-                    viewModel.objectWillChange.send()
-                }
-                .onReceive(viewModel.model.$isStable) { isStable in
-                    if isStable {
-#if DEBUG
-                        logger.debug("Simulation stable: Centering nodes")
-#endif
-                        
-                        centerGraph()
-                    }
-                }
-                .onReceive(viewModel.model.$simulationError) { error in
-                    if let error = error {
-#if DEBUG
-                        logger.error("Simulation error: \(error.localizedDescription)")
-#endif
-                    }
-                }
-            
-            intermediateView
-        }
-        
-        let finalView = geoView
-            .ignoresSafeArea()
-            .focusable(true)  // Make the whole view focusable for crown
-            .focused($canvasFocus)  // Bind focus state
-            .digitalCrownRotation(  // Restored: Put back here for root-level handling
-                $crownPosition,
-                from: 0,
-                through: Double(AppConstants.crownZoomSteps),
-                sensitivity: .medium
-            )
-        
-        finalView
-    }
-    
-    private func mainContent(in geo: GeometryProxy) -> some View {
-        ZStack {
-            InnerView(config: InnerViewConfig(
-                geo: geo,
-                viewModel: viewModel,
-                zoomScale: $zoomScale,
-                offset: $offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                showOverlays: $showOverlays,
-                maxZoom: maxZoom,
-                crownPosition: $crownPosition,
-                updateZoomRangesHandler: { updateZoomRanges(for: $0) },
-                selectedNodeID: selectedNodeIDBinding,  // Use your custom binding
-                selectedEdgeID: selectedEdgeIDBinding,  // Use your custom binding
-                canvasFocus: _canvasFocus,
-                onCenterGraph: centerGraph,
-                isAddingEdge: $isAddingEdge,
-                isSimulating: $isSimulating,
-                saturation: $saturation  // NEW: Pass the binding here
-            ))
-        }
-        /*.overlay(alignment: .bottom) {
-            HStack(spacing: 20) {
-                if wristSide == .left {
-                    addNodeButton(in: geo)
-                    menuButton(in: geo)
-                } else {
-                    menuButton(in: geo)
-                    addNodeButton(in: geo)
-                }
-            }
-            .padding(.bottom, 1)
-            .padding(.horizontal, 15)
-            .transition(.move(edge: .bottom))
-        }*/
-        // In ContentView.swift (inside body, where .sheet(isPresented: $showMenu) is)
-        .sheet(isPresented: $showMenu) {
-            NavigationStack {  // NEW: Wrap in NavigationStack for push navigation
-                MenuView(
-                    viewModel: viewModel,
-                    isSimulatingBinding: $isSimulating,
-                    onCenterGraph: centerGraph,
-                    showMenu: $showMenu,
-                    showOverlays: $showOverlays,
-                    selectedNodeID: $selectedNodeID,
-                    selectedEdgeID: $selectedEdgeID
-                )
-                .navigationBarTitleDisplayMode(.inline)  // Optional: Compact title
-            }
-            .onDisappear {
-                print("Menu sheet dismissed")
-                showMenu = false
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    saturation = 1.0  // Ensure reset on dismiss
-                }
-            }
-        }
-    }
-    
-    private func handleCrownRotation(newValue: Double) {
-#if DEBUG
-        logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
-#endif
-        
-        let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
-        let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-        
-        // New: Animate the zoom change for smoothness
-        withAnimation(.easeInOut(duration: 0.1)) {
-            zoomScale = targetZoom
-        }
-        viewModel.centerGraph()  // Direct call
-        
-#if DEBUG
-        logger.debug("Updated zoomScale to: \(self.zoomScale)")
-#endif
-    }
-    
-    private func updateZoomRanges(for viewSize: CGSize) {
-        let ranges = viewModel.calculateZoomRanges(for: viewSize)
-        minZoom = ranges.min
-        maxZoom = ranges.max
-        zoomScale = zoomScale.clamped(to: minZoom...maxZoom)
-    }
-    
-    // New: Animated centering from new version (with corrected shift sign if needed; tested as-is)
-    private func centerGraph() {
-        let oldCentroid = viewModel.effectiveCentroid
-        viewModel.centerGraph()
-        let newCentroid = viewModel.effectiveCentroid
-        let centroidShift = CGSize(
-            width: (oldCentroid.x - newCentroid.x) * zoomScale,
-            height: (oldCentroid.y - newCentroid.y) * zoomScale
-        )
-        withAnimation(.easeInOut(duration: 0.3)) {
-            offset.width += centroidShift.width
-            offset.height += centroidShift.height
-        }
-        
-#if DEBUG
-        logger.debug("Centering graph: Old centroid x=\(oldCentroid.x), y=\(oldCentroid.y), Shift width=\(centroidShift.width), height=\(centroidShift.height), New target x=\(newCentroid.x), y=\(newCentroid.y)")
-#endif
-    }
-    
-    // Existing add node button (unchanged, but renamed for clarity)
-    private func addNodeButton(in geo: GeometryProxy) -> some View {
-        Button(action: {
-            WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            
-#if DEBUG
-            logger.debug("Add Node button tapped!")
-#endif
-            
-            let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))
-            Task { await viewModel.addNode(at: randomPos) }
-        }, label: {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 30))
-                .foregroundColor(.green)
-        })
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
-        .padding(10)
-        .background(Color.blue.opacity(0.2))  // TEMP: Visualize tappable area; remove later
-    }
-    
-    private func menuButton(in geo: GeometryProxy) -> some View {
-        Button(action: {
-            WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            
-#if DEBUG
-            logger.debug("Menu button tapped!")
-#endif
-            
-            showMenu.toggle()
-        }, label: {
-            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
-                .font(.system(size: 30))
-                .foregroundColor(showMenu ? .green : .blue)
-        })
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
-        .padding(10)
-        .background(Color.red.opacity(0.2))  // TEMP: Visualize; different color for distinction
-        .accessibilityLabel("Menu")
-    }
-}
-
-extension CGFloat {
-    func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
-        Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
-    }
-}
-
-#Preview {
-    let mockViewModel = GraphViewModel(model: GraphModel(storage: PersistenceManager(), physicsEngine: PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))))
-    ContentView(viewModel: mockViewModel)
-}
-----------------------------------------------------------------------------------------------------
-File: EdgeMenuView.swift
-Path: GraphEditorWatch/Views/EdgeMenuView.swift
-Last modified: 2025-10-24 07:54:16
+File: BoundingBoxOverlay.swift
+Path: GraphEditorWatch/Views/BoundingBoxOverlay.swift
+Last modified: 2025-11-06 11:06:20
 
 Contents:
 //
-//  EdgeMenuView.swift
+//  BoundingBoxOverlay.swift
 //  GraphEditor
 //
-//  Created by handcart on 10/21/25.
+//  Created by handcart on 11/6/25.
 //
 
 import SwiftUI
-import WatchKit
 import GraphEditorShared
-import os
 
-struct EdgeMenuView: View {
+struct BoundingBoxOverlay: View {
     let viewModel: GraphViewModel
-    let isSimulatingBinding: Binding<Bool>
-    let onCenterGraph: () -> Void  // Retained but unused; can remove if not needed
-    @Binding var showMenu: Bool
-    @Binding var showOverlays: Bool  // Retained but unused
-    @Binding var selectedEdgeID: UUID?
-    let onDismiss: () -> Void
-    
-    @FocusState private var isMenuFocused: Bool
-    
-    private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "edgemenuview")
-    
-    // Fetch edge details for header and title (adapted from EditSection)
-    private var edgeDescription: String {
-        if let id = selectedEdgeID, let edge = viewModel.model.edges.first(where: { $0.id == id }),
-           let fromNode = viewModel.model.nodes.first(where: { $0.id == edge.from }),
-           let toNode = viewModel.model.nodes.first(where: { $0.id == edge.target }) {
-            return "\(fromNode.label) → \(toNode.label) (\(edge.type.rawValue))"
-        }
-        return "Unknown"
-    }
-    
-    // Fetch the selected edge for button logic
-    private var selectedEdge: GraphEdge? {
-        if let id = selectedEdgeID {
-            return viewModel.model.edges.first { $0.id == id }
-        }
-        return nil
-    }
-    
-    // Check if bidirectional for delete label
-    private var isBidirectional: Bool {
-        if let edge = selectedEdge {
-            return viewModel.model.isBidirectionalBetween(edge.from, edge.target)
-        }
-        return false
-    }
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
     
     var body: some View {
-        ScrollView {
-            VStack(spacing: 8) {
-                HStack(spacing: 8) {
-                    // Delete button (icon only, with accessibility)
-                    deleteEdgeButton
-                    
-                    // Reverse button (icon only, with accessibility, only if hierarchy)
-                    if let edge = selectedEdge, edge.type == .hierarchy {
-                        reverseEdgeButton
-                    }
-                }
-                .padding(.horizontal, 8)  // Ensure buttons don't touch edges
-            }
-            .padding(4)
-        }
-        .accessibilityIdentifier("edgeMenuGrid")
-        .navigationTitle("Edge: \(edgeDescription)")  // Dynamic name in top-right
-        .focused($isMenuFocused)
-        .onAppear {
-            isMenuFocused = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                isMenuFocused = true
-            }
-            Self.logger.debug("Edge Menu appeared: selectedEdgeID=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")
-        }
-        .onChange(of: isMenuFocused) { _, newValue in
-            Self.logger.debug("Edge Menu focus: \(newValue)")
-            if !newValue {
-                isMenuFocused = true
-            }
-        }
-        .ignoresSafeArea(.keyboard)
-    }
-    
-    private var deleteEdgeButton: some View {
-        MenuButton(
-            action: {
-                if let edge = selectedEdge {
-                    Task {
-                        _ = true  // Use local or @State if needed for disabling
-                        await viewModel.model.snapshot()
-                        if isBidirectional {
-                            let pair = viewModel.model.edgesBetween(edge.from, edge.target)
-                            viewModel.model.edges.removeAll { pair.contains($0) }
-                        } else {
-                            viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                        }
-                        await viewModel.model.startSimulation()
-                        viewModel.setSelectedEdge(nil)
-                        // Clear node selection if mixed
-                        viewModel.setSelectedNode(nil)
-                    }
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Delete", systemImage: "trash") // Converted to Label for consistency
-            },
-            accessibilityIdentifier: "deleteEdgeButton",
-            role: .destructive
+        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let minScreen = CoordinateTransformer.modelToScreen(
+            CGPoint(x: graphBounds.minX, y: graphBounds.minY),
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize
         )
-        .buttonStyle(.borderedProminent) // Keep for now; will standardize later
-        .tint(.red)
-        .accessibilityLabel(isBidirectional ? "Delete Both Edges" : "Delete Edge")
-    }
-
-    private var reverseEdgeButton: some View {
-        MenuButton(
-            action: {
-                if let edge = selectedEdge {
-                    Task {
-                        _ = true
-                        await viewModel.model.snapshot()
-                        viewModel.model.edges.removeAll { $0.id == selectedEdgeID }
-                        viewModel.model.edges.append(GraphEdge(from: edge.target, target: edge.from, type: .hierarchy))
-                        await viewModel.model.startSimulation()
-                        viewModel.setSelectedEdge(nil)
-                        viewModel.setSelectedNode(nil)
-                    }
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Reverse", systemImage: "arrow.left.arrow.right")
-            },
-            accessibilityIdentifier: "reverseEdgeButton"
+        let maxScreen = CoordinateTransformer.modelToScreen(
+            CGPoint(x: graphBounds.maxX, y: graphBounds.maxY),
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize
         )
-        .buttonStyle(.bordered)
-        .tint(.gray)
-        .accessibilityLabel("Reverse Edge")
+        let scaledBounds = CGRect(x: minScreen.x, y: minScreen.y, width: maxScreen.x - minScreen.x, height: maxScreen.y - minScreen.y)
+        Rectangle()
+            .stroke(Color.blue, lineWidth: 2)
+            .frame(width: scaledBounds.width, height: scaledBounds.height)
+            .position(x: scaledBounds.midX, y: scaledBounds.midY)
+            .opacity(0.5)
     }
 }
 --------------------------------------------------

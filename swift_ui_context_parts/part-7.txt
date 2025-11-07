@@ -1,13 +1,145 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-04 20:55:38
+Current date: 2025-11-07 08:38:17
 Table of Contents:
-1. GraphEditorWatch/Views/GraphCanvasView.swift
-2. GraphEditorWatch/Views/GraphGesturesModifier.swift
-3. GraphEditorWatch/Views/GraphicalDatePicker.swift
-4. GraphEditorWatch/Views/GraphMenuView.swift
-5. GraphEditorWatch/Views/GraphsMenuView.swift--------------------------------------------------
+1. GraphEditorWatch/Views/GestureUtils.swift
+2. GraphEditorWatch/Views/GraphCanvasView.swift
+3. GraphEditorWatch/Views/GraphGesturesModifier.swift
+4. GraphEditorWatch/Views/GraphicalDatePicker.swift
+5. GraphEditorWatch/Views/GraphMenuView.swift--------------------------------------------------
+File: GestureUtils.swift
+Path: GraphEditorWatch/Views/GestureUtils.swift
+Last modified: 2025-11-06 11:05:21
+
+Contents:
+// GestureUtils.swift
+// Extracted utilities for hit testing and distance calculations
+
+import SwiftUI
+import GraphEditorShared
+
+struct GestureUtils {
+    static func closestNode(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], context: GraphEditorShared.HitTestContext) -> (any NodeProtocol)? {
+        var closest: (any NodeProtocol)?
+        var minDist: CGFloat = .infinity
+        let adjustedRadius = AppConstants.hitScreenRadius / max(1.0, context.zoomScale) * 2.0  // Double boost at zoom >1; tune to 3.0 if needed
+        #if os(watchOS)
+        let boostedRadius = adjustedRadius * 2.0  // Extra for watch touch (fingers obscure)
+        #endif
+        for node in visibleNodes {
+            let nodeScreen = CoordinateTransformer.modelToScreen(
+                node.position,
+                effectiveCentroid: context.effectiveCentroid,
+                zoomScale: context.zoomScale,
+                offset: context.offset,
+                viewSize: context.viewSize
+            )
+            let dist = hypot(screenPos.x - nodeScreen.x, screenPos.y - nodeScreen.y)
+            if dist < boostedRadius && dist < minDist {
+                minDist = dist
+                closest = node
+            }
+        }
+        return closest
+    }
+    
+    static func closestEdge(at screenPos: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: HitTestContext) -> GraphEdge? {
+        var closestEdge: GraphEdge?
+        var minDist: CGFloat = .infinity
+        for edge in visibleEdges {
+            guard let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                  let targetNode = visibleNodes.first(where: { $0.id == edge.target }) else { continue }
+            
+            let fromScreen = CoordinateTransformer.modelToScreen(
+                fromNode.position,
+                effectiveCentroid: context.effectiveCentroid,
+                zoomScale: context.zoomScale,
+                offset: context.offset,
+                viewSize: context.viewSize
+            )
+            let toScreen = CoordinateTransformer.modelToScreen(
+                targetNode.position,
+                effectiveCentroid: context.effectiveCentroid,
+                zoomScale: context.zoomScale,
+                offset: context.offset,
+                viewSize: context.viewSize
+            )
+            
+            let dist = pointToLineDistance(point: screenPos, from: fromScreen, to: toScreen)
+            let hitThreshold: CGFloat = 20.0
+            if dist < hitThreshold && dist < minDist {
+                minDist = dist
+                closestEdge = edge
+            }
+        }
+        return closestEdge
+    }
+    
+    static func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, to endPoint: CGPoint) -> CGFloat {
+        let pointX = Double(point.x), pointY = Double(point.y)
+        let startX = Double(startPoint.x), startY = Double(startPoint.y)
+        let endX = Double(endPoint.x), endY = Double(endPoint.y)
+        
+        let lineVecX = endX - startX
+        let lineVecY = endY - startY
+        let lineLen = hypot(lineVecX, lineVecY)
+        
+        if lineLen == 0 {
+            return hypot(point.x - startPoint.x, point.y - startPoint.y)
+        }
+        
+        let pointVecX = pointX - startX
+        let pointVecY = pointY - startY
+        let dot = pointVecX * lineVecX + pointVecY * lineVecY
+        let denom = lineLen * lineLen
+        let projectionParam = dot / denom
+        let clampedParam = max(0.0, min(1.0, projectionParam))
+        
+        let projX = startX + lineVecX * clampedParam
+        let projY = startY + lineVecY * clampedParam
+        
+        let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
+        return hypot(point.x - proj.x, point.y - proj.y)
+    }
+    
+    static func modelToScreen(_ modelPos: CGPoint, context: HitTestContext) -> CGPoint {
+        return CoordinateTransformer.modelToScreen(
+            modelPos,
+            effectiveCentroid: context.effectiveCentroid,
+            zoomScale: context.zoomScale,
+            offset: context.offset,
+            viewSize: context.viewSize
+        )
+    }
+}
+
+struct Line: Shape, Animatable {
+    var from: CGPoint
+    var end: CGPoint
+    
+    var animatableData: AnimatablePair<CGPoint.AnimatableData, CGPoint.AnimatableData> {
+        get { AnimatablePair(from.animatableData, end.animatableData) }
+        set {
+            from.animatableData = newValue.first
+            end.animatableData = newValue.second
+        }
+    }
+    
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: from)
+        path.addLine(to: end)
+        return path
+    }
+}
+
+extension CGRect {
+    init(center: CGPoint, size: CGSize) {
+        self.init(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: GraphCanvasView.swift
 Path: GraphEditorWatch/Views/GraphCanvasView.swift
 Last modified: 2025-10-17 07:47:32
@@ -129,7 +261,7 @@ struct GraphCanvasView: View {
 ----------------------------------------------------------------------------------------------------
 File: GraphGesturesModifier.swift
 Path: GraphEditorWatch/Views/GraphGesturesModifier.swift
-Last modified: 2025-10-23 13:06:56
+Last modified: 2025-11-06 10:26:23
 
 Contents:
 //
@@ -210,7 +342,7 @@ struct GraphGesturesModifier: ViewModifier {
             }
         
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 10.0)
-            .updating($isLongPressing) { currentState, gestureState, transaction in
+            .updating($isLongPressing) { currentState, gestureState, _ in
                 gestureState = currentState  // Track if actively pressing
             }
             .onEnded { _ in
@@ -490,7 +622,7 @@ extension GraphGesturesModifier {
 ----------------------------------------------------------------------------------------------------
 File: GraphicalDatePicker.swift
 Path: GraphEditorWatch/Views/GraphicalDatePicker.swift
-Last modified: 2025-11-04 15:51:24
+Last modified: 2025-11-06 10:07:11
 
 Contents:
 //
@@ -511,18 +643,20 @@ struct GraphicalDatePicker: View {
     // NEW: Reference date for crown value (e.g., 1970-01-01)
     private let referenceDate = Date(timeIntervalSince1970: 0)
     
-    // NEW: Computed Double binding for crown (months since reference)
+    // UPDATED: Computed Double binding for crown (months since reference), with clamping
     private var crownValue: Binding<Double> {
         Binding<Double>(
             get: { Calendar.current.dateComponents([.month], from: referenceDate, to: displayMonth).month.map(Double.init) ?? 0.0 },
             set: { newMonths in
-                displayMonth = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
+                var newDate = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
+                newDate = max(minDate, min(maxDate, newDate))  // Clamp to min/max
+                displayMonth = newDate
             }
         )
     }
     
     private let calendar = Calendar.current
-    private let daysOfWeek = DateFormatter().shortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]
+    private let daysOfWeek = DateFormatter().veryShortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]  // Single letters
     
     init(date: Binding<Date>) {
         _date = date
@@ -532,56 +666,110 @@ struct GraphicalDatePicker: View {
     var body: some View {
         GeometryReader { geometry in
             let cellSize = geometry.size.width / 7  // Responsive grid
-            VStack(spacing: 4) {
-                header(cellSize: cellSize)
-                calendarGrid(cellSize: cellSize)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
-                .onEnded { value in
-                    if value.translation.width < -50 { nextMonth() }
-                    if value.translation.width > 50 { previousMonth() }
+            let weeks = numberOfWeeks  // NEW: Compute actual weeks for dynamic height
+            let computedHeight = headerHeight(cellSize: cellSize) + weekdayHeight(cellSize: cellSize) + (CGFloat(weeks) * rowHeight(cellSize: cellSize)) + (CGFloat(weeks - 1) * 2)  // Dynamic calc with spacing
+            ScrollView {  // NEW: Wrap for scrolling if too tall (e.g., 6 weeks)
+                VStack(spacing: 2) {  // Reduced spacing for compactness
+                    header(cellSize: cellSize)
+                    calendarGrid(cellSize: cellSize)
                 }
-            )
-        }
-        .frame(height: 150)
-        .digitalCrownRotation(
-            crownValue,
-            from: -1200.0,  // ~100 years back (12*100)
-            through: 1200.0,  // ~100 years forward
-            sensitivity: .high,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true,
-            onChange: { event in
-                updateFromCrown(event.offset)  // UPDATED: Pass event.offset (Double) from DigitalCrownEvent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
+                    .onEnded { value in
+                        if value.translation.width < -50 { nextMonth() }
+                        if value.translation.width > 50 { previousMonth() }
+                    }
+                )
+                .digitalCrownRotation(  // Attached to main VStack
+                    crownValue,
+                    from: monthsToMinDate,
+                    through: monthsToMaxDate,
+                    sensitivity: .high,
+                    isContinuous: false,
+                    isHapticFeedbackEnabled: false
+                )
             }
-        )
+            .frame(height: min(computedHeight, 180))  // NEW: Dynamic height, capped at 180 for watch constraints; scrolls if exceeded
+            .scrollIndicators(.never)  // Hide indicators for clean look
+            .scrollBounceBehavior(.basedOnSize)  // Minimal bounce
+        }
     }
+    
+    // NEW: Helper to compute number of weeks (for dynamic height)
+    private var numberOfWeeks: Int {
+        let days = generateDays()
+        return (days.count + 6) / 7  // Ceiling division for weeks
+    }
+    
+    // NEW: Height helpers (estimates; adjust if needed based on testing)
+    private func headerHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
+    private func weekdayHeight(cellSize: CGFloat) -> CGFloat { cellSize / 2 }
+    private func rowHeight(cellSize: CGFloat) -> CGFloat { cellSize }
+    
+    // UPDATED: Dynamic crown range (months from reference to min/max)
+    private var monthsToMinDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: minDate).month ?? -1200) }
+    private var monthsToMaxDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: maxDate).month ?? 1200) }
     
     private var minDate: Date { calendar.date(byAdding: .year, value: -100, to: Date()) ?? Date.distantPast }
     private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
     
+    // UPDATED: Arrows pushed to edges with Spacer, closer pairs (spacing:0), smaller font for text
     private func header(cellSize: CGFloat) -> some View {
-        HStack {
-            Button(action: previousMonth) { Image(systemName: "chevron.left") }
-            Text(monthYearString).font(.caption).frame(maxWidth: .infinity)
-            Button(action: nextMonth) { Image(systemName: "chevron.right") }
+        HStack(spacing: 0) {  // No overall spacing; use Spacer for edges
+            HStack(spacing: 0) {  // Left pair close together
+                Button(action: previousYear) {
+                    Image(systemName: "chevron.left.2").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: previousMonth) {
+                    Image(systemName: "chevron.left").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+            }
+            
+            Spacer()  // Push text to center
+            
+            Text(monthYearString)
+                .font(.system(size: 10))  // Smaller font
+                .frame(maxWidth: .infinity, alignment: .center)
+            
+            Spacer()  // Push right pair to edge
+            
+            HStack(spacing: 0) {  // Right pair close together
+                Button(action: nextMonth) {
+                    Image(systemName: "chevron.right").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+                
+                Button(action: nextYear) {
+                    Image(systemName: "chevron.right.2").padding(6)
+                }
+                .contentShape(Rectangle())
+                .buttonStyle(PlainButtonStyle())
+            }
         }
-        .font(.caption2)
-        .padding(.horizontal, 4)
+        .font(.caption2)  // For arrows
+        .padding(.horizontal, 2)
+        .zIndex(1)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Navigate months and years")
     }
     
     private var monthYearString: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMMM yyyy"
+        formatter.dateFormat = "yyyy-MM"  // UPDATED: ISO format (e.g., "2025-12")
         return formatter.string(from: displayMonth)
     }
     
     private func calendarGrid(cellSize: CGFloat) -> some View {
         let days = generateDays()
-        return VStack(spacing: 2) {
+        return VStack(spacing: 2) {  // Reduced spacing for compactness
             HStack(spacing: 0) {
-                ForEach(daysOfWeek, id: \.self) { day in
+                ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { _, day in
                     Text(day).frame(width: cellSize, height: cellSize / 2).font(.caption2).foregroundColor(.gray)
                 }
             }
@@ -591,13 +779,13 @@ struct GraphicalDatePicker: View {
                         let index = week * 7 + dayIndex
                         if index < days.count {  // Split: Check index first (non-optional Bool)
                             if let dayDate = days[index] {  // Now isolated optional binding
-                                Button(action: { selectDay(dayDate) }) {
+                                Button(action: { selectDay(dayDate) }, label: {
                                     Text("\(calendar.component(.day, from: dayDate))")
                                         .frame(width: cellSize, height: cellSize)
                                         .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
                                         .clipShape(Circle())
                                         .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
-                                }
+                                })
                                 .buttonStyle(.plain)
                                 .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
                             } else {
@@ -627,15 +815,31 @@ struct GraphicalDatePicker: View {
     
     private func selectDay(_ newDate: Date) {
         date = newDate
-        WKInterfaceDevice.current().play(.success)  // Haptic on select
+        WKInterfaceDevice.current().play(.click)  // Gentler haptic
     }
     
-    private func previousMonth() { displayMonth = calendar.date(byAdding: .month, value: -1, to: displayMonth) ?? displayMonth }
-    private func nextMonth() { displayMonth = calendar.date(byAdding: .month, value: 1, to: displayMonth) ?? displayMonth }
+    // UPDATED: Added clamping to min/max
+    private func previousMonth() {
+        if let new = calendar.date(byAdding: .month, value: -1, to: displayMonth), new >= minDate {
+            displayMonth = new
+        }
+    }
+    private func nextMonth() {
+        if let new = calendar.date(byAdding: .month, value: 1, to: displayMonth), new <= maxDate {
+            displayMonth = new
+        }
+    }
     
-    private func updateFromCrown(_ value: Double) {
-        let months = Int(value)
-        displayMonth = calendar.date(byAdding: .month, value: months, to: referenceDate) ?? displayMonth
+    // NEW: Year navigation with clamping
+    private func previousYear() {
+        if let new = calendar.date(byAdding: .year, value: -1, to: displayMonth), new >= minDate {
+            displayMonth = new
+        }
+    }
+    private func nextYear() {
+        if let new = calendar.date(byAdding: .year, value: 1, to: displayMonth), new <= maxDate {
+            displayMonth = new
+        }
     }
     
     private func isSelected(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, inSameDayAs: date) }
@@ -645,7 +849,7 @@ struct GraphicalDatePicker: View {
 ----------------------------------------------------------------------------------------------------
 File: GraphMenuView.swift
 Path: GraphEditorWatch/Views/GraphMenuView.swift
-Last modified: 2025-10-25 20:18:53
+Last modified: 2025-11-06 10:27:42
 
 Contents:
 //
@@ -783,7 +987,7 @@ struct GraphMenuView: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }
-        .onChange(of: showOverlays) { newValue in
+        .onChange(of: showOverlays) { _, _ in
             // Any additional logic from ViewSection
         }
         .accessibilityIdentifier("overlaysToggle")
@@ -795,7 +999,7 @@ struct GraphMenuView: View {
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
         }
-        .onChange(of: isSimulatingBinding.wrappedValue) { newValue in
+        .onChange(of: isSimulatingBinding.wrappedValue) { _, newValue in
             viewModel.model.isSimulating = newValue
             if newValue {
                 Task { await viewModel.model.startSimulation() }
@@ -845,199 +1049,6 @@ struct GraphMenuView: View {
                 Label("Redo", systemImage: "arrow.uturn.right")
             },
             accessibilityIdentifier: "redoButton"
-        )
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphsMenuView.swift
-Path: GraphEditorWatch/Views/GraphsMenuView.swift
-Last modified: 2025-10-24 07:54:16
-
-Contents:
-//
-//  GraphsMenuView.swift
-//  GraphEditor
-//
-//  Created by handcart on 10/23/25.
-//
-
-import SwiftUI
-import WatchKit
-import GraphEditorShared
-
-struct GraphsMenuView: View {
-    let viewModel: GraphViewModel
-    let onDismiss: () -> Void
-    
-    @State private var graphName: String = ""
-    @State private var showNewSheet: Bool = false
-    @State private var newGraphName: String = ""
-    @State private var graphs: [String] = []
-    @State private var errorMessage: String?
-    
-    var body: some View {
-        ScrollView {  // Scrollable for long lists
-            VStack(spacing: 8) {
-                Text("Graphs").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                
-                // Current graph name editing (from GraphSection)
-                TextField("Current Name", text: $graphName)
-                    .font(.caption)
-                    .accessibilityIdentifier("graphNameTextField")
-                
-                // Buttons for save/load/delete current graph
-                HStack(spacing: 8) {
-                    saveGraphButton
-                    loadGraphButton
-                    deleteGraphButton
-                }
-                
-                // New graph button
-                newGraphButton
-                
-                // List graphs button and dynamic list
-                listGraphsButton
-                ForEach(graphs, id: \.self) { name in
-                    graphItemButton(name: name)
-                }
-                
-                if let error = errorMessage {
-                    Text(error).foregroundColor(.red).font(.caption2)
-                }
-            }
-            .padding(4)
-        }
-        .navigationTitle("Manage Graphs")  // Clear title
-        .sheet(isPresented: $showNewSheet) {
-            // Same as GraphSection's new graph sheet
-            VStack(spacing: 4) {
-                TextField("New Name", text: $newGraphName).font(.caption)
-                Button("Create") {
-                    WKInterfaceDevice.current().play(.click)
-                    Task {
-                        do {
-                            try await viewModel.model.createNewGraph(name: newGraphName)
-                            viewModel.currentGraphName = newGraphName
-                            showNewSheet = false
-                            onDismiss()
-                        } catch {
-                            errorMessage = error.localizedDescription
-                        }
-                    }
-                }
-            }
-        }
-        .onAppear {
-            graphName = viewModel.currentGraphName
-            // Optionally auto-list graphs here: Task { graphs = try await viewModel.model.listGraphNames() }
-        }
-    }
-    
-    private var newGraphButton: some View {
-        MenuButton(
-            action: {
-                newGraphName = ""
-                showNewSheet = true
-            },
-            label: {
-                Label("New", systemImage: "doc.badge.plus")
-            },
-            accessibilityIdentifier: "newGraphButton"
-        )
-    }
-    
-    private var saveGraphButton: some View {
-        MenuButton(
-            action: {
-                viewModel.currentGraphName = graphName
-                Task {
-                    do {
-                        try await viewModel.model.saveGraph()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Save", systemImage: "square.and.arrow.down")
-            },
-            accessibilityIdentifier: "saveButton"
-        )
-    }
-    
-    private var loadGraphButton: some View {
-        MenuButton(
-            action: {
-                Task {
-                    await viewModel.model.loadGraph(name: graphName)
-                    viewModel.currentGraphName = graphName
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Load", systemImage: "folder")
-            },
-            accessibilityIdentifier: "loadButton"
-        )
-    }
-    
-    private var listGraphsButton: some View {
-        MenuButton(
-            action: {
-                Task {
-                    do {
-                        graphs = try await viewModel.model.listGraphNames()
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-            },
-            label: {
-                Label("List", systemImage: "list.bullet")
-            },
-            accessibilityIdentifier: "listGraphsButton"
-        )
-    }
-    
-    // Added missing definitions below (copied from GraphSection.swift)
-    private func graphItemButton(name: String) -> some View {
-        MenuButton(
-            action: {
-                Task {
-                    await viewModel.model.loadGraph(name: name)
-                    viewModel.currentGraphName = name
-                    graphName = name
-                }
-                onDismiss()
-            },
-            label: {
-                Label(name, systemImage: "doc")
-            }
-        )
-        .font(.caption2)  // Smaller for long names
-        .accessibilityHint("Load graph \(name)")
-    }
-    
-    private var deleteGraphButton: some View {
-        MenuButton(
-            action: {
-                Task {
-                    do {
-                        try await viewModel.model.deleteGraph(name: graphName)
-                        graphName = "default"
-                        await viewModel.model.loadGraph(name: "default")
-                    } catch {
-                        errorMessage = error.localizedDescription
-                    }
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Del", systemImage: "trash")
-            },
-            accessibilityIdentifier: "deleteGraphButton",
-            role: .destructive
         )
     }
 }

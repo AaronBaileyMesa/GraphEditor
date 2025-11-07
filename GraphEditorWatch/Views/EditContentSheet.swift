@@ -103,8 +103,14 @@ struct EditContentSheet: View {
                         .focused($isSheetFocused)
                         .onSubmit { addStringContent() }
                 case .date:
-                    GraphicalDatePicker(date: $dateValue)  // INTEGRATED: Custom picker for date input
-                        .frame(height: 150)  // Match picker height
+                    GraphicalDatePicker(date: $dateValue)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                        .background {
+                            RoundedRectangle(cornerRadius: 18)
+                                .fill(Color.gray.opacity(0.1))
+                        }
+                        .fixedSize(horizontal: false, vertical: true)  // Allow dynamic vertical expansion
                         .onChange(of: dateValue) { _, _ in addDateContent() }  // Auto-add on change (optional)
                 case .number:
                     NumericKeypadView(text: $numberString)
@@ -115,120 +121,102 @@ struct EditContentSheet: View {
         }
     }
     
-    // UPDATED: Full implementation of inlineEditView with GraphicalDatePicker integration
+    // UPDATED: Full implementation of inlineEditView with all types
+    @ViewBuilder
     private func inlineEditView(for index: Int) -> some View {
-        let binding = Binding<NodeContent>(
-            get: { contents[index] },
-            set: { contents[index] = $0 }
-        )
-        
-        return Group {
-            switch binding.wrappedValue {
-            case .string(let str):
-                TextField("Edit text", text: Binding(
-                    get: { str },
-                    set: { binding.wrappedValue = .string($0) }
-                ))
-                .focused($isSheetFocused)
-            case .date(let dateVal):
-                GraphicalDatePicker(date: Binding(  // INTEGRATED: Use custom picker for date editing
-                    get: { dateVal },
-                    set: { binding.wrappedValue = .date($0) }
-                                                 ))
-                .frame(height: 150)  // Ensure it fits in the list row
-                .onChange(of: selectedComponent) { _, newComponent in
-                    // Optional: Handle focus on specific date parts (e.g., jump to year/month/day)
-                    if let component = newComponent {
-                        print("Focusing on \(component.description)")
-                        // Add logic to scroll/highlight in GraphicalDatePicker if extended
+        switch contents[index] {
+        case .string(var value):
+            TextField("Edit text", text: Binding(
+                get: { value },
+                set: { newValue in
+                    contents[index] = .string(newValue)
+                    value = newValue
+                }
+            ))
+            .focused($isSheetFocused)
+            .onSubmit { editingIndex = nil }
+        case .date(var value):
+            GraphicalDatePicker(date: Binding(
+                get: { value },
+                set: { newValue in
+                    contents[index] = .date(newValue)
+                    value = newValue
+                }
+            ))
+            .listRowInsets(EdgeInsets())
+            .listRowBackground(Color.clear)
+            .background {
+                RoundedRectangle(cornerRadius: 18)
+                    .fill(Color.gray.opacity(0.1))
+            }
+            .fixedSize(horizontal: false, vertical: true)  // Allow dynamic vertical expansion
+            .onChange(of: value) { _, _ in editingIndex = nil }  // Exit edit on change (optional)
+        case .number(var value):
+            NumericKeypadView(text: Binding(
+                get: { String(format: "%.2f", value) },
+                set: { newString in
+                    if let newValue = Double(newString) {
+                        contents[index] = .number(newValue)
+                        value = newValue
                     }
                 }
-            case .number(let num):
-                TextField("Edit number", value: Binding<Double?>(  // FIXED: Use optional Double? for if-let in setter
-                    get: { num },
-                    set: { if let value = $0 { binding.wrappedValue = .number(value) } }
-                                                                ), format: .number)
-                .focused($isSheetFocused)
-            case .boolean(let boolVal):
-                Toggle("Edit boolean", isOn: Binding(
-                    get: { boolVal },
-                    set: { binding.wrappedValue = .boolean($0) }
-                ))
-            }
-        }
-        .onTapGesture {
-            // Optional: Set selectedComponent for date if tapped (e.g., default to .day)
-            if case .date = binding.wrappedValue {
-                selectedComponent = .day
-            }
+            ))
+            .onSubmit { editingIndex = nil }
+        case .boolean(var value):
+            Toggle("Boolean", isOn: Binding(
+                get: { value },
+                set: { newValue in
+                    contents[index] = .boolean(newValue)
+                    value = newValue
+                }
+            ))
+            .onChange(of: value) { _, _ in editingIndex = nil }  // Exit on toggle
         }
     }
     
-    // FIXED: Define missing add*Content functions (append to contents and reset states)
+    private func addPendingContent() {
+        if !stringValue.isEmpty {
+            addStringContent()
+        } else if !numberString.isEmpty {
+            addNumberContent()
+        } else if selectedType == .date {
+            addDateContent()
+        }
+        resetInputFields()
+    }
+    
     private func addStringContent() {
         if !stringValue.isEmpty {
             contents.append(.string(stringValue))
             stringValue = ""
         }
-        selectedType = nil  // Reset selection
     }
     
     private func addDateContent() {
         contents.append(.date(dateValue))
-        dateValue = Date()  // Reset to current date
-        selectedType = nil
     }
     
     private func addNumberContent() {
-        if let num = Double(numberString) {
-            contents.append(.number(num))
+        if let number = Double(numberString) {
+            contents.append(.number(number))
             numberString = ""
         }
-        selectedType = nil
     }
     
-    // Helper: Display text for content (extracted for clarity)
     private func displayText(for content: NodeContent) -> String {
         switch content {
         case .string(let value): return value
-        case .date(let value): return value.formatted(date: .abbreviated, time: .omitted)
-        case .number(let value): return String(value)
+        case .date(let value): return dateFormatter.string(from: value)
+        case .number(let value): return String(format: "%.2f", value)
         case .boolean(let value): return value ? "True" : "False"
         }
     }
     
-    private func addPendingContent() {
-        // Existing logic to add pending inputs (e.g., stringValue, dateValue, numberString)
-        if let type = selectedType {
-            switch type {
-            case .string:
-                if !stringValue.isEmpty {
-                    contents.append(.string(stringValue))
-                    stringValue = ""
-                }
-            case .date:
-                contents.append(.date(dateValue))
-            case .number:
-                if let num = Double(numberString) {
-                    contents.append(.number(num))
-                    numberString = ""
-                }
-            }
-            selectedType = nil  // Reset after adding
-        }
-    }
-    
-    // Helper to create new content (updated for DataType)
-    private func createNewContent(for type: DataType) -> NodeContent? {
-        switch type {
-        case .string: return stringValue.isEmpty ? nil : .string(stringValue)
-        case .date: return .date(dateValue)
-        case .number:
-            if let num = Double(numberString) {
-                return .number(num)
-            } else {
-                return nil  // Or handle invalid input
-            }
+    private func parseNumber() -> Double? {
+        if let number = Double(numberString) {
+            return number
+        } else {
+            return nil  // Or handle invalid input
         }
     }
     
