@@ -30,16 +30,20 @@ struct EditContentSheet: View {
             }
             .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-             }
             .focused($isSheetFocused)
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
-                
-                
+            }
+            .onAppear {
+                isSheetFocused = true
+                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                    contents = node.contents  // Load existing contents
+                    Task { await viewModel.model.snapshot() }  // Pre-edit snapshot for undo (async to match model API)
+                }
             }
             .onDisappear {
+                print("onDisappear triggered - saving contents: \(contents)")  // Debug log
                 addPendingContent()  // Handle any unsaved input
                 onSave(contents)     // Auto-apply changes
             }
