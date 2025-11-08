@@ -99,7 +99,7 @@ struct GraphicalDatePicker: View {
             Spacer()  // Push text to center
             
             Text(monthYearString)
-                .font(.system(size: 10))  // Smaller font
+                .font(.system(size: 12, weight: .medium))  // Slightly larger font for readability
                 .frame(maxWidth: .infinity, alignment: .center)
             
             Spacer()  // Push right pair to edge
@@ -126,7 +126,7 @@ struct GraphicalDatePicker: View {
     
     private var monthYearString: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM"  // UPDATED: ISO format (e.g., "2025-12")
+        formatter.dateFormat = "MMM yy"  // UPDATED: Abbreviated month and last two digits of year (e.g., "Nov 25")
         return formatter.string(from: displayMonth)
     }
     
