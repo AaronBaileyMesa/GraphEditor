@@ -31,32 +31,12 @@ struct EditContentSheet: View {
             .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .bottomBar) {
-                    HStack {                        
-                        Spacer()
-                        
-                        Button {
-                            addPendingContent()  // Add any pending input before saving
-                            onSave(contents)
-                        } label: {
-                            Image(systemName: "square.and.arrow.down")
-                        }
-                    }
-                }
-            }
+             }
             .focused($isSheetFocused)
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
-            .onAppear {
-                isSheetFocused = true
-                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents
-                }
-                viewModel.model.snapshot()  // Snapshot pre-edit for undo
-            }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
             }
-            .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
         }
     }
     
