@@ -31,20 +31,16 @@ struct EditContentSheet: View {
             .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .foregroundColor(.red)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        addPendingContent()  // Add any pending input before saving
-                        onSave(contents)
-                    } label: {
-                        Image(systemName: "square.and.arrow.down")
+                ToolbarItem(placement: .bottomBar) {
+                    HStack {                        
+                        Spacer()
+                        
+                        Button {
+                            addPendingContent()  // Add any pending input before saving
+                            onSave(contents)
+                        } label: {
+                            Image(systemName: "square.and.arrow.down")
+                        }
                     }
                 }
             }
@@ -55,6 +51,7 @@ struct EditContentSheet: View {
                 if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
                     contents = node.contents
                 }
+                viewModel.model.snapshot()  // Snapshot pre-edit for undo
             }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")

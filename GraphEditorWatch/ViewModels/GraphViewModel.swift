@@ -18,6 +18,9 @@ import os  // Added for logging
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"  // Sync with model; standardized to "default"
+    
+    private var inactiveObserver: NSObjectProtocol?
+    private var activeObserver: NSObjectProtocol?
         
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
@@ -87,6 +90,14 @@ import os  // Added for logging
             Task { @MainActor in  // Ensure main for publishes
                 await self?.resumeSimulationAfterDelay()
             }
+        }
+        
+        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
+        }
+
+        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
     }
     
@@ -250,6 +261,13 @@ import os  // Added for logging
         zoomScale = minZoom
         offset = .zero
         objectWillChange.send()
+    }
+    
+    deinit {
+        if let pause = pauseObserver { NotificationCenter.default.removeObserver(pause) }
+        if let resume = resumeObserver { NotificationCenter.default.removeObserver(resume) }
+        if let inactive = inactiveObserver { NotificationCenter.default.removeObserver(inactive) }
+        if let active = activeObserver { NotificationCenter.default.removeObserver(active) }
     }
 }
 
