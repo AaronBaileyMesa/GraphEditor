@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-07 17:22:45
+Current date: 2025-11-08 13:41:17
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
 2. GraphEditorWatch/Views/AccessibleCanvas.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/Views/BoundingBoxOverlay.swift--------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-10-25 20:18:57
+Last modified: 2025-11-07 18:53:05
 
 Contents:
 //
@@ -32,6 +32,9 @@ import os  // Added for logging
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"  // Sync with model; standardized to "default"
+    
+    private var inactiveObserver: NSObjectProtocol?
+    private var activeObserver: NSObjectProtocol?
         
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
@@ -101,6 +104,14 @@ import os  // Added for logging
             Task { @MainActor in  // Ensure main for publishes
                 await self?.resumeSimulationAfterDelay()
             }
+        }
+        
+        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
+        }
+
+        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
     }
     
@@ -264,6 +275,13 @@ import os  // Added for logging
         zoomScale = minZoom
         offset = .zero
         objectWillChange.send()
+    }
+    
+    deinit {
+        if let pause = pauseObserver { NotificationCenter.default.removeObserver(pause) }
+        if let resume = resumeObserver { NotificationCenter.default.removeObserver(resume) }
+        if let inactive = inactiveObserver { NotificationCenter.default.removeObserver(inactive) }
+        if let active = activeObserver { NotificationCenter.default.removeObserver(active) }
     }
 }
 

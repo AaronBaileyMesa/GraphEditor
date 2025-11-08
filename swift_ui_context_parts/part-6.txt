@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-07 17:22:46
+Current date: 2025-11-08 13:41:17
 Table of Contents:
 1. GraphEditorWatch/Views/ContentView.swift
 2. GraphEditorWatch/Views/EdgeMenuView.swift
@@ -473,7 +473,7 @@ struct EdgeMenuView: View {
 ----------------------------------------------------------------------------------------------------
 File: EditContentSheet.swift
 Path: GraphEditorWatch/Views/EditContentSheet.swift
-Last modified: 2025-11-07 15:13:48
+Last modified: 2025-11-08 13:27:34
 
 Contents:
 //
@@ -508,36 +508,23 @@ struct EditContentSheet: View {
             }
             .navigationTitle("Contents")  // Changed to "Contents" as requested
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .foregroundColor(.red)
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        addPendingContent()  // Add any pending input before saving
-                        onSave(contents)
-                    } label: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                }
-            }
             .focused($isSheetFocused)
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
-            .onAppear {
-                isSheetFocused = true
-                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents
-                }
-            }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
             }
-            .interactiveDismissDisabled(true)  // Prevent accidental swipe-back
+            .onAppear {
+                isSheetFocused = true
+                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                    contents = node.contents  // Load existing contents
+                    Task { await viewModel.model.snapshot() }  // Pre-edit snapshot for undo (async to match model API)
+                }
+            }
+            .onDisappear {
+                print("onDisappear triggered - saving contents: \(contents)")  // Debug log
+                addPendingContent()  // Handle any unsaved input
+                onSave(contents)     // Auto-apply changes
+            }
         }
     }
     

@@ -22,6 +22,7 @@ struct EditContentSheet: View {
     @State private var numberString: String = ""  // Changed to string for custom input
     @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
+    @State private var dateChanged: Bool = false  // NEW: Track if date was modified
     
     var body: some View {
         ScrollViewReader { proxy in
@@ -32,6 +33,12 @@ struct EditContentSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .focused($isSheetFocused)
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
+            .onChange(of: dateValue) { _, _ in
+                        dateChanged = true  // NEW: Set flag on any change (no add here)
+                    }
+                    .onChange(of: selectedType) { oldValue, _ in
+                        addPendingContent(for: oldValue)  // NEW: Add pending for previous type on switch
+                    }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
             }
@@ -44,15 +51,15 @@ struct EditContentSheet: View {
             }
             .onDisappear {
                 print("onDisappear triggered - saving contents: \(contents)")  // Debug log
-                addPendingContent()  // Handle any unsaved input
-                onSave(contents)     // Auto-apply changes
+                addPendingContent(for: selectedType)  // Handle unsaved for current type
+                        onSave(contents)
             }
         }
     }
     
     private func contentsSection(proxy: ScrollViewProxy) -> some View {
         Section(
-            header: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
+            footer: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
         ) {
             if contents.isEmpty {
                 Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
@@ -98,7 +105,6 @@ struct EditContentSheet: View {
                                 .fill(Color.gray.opacity(0.1))
                         }
                         .fixedSize(horizontal: false, vertical: true)  // Allow dynamic vertical expansion
-                        .onChange(of: dateValue) { _, _ in addDateContent() }  // Auto-add on change (optional)
                 case .number:
                     NumericKeypadView(text: $numberString)
                         .focused($isSheetFocused)
@@ -161,16 +167,28 @@ struct EditContentSheet: View {
         }
     }
     
-    private func addPendingContent() {
-        if !stringValue.isEmpty {
-            addStringContent()
-        } else if !numberString.isEmpty {
-            addNumberContent()
-        } else if selectedType == .date {
-            addDateContent()
+    // UPDATED: Rename/add param for clarity; call on type switch and disappear
+        private func addPendingContent(for type: DataType?) {
+            guard let type else { return }
+            switch type {
+            case .string:
+                if !stringValue.isEmpty {
+                    contents.append(.string(stringValue))
+                    stringValue = ""
+                }
+            case .date:
+                if dateChanged {  // NEW: Only add if changed
+                    contents.append(.date(dateValue))
+                    dateChanged = false
+                    dateValue = Date()  // Reset to now
+                }
+            case .number:
+                if !numberString.isEmpty, let number = parseNumber() {
+                    contents.append(.number(number))
+                    numberString = ""
+                }
+            }
         }
-        resetInputFields()
-    }
     
     private func addStringContent() {
         if !stringValue.isEmpty {
@@ -179,9 +197,11 @@ struct EditContentSheet: View {
         }
     }
     
-    private func addDateContent() {
-        contents.append(.date(dateValue))
-    }
+        private func addDateContent() {
+            contents.append(.date(dateValue))
+            dateChanged = false  // NEW
+            resetInputFields()
+        }
     
     private func addNumberContent() {
         if let number = Double(numberString) {
