@@ -36,6 +36,12 @@ struct EditContentSheet: View {
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
+                
+                
+            }
+            .onDisappear {
+                addPendingContent()  // Handle any unsaved input
+                onSave(contents)     // Auto-apply changes
             }
         }
     }
