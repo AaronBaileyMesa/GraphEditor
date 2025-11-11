@@ -17,7 +17,7 @@ import os  // Added for logging
     @Published public var selectedNodeID: UUID?
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
-    @Published public var currentGraphName: String = "default"  // Sync with model; standardized to "default"
+    @Published public var currentGraphName: String = "default"
     
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
@@ -48,17 +48,6 @@ import os  // Added for logging
     private var resumeTimer: Timer?
     
     public var effectiveCentroid: CGPoint {
-        /*
-        let visibleNodes = model.visibleNodes()
-        if let id = selectedNodeID, let node = visibleNodes.first(where: { $0.id == id }) {
-            return node.position
-        } else if let id = selectedEdgeID, let edge = model.edges.first(where: { $0.id == id }),
-                  let from = visibleNodes.first(where: { $0.id == edge.from }),
-                  let target = visibleNodes.first(where: { $0.id == edge.target }) {
-            return CGPoint(x: (from.position.x + target.position.x) / 2, y: (from.position.y + target.position.y) / 2)
-        }
-        return centroid(of: visibleNodes) ?? .zero  // Fix unwrap
-         */
         return model.centroid ?? .zero
     }
     
@@ -255,7 +244,6 @@ import os  // Added for logging
     }
     
     public func centerGraph() {
-        // UPDATED: Enhanced to recalculate based on bounds
         let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
         let (minZoom, _) = calculateZoomRanges(for: viewSize)
         zoomScale = minZoom
@@ -275,6 +263,7 @@ extension GraphViewModel {
     // MARK: - Multi-Graph Support
     
     /// Creates a new empty graph and switches to it, resetting view state.
+    @MainActor
     public func createNewGraph(name: String) async throws {
         // Save current view state before switching
         try saveViewState()
@@ -294,6 +283,7 @@ extension GraphViewModel {
     }
     
     /// Loads a specific graph by name, switches to it, and loads its view state.
+    @MainActor
     public func loadGraph(name: String) async throws {
         // Save current view state before switching
         try saveViewState()
@@ -321,11 +311,13 @@ extension GraphViewModel {
     }
     
     /// Deletes a graph by name.
+    @MainActor
     public func deleteGraph(name: String) async throws {
         try await model.deleteGraph(name: name)
     }
     
     /// Lists all graph names.
+    @MainActor
     public func listGraphNames() async throws -> [String] {
         try await model.listGraphNames()
     }
@@ -348,6 +340,7 @@ extension GraphViewModel {
 extension GraphViewModel {
     // MARK: - Helpers
     
+    @MainActor
     private func saveAfterDelay() async {
         saveTimer?.invalidate()
         saveTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: false) { [weak self] _ in

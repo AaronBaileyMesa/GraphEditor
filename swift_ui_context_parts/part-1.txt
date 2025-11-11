@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-08 13:41:15
+Current date: 2025-11-10 19:46:44
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
@@ -317,7 +317,7 @@ public enum GraphError: Error, LocalizedError {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-10-27 13:48:03
+Last modified: 2025-11-08 16:35:15
 
 Contents:
 //
@@ -426,6 +426,12 @@ import WatchKit
                         }
                     }
                     self.objectWillChange.send()
+                }
+            },
+            onPostStable: { [weak self] in
+                Task { @MainActor in
+                    self?.isSimulating = false
+                    Self.logger.infoLog("Auto-paused simulation after inactivity")
                 }
             }
         )
