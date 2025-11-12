@@ -1,17 +1,569 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-11 12:40:27
+Current date: 2025-11-12 10:00:32
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
-2. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
-3. GraphEditorShared/Sources/GraphEditorShared/Constants.swift
-4. GraphEditorShared/Sources/GraphEditorShared/CoordinateTransformer.swift
-5. GraphEditorShared/Sources/GraphEditorShared/GraphError.swift
-6. GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-7. GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-8. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
-9. GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift--------------------------------------------------
+1. GraphEditorShared/.build/arm64-apple-macosx/debug/GraphEditorSharedPackageTests.derived/runner.swift
+2. GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
+3. GraphEditorShared/Sources/GraphEditorShared/CenteringCalculator.swift
+4. GraphEditorShared/Sources/GraphEditorShared/Constants.swift
+5. GraphEditorShared/Sources/GraphEditorShared/CoordinateTransformer.swift
+6. GraphEditorShared/Sources/GraphEditorShared/GraphError.swift
+7. GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift--------------------------------------------------
+File: runner.swift
+Path: GraphEditorShared/.build/arm64-apple-macosx/debug/GraphEditorSharedPackageTests.derived/runner.swift
+Last modified: 2025-11-11 13:15:43
+
+Contents:
+#if canImport(Testing)
+import Testing
+#endif
+
+#if false
+import Foundation
+import XCTest
+
+public final class SwiftPMXCTestObserver: NSObject {
+    public override init() {
+        super.init()
+        XCTestObservationCenter.shared.addTestObserver(self)
+    }
+}
+
+extension SwiftPMXCTestObserver: XCTestObservation {
+    var testOutputPath: String {
+        return "/Users/handcart/Development/GraphEditor/GraphEditorShared/.build/arm64-apple-macosx/debug/testOutput.txt"
+    }
+
+    private func write(record: any Encodable) {
+        let lock = FileLock(at: URL(fileURLWithPath: self.testOutputPath + ".lock"))
+        _ = try? lock.withLock {
+            self._write(record: record)
+        }
+    }
+
+    private func _write(record: any Encodable) {
+        if let data = try? JSONEncoder().encode(record) {
+            if let fileHandle = FileHandle(forWritingAtPath: self.testOutputPath) {
+                defer { fileHandle.closeFile() }
+                fileHandle.seekToEndOfFile()
+                fileHandle.write("
+".data(using: .utf8)!)
+                fileHandle.write(data)
+            } else {
+                _ = try? data.write(to: URL(fileURLWithPath: self.testOutputPath))
+            }
+        }
+    }
+
+    public func testBundleWillStart(_ testBundle: Bundle) {
+        let record = TestBundleEventRecord(bundle: .init(testBundle), event: .start)
+        write(record: TestEventRecord(bundleEvent: record))
+    }
+
+    public func testSuiteWillStart(_ testSuite: XCTestSuite) {
+        let record = TestSuiteEventRecord(suite: .init(testSuite), event: .start)
+        write(record: TestEventRecord(suiteEvent: record))
+    }
+
+    public func testCaseWillStart(_ testCase: XCTestCase) {
+        let record = TestCaseEventRecord(testCase: .init(testCase), event: .start)
+        write(record: TestEventRecord(caseEvent: record))
+    }
+
+    #if canImport(Darwin)
+    public func testCase(_ testCase: XCTestCase, didRecord issue: XCTIssue) {
+        let record = TestCaseFailureRecord(testCase: .init(testCase), issue: .init(issue), failureKind: .unexpected)
+        write(record: TestEventRecord(caseFailure: record))
+    }
+
+    public func testCase(_ testCase: XCTestCase, didRecord expectedFailure: XCTExpectedFailure) {
+        let record = TestCaseFailureRecord(testCase: .init(testCase), issue: .init(expectedFailure.issue), failureKind: .expected(failureReason: expectedFailure.failureReason))
+        write(record: TestEventRecord(caseFailure: record))
+    }
+    #else
+    public func testCase(_ testCase: XCTestCase, didFailWithDescription description: String, inFile filePath: String?, atLine lineNumber: Int) {
+        let issue = TestIssue(description: description, inFile: filePath, atLine: lineNumber)
+        let record = TestCaseFailureRecord(testCase: .init(testCase), issue: issue, failureKind: .unexpected)
+        write(record: TestEventRecord(caseFailure: record))
+    }
+    #endif
+
+    public func testCaseDidFinish(_ testCase: XCTestCase) {
+        let record = TestCaseEventRecord(testCase: .init(testCase), event: .finish)
+        write(record: TestEventRecord(caseEvent: record))
+    }
+
+    #if canImport(Darwin)
+    public func testSuite(_ testSuite: XCTestSuite, didRecord issue: XCTIssue) {
+        let record = TestSuiteFailureRecord(suite: .init(testSuite), issue: .init(issue), failureKind: .unexpected)
+        write(record: TestEventRecord(suiteFailure: record))
+    }
+
+    public func testSuite(_ testSuite: XCTestSuite, didRecord expectedFailure: XCTExpectedFailure) {
+        let record = TestSuiteFailureRecord(suite: .init(testSuite), issue: .init(expectedFailure.issue), failureKind: .expected(failureReason: expectedFailure.failureReason))
+        write(record: TestEventRecord(suiteFailure: record))
+    }
+    #else
+    public func testSuite(_ testSuite: XCTestSuite, didFailWithDescription description: String, inFile filePath: String?, atLine lineNumber: Int) {
+        let issue = TestIssue(description: description, inFile: filePath, atLine: lineNumber)
+        let record = TestSuiteFailureRecord(suite: .init(testSuite), issue: issue, failureKind: .unexpected)
+        write(record: TestEventRecord(suiteFailure: record))
+    }
+    #endif
+
+    public func testSuiteDidFinish(_ testSuite: XCTestSuite) {
+        let record = TestSuiteEventRecord(suite: .init(testSuite), event: .finish)
+        write(record: TestEventRecord(suiteEvent: record))
+    }
+
+    public func testBundleDidFinish(_ testBundle: Bundle) {
+        let record = TestBundleEventRecord(bundle: .init(testBundle), event: .finish)
+        write(record: TestEventRecord(bundleEvent: record))
+    }
+}
+
+// FIXME: Copied from `Lock.swift` in TSCBasic, would be nice if we had a better way
+
+#if canImport(Glibc)
+@_exported import Glibc
+#elseif canImport(Musl)
+@_exported import Musl
+#elseif os(Windows)
+@_exported import CRT
+@_exported import WinSDK
+#elseif os(WASI)
+@_exported import WASILibc
+#elseif canImport(Android)
+@_exported import Android
+#else
+@_exported import Darwin.C
+#endif
+
+import Foundation
+
+public final class FileLock {
+  #if os(Windows)
+    private var handle: HANDLE?
+  #else
+    private var fileDescriptor: CInt?
+  #endif
+
+    private let lockFile: URL
+
+    public init(at lockFile: URL) {
+        self.lockFile = lockFile
+    }
+
+    public func lock() throws {
+      #if os(Windows)
+        if handle == nil {
+            let h: HANDLE = lockFile.path.withCString(encodedAs: UTF16.self, {
+                CreateFileW(
+                    $0,
+                    UInt32(GENERIC_READ) | UInt32(GENERIC_WRITE),
+                    UInt32(FILE_SHARE_READ) | UInt32(FILE_SHARE_WRITE),
+                    nil,
+                    DWORD(OPEN_ALWAYS),
+                    DWORD(FILE_ATTRIBUTE_NORMAL),
+                    nil
+                )
+            })
+            if h == INVALID_HANDLE_VALUE {
+                throw FileSystemError(errno: Int32(GetLastError()), lockFile)
+            }
+            self.handle = h
+        }
+        var overlapped = OVERLAPPED()
+        overlapped.Offset = 0
+        overlapped.OffsetHigh = 0
+        overlapped.hEvent = nil
+        if !LockFileEx(handle, DWORD(LOCKFILE_EXCLUSIVE_LOCK), 0,
+                           UInt32.max, UInt32.max, &overlapped) {
+                throw ProcessLockError.unableToAquireLock(errno: Int32(GetLastError()))
+            }
+      #elseif os(WASI)
+        // WASI doesn't support flock
+      #else
+        if fileDescriptor == nil {
+            let fd = open(lockFile.path, O_WRONLY | O_CREAT | O_CLOEXEC, 0o666)
+            if fd == -1 {
+                fatalError("errno: \(errno), lockFile: \(lockFile)")
+            }
+            self.fileDescriptor = fd
+        }
+        while true {
+            if flock(fileDescriptor!, LOCK_EX) == 0 {
+                break
+            }
+            if errno == EINTR { continue }
+            fatalError("unable to acquire lock, errno: \(errno)")
+        }
+      #endif
+    }
+
+    public func unlock() {
+      #if os(Windows)
+        var overlapped = OVERLAPPED()
+        overlapped.Offset = 0
+        overlapped.OffsetHigh = 0
+        overlapped.hEvent = nil
+        UnlockFileEx(handle, 0, UInt32.max, UInt32.max, &overlapped)
+      #elseif os(WASI)
+        // WASI doesn't support flock
+      #else
+        guard let fd = fileDescriptor else { return }
+        flock(fd, LOCK_UN)
+      #endif
+    }
+
+    deinit {
+      #if os(Windows)
+        guard let handle = handle else { return }
+        CloseHandle(handle)
+      #elseif os(WASI)
+        // WASI doesn't support flock
+      #else
+        guard let fd = fileDescriptor else { return }
+        close(fd)
+      #endif
+    }
+
+    public func withLock<T>(_ body: () throws -> T) throws -> T {
+        try lock()
+        defer { unlock() }
+        return try body()
+    }
+
+    public func withLock<T>(_ body: () async throws -> T) async throws -> T {
+        try lock()
+        defer { unlock() }
+        return try await body()
+    }
+}
+
+// FIXME: Copied from `XCTEvents.swift`, would be nice if we had a better way
+
+struct TestEventRecord: Codable {
+    let caseFailure: TestCaseFailureRecord?
+    let suiteFailure: TestSuiteFailureRecord?
+
+    let bundleEvent: TestBundleEventRecord?
+    let suiteEvent: TestSuiteEventRecord?
+    let caseEvent: TestCaseEventRecord?
+
+    init(
+        caseFailure: TestCaseFailureRecord? = nil,
+        suiteFailure: TestSuiteFailureRecord? = nil,
+        bundleEvent: TestBundleEventRecord? = nil,
+        suiteEvent: TestSuiteEventRecord? = nil,
+        caseEvent: TestCaseEventRecord? = nil
+    ) {
+        self.caseFailure = caseFailure
+        self.suiteFailure = suiteFailure
+        self.bundleEvent = bundleEvent
+        self.suiteEvent = suiteEvent
+        self.caseEvent = caseEvent
+    }
+}
+
+// MARK: - Records
+
+struct TestAttachment: Codable {
+    let name: String?
+    // TODO: Handle `userInfo: [AnyHashable : Any]?`
+    let uniformTypeIdentifier: String
+    let payload: Data?
+}
+
+struct TestBundleEventRecord: Codable {
+    let bundle: TestBundle
+    let event: TestEvent
+}
+
+struct TestCaseEventRecord: Codable {
+    let testCase: TestCase
+    let event: TestEvent
+}
+
+struct TestCaseFailureRecord: Codable, CustomStringConvertible {
+    let testCase: TestCase
+    let issue: TestIssue
+    let failureKind: TestFailureKind
+
+    var description: String {
+        return "\(issue.sourceCodeContext.description)\(testCase) \(issue.compactDescription)"
+    }
+}
+
+struct TestSuiteEventRecord: Codable {
+    let suite: TestSuiteRecord
+    let event: TestEvent
+}
+
+struct TestSuiteFailureRecord: Codable {
+    let suite: TestSuiteRecord
+    let issue: TestIssue
+    let failureKind: TestFailureKind
+}
+
+// MARK: Primitives
+
+struct TestBundle: Codable {
+    let bundleIdentifier: String?
+    let bundlePath: String
+}
+
+struct TestCase: Codable {
+    let name: String
+}
+
+struct TestErrorInfo: Codable {
+    let description: String
+    let type: String
+}
+
+enum TestEvent: Codable {
+    case start
+    case finish
+}
+
+enum TestFailureKind: Codable, Equatable {
+    case unexpected
+    case expected(failureReason: String?)
+
+    var isExpected: Bool {
+        switch self {
+        case .expected: return true
+        case .unexpected: return false
+        }
+    }
+}
+
+struct TestIssue: Codable {
+    let type: TestIssueType
+    let compactDescription: String
+    let detailedDescription: String?
+    let associatedError: TestErrorInfo?
+    let sourceCodeContext: TestSourceCodeContext
+    let attachments: [TestAttachment]
+}
+
+enum TestIssueType: Codable {
+    case assertionFailure
+    case performanceRegression
+    case system
+    case thrownError
+    case uncaughtException
+    case unmatchedExpectedFailure
+    case unknown
+}
+
+struct TestLocation: Codable, CustomStringConvertible {
+    let file: String
+    let line: Int
+
+    var description: String {
+        return "\(file):\(line) "
+    }
+}
+
+struct TestSourceCodeContext: Codable, CustomStringConvertible {
+    let callStack: [TestSourceCodeFrame]
+    let location: TestLocation?
+
+    var description: String {
+        return location?.description ?? ""
+    }
+}
+
+struct TestSourceCodeFrame: Codable {
+    let address: UInt64
+    let symbolInfo: TestSourceCodeSymbolInfo?
+    let symbolicationError: TestErrorInfo?
+}
+
+struct TestSourceCodeSymbolInfo: Codable {
+    let imageName: String
+    let symbolName: String
+    let location: TestLocation?
+}
+
+struct TestSuiteRecord: Codable {
+    let name: String
+}
+
+// MARK: XCTest compatibility
+
+extension TestIssue {
+    init(description: String, inFile filePath: String?, atLine lineNumber: Int) {
+        let location: TestLocation?
+        if let filePath = filePath {
+            location = .init(file: filePath, line: lineNumber)
+        } else {
+            location = nil
+        }
+        self.init(type: .assertionFailure, compactDescription: description, detailedDescription: description, associatedError: nil, sourceCodeContext: .init(callStack: [], location: location), attachments: [])
+    }
+}
+
+import XCTest
+
+#if canImport(Darwin) // XCTAttachment is unavailable in swift-corelibs-xctest.
+extension TestAttachment {
+    init(_ attachment: XCTAttachment) {
+        self.init(
+            name: attachment.name,
+            uniformTypeIdentifier: attachment.uniformTypeIdentifier,
+            payload: attachment.value(forKey: "payload") as? Data
+        )
+    }
+}
+#endif
+
+extension TestBundle {
+    init(_ testBundle: Bundle) {
+        self.init(
+            bundleIdentifier: testBundle.bundleIdentifier,
+            bundlePath: testBundle.bundlePath
+        )
+    }
+}
+
+extension TestCase {
+    init(_ testCase: XCTestCase) {
+        self.init(name: testCase.name)
+    }
+}
+
+extension TestErrorInfo {
+    init(_ error: any Swift.Error) {
+        self.init(description: "\(error)", type: "\(Swift.type(of: error))")
+    }
+}
+
+#if canImport(Darwin) // XCTIssue is unavailable in swift-corelibs-xctest.
+extension TestIssue {
+    init(_ issue: XCTIssue) {
+        self.init(
+            type: .init(issue.type),
+            compactDescription: issue.compactDescription,
+            detailedDescription: issue.detailedDescription,
+            associatedError: issue.associatedError.map { .init($0) },
+            sourceCodeContext: .init(issue.sourceCodeContext),
+            attachments: issue.attachments.map { .init($0) }
+        )
+    }
+}
+
+extension TestIssueType {
+    init(_ type: XCTIssue.IssueType) {
+        switch type {
+        case .assertionFailure: self = .assertionFailure
+        case .thrownError: self = .thrownError
+        case .uncaughtException: self = .uncaughtException
+        case .performanceRegression: self = .performanceRegression
+        case .system: self = .system
+        case .unmatchedExpectedFailure: self = .unmatchedExpectedFailure
+        @unknown default: self = .unknown
+        }
+    }
+}
+#endif
+
+#if canImport(Darwin) // XCTSourceCodeLocation/XCTSourceCodeContext/XCTSourceCodeFrame/XCTSourceCodeSymbolInfo is unavailable in swift-corelibs-xctest.
+extension TestLocation {
+    init(_ location: XCTSourceCodeLocation) {
+        self.init(
+            file: location.fileURL.absoluteString,
+            line: location.lineNumber
+        )
+    }
+}
+
+extension TestSourceCodeContext {
+    init(_ context: XCTSourceCodeContext) {
+        self.init(
+            callStack: context.callStack.map { .init($0) },
+            location: context.location.map { .init($0) }
+        )
+    }
+}
+
+extension TestSourceCodeFrame {
+    init(_ frame: XCTSourceCodeFrame) {
+        self.init(
+            address: frame.address,
+            symbolInfo: (try? frame.symbolInfo()).map { .init($0) },
+            symbolicationError: frame.symbolicationError.map { .init($0) }
+        )
+    }
+}
+
+extension TestSourceCodeSymbolInfo {
+    init(_ symbolInfo: XCTSourceCodeSymbolInfo) {
+        self.init(
+            imageName: symbolInfo.imageName,
+            symbolName: symbolInfo.symbolName,
+            location: symbolInfo.location.map { .init($0) }
+        )
+    }
+}
+#endif
+
+extension TestSuiteRecord {
+    init(_ testSuite: XCTestSuite) {
+        self.init(name: testSuite.name)
+    }
+}
+
+import XCTest
+
+#endif
+
+@main
+@available(macOS 10.15, iOS 11, watchOS 4, tvOS 11, *)
+@available(*, deprecated, message: "Not actually deprecated. Marked as deprecated to allow inclusion of deprecated tests (which test deprecated functionality) without warnings")
+struct Runner {
+    private static func testingLibrary() -> String {
+        var iterator = CommandLine.arguments.makeIterator()
+        while let argument = iterator.next() {
+            if argument == "--testing-library", let libraryName = iterator.next() {
+                return libraryName.lowercased()
+            }
+        }
+
+        // Fallback if not specified: run XCTest (legacy behavior)
+        return "xctest"
+    }
+
+    #if false
+    @_silgen_name("$ss13_runAsyncMainyyyyYaKcF")
+    private static func _runAsyncMain(_ asyncFun: @Sendable @escaping () async throws -> ())
+    #endif
+
+    static func main() async {
+        let testingLibrary = Self.testingLibrary()
+        #if canImport(Testing)
+        if testingLibrary == "swift-testing" {
+            #if false
+            _runAsyncMain {
+                await Testing.__swiftPMEntryPoint() as Never
+            }
+            #else
+            await Testing.__swiftPMEntryPoint() as Never
+            #endif
+        }
+        #endif
+        #if false
+        if testingLibrary == "xctest" {
+            
+             XCTMain(__allDiscoveredTests()) as Never
+        }
+        #endif
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: AttractionCalculator.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/AttractionCalculator.swift
 Last modified: 2025-10-27 09:22:03
@@ -317,7 +869,7 @@ public enum GraphError: Error, LocalizedError {
 ----------------------------------------------------------------------------------------------------
 File: GraphModel.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel.swift
-Last modified: 2025-11-08 16:35:15
+Last modified: 2025-11-12 09:12:16
 
 Contents:
 //
@@ -410,22 +962,24 @@ import WatchKit
             },
             physicsEngine: self.physicsEngine,
             onStable: { [weak self] in
-                guard let self = self, !self.isStable else { return }
-                let velocities = self.nodes.map { hypot($0.velocity.x, $0.velocity.y) }
-                if velocities.allSatisfy({ $0 < 0.001 }) {
-                    // CHANGED: Qualified static logger
-                    Self.logger.infoLog("Simulation stable: Centering nodes")  // Replaced print
-                    let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes.map { $0.unwrapped })
-                    self.nodes = centeredNodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
-                    self.isStable = true
-                    Task.detached {
-                        await self.stopSimulation()
-                        try? await Task.sleep(nanoseconds: 500_000_000)
-                        await MainActor.run {
-                            self.isStable = false
+                Task { @MainActor in
+                    guard let self = self, !self.isStable else { return }
+                    let velocities = self.nodes.map { hypot($0.velocity.x, $0.velocity.y) }
+                    if velocities.allSatisfy({ $0 < 0.001 }) {
+                        // CHANGED: Qualified static logger
+                        Self.logger.infoLog("Simulation stable: Centering nodes")  // Replaced print
+                        let centeredNodes = self.physicsEngine.centerNodes(nodes: self.nodes.map { $0.unwrapped })
+                        self.nodes = centeredNodes.map { AnyNode($0.with(position: $0.position, velocity: .zero)) }
+                        self.isStable = true
+                        Task.detached {
+                            await self.stopSimulation()
+                            try? await Task.sleep(nanoseconds: 500_000_000)
+                            await MainActor.run {
+                                self.isStable = false
+                            }
                         }
+                        self.objectWillChange.send()
                     }
-                    self.objectWillChange.send()
                 }
             },
             onPostStable: { [weak self] in
@@ -458,440 +1012,6 @@ import WatchKit
             adj[edge.from, default: []].append(edge.target)
         }
         return adj
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphModel+EdgesNodes.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+EdgesNodes.swift
-Last modified: 2025-11-10 22:56:21
-
-Contents:
-//
-//  GraphModel+EdgesNodes.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 9/19/25.
-//
-import Foundation
-import os  // ADDED: For Logger
-
-@available(iOS 16.0, watchOS 6.0, *)
-extension GraphModel {
-    // NEW: Add static logger for this extension
-    private static let logger = Logger.forCategory("graphmodel_edgesnodes")
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func wouldCreateCycle(withNewEdgeFrom from: NodeID, target: NodeID, type: EdgeType) -> Bool {
-        guard type == .hierarchy else { return false }
-        var tempEdges = edges.filter { $0.type == .hierarchy }
-        tempEdges.append(GraphEdge(from: from, target: target, type: type))
-        return !isAcyclic(edges: tempEdges)
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    private func isAcyclic(edges: [GraphEdge]) -> Bool {
-        var adj: [NodeID: [NodeID]] = [:]
-        var inDegree: [NodeID: Int] = [:]
-        nodes.forEach { inDegree[$0.id] = 0 }
-        for edge in edges {
-            adj[edge.from, default: []].append(edge.target)
-            inDegree[edge.target, default: 0] += 1
-        }
-        var queue = nodes.filter { inDegree[$0.id] == 0 }.map { $0.id }
-        var count = 0
-        while !queue.isEmpty {
-            let node = queue.removeFirst()
-            count += 1
-            for neighbor in adj[node] ?? [] {
-                inDegree[neighbor]! -= 1
-                if inDegree[neighbor]! == 0 { queue.append(neighbor) }
-            }
-        }
-        return count == nodes.count
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func addEdge(from: NodeID, target: NodeID, type: EdgeType) async {
-        if wouldCreateCycle(withNewEdgeFrom: from, target: target, type: type) {
-            // CHANGED: Qualified static logger
-            Self.logger.warning("Cannot add edge: Would create cycle in hierarchy")  // Replaced print with warning log
-            return
-        }
-        pushUndo()
-        edges.append(GraphEdge(from: from, target: target, type: type))
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func deleteEdge(withID id: UUID) async {
-        // CHANGED: Qualified
-        Self.logger.debugLog("Deleting edge with ID: \(id.uuidString.prefix(8))")  // Added debug log
-        pushUndo()
-        edges.removeAll { $0.id == id }
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func addNode(at position: CGPoint) async {
-        // CHANGED: Qualified; manual CGPoint formatting
-        Self.logger.debugLog("Adding node at position: x=\(position.x), y=\(position.y)")  // Added debug log
-        pushUndo()
-        let newLabel = nextNodeLabel
-        nextNodeLabel += 1
-        let newNode = AnyNode(Node(label: newLabel, position: position))
-        nodes.append(newNode)
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func addToggleNode(at position: CGPoint) async {
-        Self.logger.debugLog("Adding toggle node at position: x=\(position.x), y=\(position.y)")  // Added debug log
-        pushUndo()
-        let newLabel = nextNodeLabel
-        nextNodeLabel += 1
-        let newNode = AnyNode(ToggleNode(label: newLabel, position: position))
-        nodes.append(newNode)
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func addPlainChild(to parentID: NodeID) async {
-        Self.logger.debugLog("Adding plain child to parent ID: \(parentID.uuidString.prefix(8))")
-        await addChildInternal(to: parentID, createChild: { label, position in
-            Node(label: label, position: position)  // Use existing Node type
-        })
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func addToggleChild(to parentID: NodeID) async {
-        Self.logger.debugLog("Adding toggle child to parent ID: \(parentID.uuidString.prefix(8))")
-        await addChildInternal(to: parentID, createChild: { label, position in
-            ToggleNode(label: label, position: position)  // Use existing ToggleNode type
-        })
-    }
-    
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    // Private helper to avoid duplication (handles common logic like offsets, edges, and childOrder updates)
-    private func addChildInternal(to parentID: NodeID, createChild: (Int, CGPoint) -> some NodeProtocol) async {
-        pushUndo()
-        let newLabel = nextNodeLabel
-        nextNodeLabel += 1
-        guard let parentIndex = nodes.firstIndex(where: { $0.id == parentID }) else { return }
-        let parentPosition = nodes[parentIndex].position
-        let offsetX = CGFloat.random(in: -50...50)  // Random for natural spread
-        let offsetY = CGFloat.random(in: -50...50)
-        let newPosition = CGPoint(x: parentPosition.x + offsetX, y: parentPosition.y + offsetY)
-        
-        // Create the child using the provided factory (leverages existing types)
-        let child = createChild(newLabel, newPosition)
-        let newNode = AnyNode(child)
-        nodes.append(newNode)
-        edges.append(GraphEdge(from: parentID, target: newNode.id, type: .hierarchy))
-        
-        // If parent is ToggleNode, append to its children and childOrder
-        if var parentToggle = nodes[parentIndex].unwrapped as? ToggleNode {
-            if !parentToggle.children.contains(newNode.id) {  // Avoid duplicates
-                parentToggle.children.append(newNode.id)
-                parentToggle.childOrder.append(newNode.id)  // Append to maintain initial order
-                nodes[parentIndex] = AnyNode(parentToggle)
-            }
-        }
-        
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-    
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func deleteNode(withID id: NodeID) async {
-        // CHANGED: Qualified
-        Self.logger.debugLog("Deleting node with ID: \(id.uuidString.prefix(8))")  // Added debug log
-        pushUndo()
-        nodes.removeAll { $0.id == id }
-        edges.removeAll { $0.from == id || $0.target == id }
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func updateNodeContents(withID id: NodeID, newContents: [NodeContent]) async {
-        // CHANGED: Qualified
-        Self.logger.debugLog("Updating contents for node ID: \(id.uuidString.prefix(8))")  // Added debug log
-        pushUndo()
-        if let index = nodes.firstIndex(where: { $0.id == id }) {
-            var updated = nodes[index].unwrapped
-            updated.contents = newContents
-            nodes[index] = AnyNode(updated)
-            objectWillChange.send()
-            await resumeSimulation()
-        }
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func deleteSelected(selectedNodeID: NodeID?, selectedEdgeID: UUID?) async {
-        // CHANGED: Qualified
-        Self.logger.debugLog("Deleting selected: node=\(selectedNodeID?.uuidString.prefix(8) ?? "nil"), edge=\(selectedEdgeID?.uuidString.prefix(8) ?? "nil")")  // Added debug log
-        pushUndo()
-        if let id = selectedEdgeID {
-            edges.removeAll { $0.id == id }
-        } else if let id = selectedNodeID {
-            nodes.removeAll { $0.id == id }
-            edges.removeAll { $0.from == id || $0.target == id }
-        }
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func toggleExpansion(for nodeID: NodeID) async {
-        // CHANGED: Qualified
-        Self.logger.debugLog("Toggling expansion for node ID: \(nodeID.uuidString.prefix(8))")  // Added debug log
-        pushUndo()
-        guard let idx = nodes.firstIndex(where: { $0.id == nodeID }), let toggle = nodes[idx].unwrapped as? ToggleNode else { return }
-        let updated = toggle.handlingTap()
-        nodes[idx] = AnyNode(updated)
-        objectWillChange.send()
-        await resumeSimulation()
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphModel+Helpers.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Helpers.swift
-Last modified: 2025-11-06 14:22:57
-
-Contents:
-//
-//  GraphModel+Helpers.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 9/19/25.
-//
-import Foundation
-
-@available(iOS 16.0, watchOS 6.0, *)
-extension GraphModel {
-    public func resetGraph() async {
-        nodes.removeAll()
-        edges.removeAll()
-        nextNodeLabel = 1  // Reset label counter
-        undoStack.removeAll()
-        redoStack.removeAll()
-        objectWillChange.send()
-        await startSimulation()  // Or resume if needed
-    }
-    
-    func buildAdjacencyList(for edgeType: EdgeType? = nil) -> [NodeID: [NodeID]] {
-        var adj = [NodeID: [NodeID]]()
-        let filteredEdges = edgeType != nil ? edges.filter { $0.type == edgeType! } : edges
-        for edge in filteredEdges {
-            adj[edge.from, default: []].append(edge.target)
-        }
-        return adj
-    }
-
-    private func dfsVisible(node: any NodeProtocol, adjacency: [NodeID: [NodeID]], visited: inout Set<NodeID>, visible: inout [any NodeProtocol]) {
-        visited.insert(node.id)
-        visible.append(node)
-        if !node.isExpanded { return }
-        if let children = adjacency[node.id] {
-            for childID in children {
-                if !visited.contains(childID), let child = nodes.first(where: { $0.id == childID })?.unwrapped {
-                    dfsVisible(node: child, adjacency: adjacency, visited: &visited, visible: &visible)
-                }
-            }
-        }
-    }
-
-    public func isBidirectionalBetween(_ id1: NodeID, _ id2: NodeID) -> Bool {
-        edges.contains(where: { $0.from == id1 && $0.target == id2 }) &&
-        edges.contains(where: { $0.from == id2 && $0.target == id1 })
-    }
-
-    public func edgesBetween(_ id1: NodeID, _ id2: NodeID) -> [GraphEdge] {
-        edges.filter { ($0.from == id1 && $0.target == id2) || ($0.from == id2 && $0.target == id1) }
-    }
-
-    public func handleTap(on nodeID: NodeID) async {
-        guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else {
-            print("handleTap: Index not found for ID \(nodeID)")
-            return
-        }
-        let oldNode = nodes[index]
-        print("handleTap: Pre-handlingTap - old isExpanded: \((oldNode.unwrapped as? ToggleNode)?.isExpanded.description ?? "not ToggleNode")")  // Check initial
-
-        let updatedNode = oldNode.handlingTap()
-        print("handleTap: Post-handlingTap - updated isExpanded: \((updatedNode.unwrapped as? ToggleNode)?.isExpanded.description ?? "not ToggleNode")")  // Key: Should be toggled, but won't be
-
-        nodes[index] = updatedNode
-        print("handleTap: Post-assignment - model.nodes[\(index)] isExpanded: \((nodes[index].unwrapped as? ToggleNode)?.isExpanded.description ?? "not ToggleNode")")  // Verify stuck in model
-
-        let children = edges.filter { $0.from == nodeID && $0.type == EdgeType.hierarchy }.map { $0.target }
-        if let toggleNode = updatedNode.unwrapped as? ToggleNode {
-            print("handleTap: Entered if-let - toggleNode isExpanded: \(toggleNode.isExpanded)")  // Will print false, enters else
-            if toggleNode.isExpanded {
-                print("handleTap: Running expand block")
-                for childID in children {
-                                    guard let childIndex = nodes.firstIndex(where: { $0.id == childID }) else { continue }
-                                    var child = nodes[childIndex]
-                                    let offsetX = CGFloat.random(in: -Constants.App.nodeModelRadius * 3 ... Constants.App.nodeModelRadius * 3)
-                                    let offsetY = CGFloat.random(in: Constants.App.nodeModelRadius * 2 ... Constants.App.nodeModelRadius * 4)
-                                    child.position = toggleNode.position + CGPoint(x: offsetX, y: offsetY)
-                                    child.velocity = .zero
-                                    nodes[childIndex] = child
-                                }
-                                physicsEngine.temporaryDampingBoost(steps: Constants.Physics.maxSimulationSteps / 10)
-            } else {
-                print("handleTap: Running collapse block")
-                for childID in children {
-                    guard let childIndex = nodes.firstIndex(where: { $0.id == childID }) else { continue }
-                    var child = nodes[childIndex]
-                    child.position = toggleNode.position
-                    child.velocity = .zero
-                    nodes[childIndex] = child
-                }
-            }
-        } else {
-            print("handleTap: Cast to ToggleNode failed on updatedNode")
-        }
-
-        objectWillChange.send()
-        let unwrappedNodes = nodes.map { $0.unwrapped }
-        let updatedUnwrapped = physicsEngine.runSimulation(steps: 20, nodes: unwrappedNodes, edges: edges)
-        nodes = updatedUnwrapped.map { AnyNode($0) }
-        print("handleTap: Post-simulation - model.nodes[\(index)] isExpanded: \((nodes[index].unwrapped as? ToggleNode)?.isExpanded.description ?? "not ToggleNode")")  // Check if sim overwrote
-
-        await resumeSimulation()
-    }
-    
-    public func graphDescription(selectedID: NodeID?, selectedEdgeID: UUID?) -> String {
-        let edgeCount = edges.count
-        let edgeWord = edgeCount == 1 ? "edge" : "edges"
-        var desc = "Graph with \(nodes.count) nodes and \(edgeCount) directed \(edgeWord)."
-        if let selectedEdgeID = selectedEdgeID, let selectedEdge = edges.first(where: { $0.id == selectedEdgeID }),
-           let fromNode = nodes.first(where: { $0.id == selectedEdge.from })?.unwrapped,
-           let toNode = nodes.first(where: { $0.id == selectedEdge.target })?.unwrapped {
-            desc += " Directed edge from node \(fromNode.label) to node \(toNode.label) selected."
-        } else if let selectedID = selectedID, let selectedNode = nodes.first(where: { $0.id == selectedID })?.unwrapped {
-            let outgoingLabels = edges
-                .filter { $0.from == selectedID }
-                .compactMap { edge in
-                    let targetID = edge.target
-                    return nodes.first { $0.id == targetID }?.unwrapped.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let incomingLabels = edges
-                .filter { $0.target == selectedID }
-                .compactMap { edge in
-                    let fromID = edge.from
-                    return nodes.first { $0.id == fromID }?.unwrapped.label
-                }
-                .sorted()
-                .map { String($0) }
-                .joined(separator: ", ")
-            let outgoingText = outgoingLabels.isEmpty ? "none" : outgoingLabels
-            let incomingText = incomingLabels.isEmpty ? "none" : incomingLabels
-            desc += " Node \(selectedNode.label) selected, outgoing to: \(outgoingText); incoming from: \(incomingText)."
-        } else {
-            desc += " No node or edge selected."
-        }
-        return desc
-    }
-    
-    public var centroid: CGPoint? {
-        GraphEditorShared.centroid(of: visibleNodes())
-    }
-    
-    public func sortChildren<ComparableValue: Comparable>(of nodeID: NodeID, by keyPath: KeyPath<any NodeProtocol, ComparableValue>) async {
-        guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
-              let toggleNode = nodes[index].unwrapped as? ToggleNode else {
-            // Skip if not ToggleNode
-            return
-        }
-        
-        pushUndo()  // Allow undo of sorting
-        let sortedOrder = toggleNode.children.sorted { childID1, childID2 in
-            guard let node1 = nodes.first(where: { $0.id == childID1 })?.unwrapped,
-                  let node2 = nodes.first(where: { $0.id == childID2 })?.unwrapped else {
-                return false  // Stable sort if nodes missing
-            }
-            return node1[keyPath: keyPath] < node2[keyPath: keyPath]
-        }
-        
-        let updated = toggleNode.with(childOrder: sortedOrder)
-        nodes[index] = AnyNode(updated)
-        objectWillChange.send()
-        await resumeSimulation()  // Re-simulate for layout adjustments
-    }
-}
-----------------------------------------------------------------------------------------------------
-File: GraphModel+Simulation.swift
-Path: GraphEditorShared/Sources/GraphEditorShared/GraphModel+Simulation.swift
-Last modified: 2025-11-10 23:32:45
-
-Contents:
-//
-//  GraphModel+Simulation.swift
-//  GraphEditorShared
-//
-//  Created by handcart on 9/19/25.
-//
-import Foundation
-import os  // ADDED: For Logger
-
-@available(iOS 16.0, watchOS 6.0, *)
-extension GraphModel {
-    private static let logger = Logger.forCategory("graphmodel-simulation")  // ADDED: Local static logger for this extension
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func startSimulation() async {
-        Self.logger.infoLog("Starting simulation")  // Qualified with Self
-        isSimulating = true
-        isStable = false
-        await simulator.startSimulation()
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func pauseSimulation() async {
-        Self.logger.debugLog("Pausing simulation")  // Qualified with Self
-        physicsEngine.isPaused = true
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func resumeSimulation() async {
-        Self.logger.debugLog("Resuming simulation")  // Qualified with Self
-        physicsEngine.isPaused = false
-        if await simulator.simulationTask == nil {
-            await startSimulation()
-        }
-    }
-
-    // ADDED: @MainActor to isolate this method to the main thread
-    @MainActor
-    public func stopSimulation() async {
-        Self.logger.infoLog("Stopping simulation")  // Qualified with Self
-        await simulator.stopSimulation()
-        isSimulating = false
     }
 }
 --------------------------------------------------

@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>307</string>
+					<string>126</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>307</string>
+					<string>126</string>
 					<key>Timestamp</key>
-					<string>784144316.1396461</string>
+					<string>784660657.84058</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,11 +36,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    ContentView(viewModel: mockViewModel)
-}
+				<string>                }
+                .onReceive(viewModel.model.$isStable) { isStable in
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>                    if isStable {
+#if DEBUG
+                        logger.debug("Simulation stable: Centering nodes")
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -55,13 +58,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>307</string>
+					<string>126</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>307</string>
+					<string>126</string>
 					<key>Timestamp</key>
-					<string>784144316.139637</string>
+					<string>784660657.840554</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -79,11 +82,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    ContentView(viewModel: mockViewModel)
-}
+				<string>                }
+                .onReceive(viewModel.model.$isStable) { isStable in
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>                    if isStable {
+#if DEBUG
+                        logger.debug("Simulation stable: Centering nodes")
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>

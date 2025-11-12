@@ -1,15 +1,230 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-11 12:40:28
+Current date: 2025-11-12 10:00:33
 Table of Contents:
-1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
-2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
-3. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
-4. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-5. GraphEditorWatch/EnvironmentKeys.swift
-6. GraphEditorWatch/GraphEditorWatch.swift
-7. GraphEditorWatch/Models/AppConstants.swift--------------------------------------------------
+1. GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+2. GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+3. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
+4. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
+5. GraphEditorShared/Sources/GraphEditorShared/ToggleNode.swift
+6. GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
+7. GraphEditorWatch/EnvironmentKeys.swift
+8. GraphEditorWatch/GraphEditorWatch.swift
+9. GraphEditorWatch/Models/AppConstants.swift--------------------------------------------------
+File: PositionUpdater.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/PositionUpdater.swift
+Last modified: 2025-10-08 13:12:23
+
+Contents:
+//
+//  PositionUpdater.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/12/25.
+//
+
+import Foundation
+import CoreGraphics
+
+struct PositionUpdater {
+    let simulationBounds: CGSize
+
+    private func clampedPositionAndBouncedVelocity(for tentativePosition: CGPoint, with tentativeVelocity: CGPoint) -> (CGPoint, CGPoint) {
+        let oldPosition = tentativePosition
+        var newPosition = tentativePosition
+        newPosition.x = max(0, min(simulationBounds.width, newPosition.x))
+        newPosition.y = max(0, min(simulationBounds.height, newPosition.y))
+        var newVelocity = tentativeVelocity
+        if newPosition.x != oldPosition.x {
+            newVelocity.x = -newVelocity.x * 0.8
+        }
+        if newPosition.y != oldPosition.y {
+            newVelocity.y = -newVelocity.y * 0.8
+        }
+        return (newPosition, newVelocity)
+    }
+
+    private func adjustPositionForCollisions(_ position: CGPoint, excluding nodeID: NodeID, using quadtree: Quadtree?, allNodes nodes: [any NodeProtocol]) -> CGPoint {
+        let minDist: CGFloat = 35.0
+        var newPosition = position
+        if let quadTree = quadtree {
+            let nearby = quadTree.queryNearby(position: newPosition, radius: minDist)
+            for other in nearby where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        } else {
+            for other in nodes where other.id != nodeID {
+                let delta = newPosition - other.position
+                let distance = hypot(delta.x, delta.y)
+                if distance < minDist && distance > 0 {
+                    newPosition += (delta / distance) * (minDist - distance) / 2
+                }
+            }
+        }
+        return newPosition
+    }
+
+    private func buildParentMap(from edges: [GraphEdge]) -> [NodeID: [NodeID]] {
+        var parentMap = [NodeID: [NodeID]]()
+        for edge in edges {
+            parentMap[edge.target, default: []].append(edge.from)
+        }
+        return parentMap
+    }
+
+    private func finalPositionAndVelocity(for nodeID: NodeID, tentative: (position: CGPoint, velocity: CGPoint), parentMap: [NodeID: [NodeID]], isExpandedMap: [NodeID: Bool], tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)]) -> (CGPoint, CGPoint) {
+        var newPosition = tentative.position
+        var newVelocity = tentative.velocity
+        if let parents = parentMap[nodeID], !parents.isEmpty {
+            let collapsedParents = parents.filter { parentID in
+                isExpandedMap[parentID] == false
+            }
+            if !collapsedParents.isEmpty {
+                var avgPos = CGPoint.zero
+                for parentID in collapsedParents {
+                    avgPos += tentativeUpdates[parentID]!.position
+                }
+                avgPos /= CGFloat(collapsedParents.count)
+                newPosition = avgPos
+                newVelocity = .zero  // Override velocity for collapsed children
+            }
+        }
+        return (newPosition, newVelocity)
+    }
+
+    func updatePositionsAndVelocities(nodes: [any NodeProtocol], forces: [NodeID: CGPoint], edges: [GraphEdge], quadtree: Quadtree?) -> ([any NodeProtocol], Bool) {
+        let timeStep: CGFloat = Constants.Physics.timeStep  // Updated: Use constant
+        var tentativeUpdates: [NodeID: (position: CGPoint, velocity: CGPoint)] = [:]
+        var isActive = false
+
+        for node in nodes {
+            let force = forces[node.id] ?? .zero
+            var newVelocity = node.velocity + force / node.mass * timeStep
+            var newPosition = node.position + newVelocity * timeStep
+
+            newVelocity *= Constants.Physics.damping  // Apply global damping
+
+            let (clampedPosition, bouncedVelocity) = clampedPositionAndBouncedVelocity(for: newPosition, with: newVelocity)
+            newPosition = clampedPosition
+            newVelocity = bouncedVelocity
+
+            newPosition = adjustPositionForCollisions(newPosition, excluding: node.id, using: quadtree, allNodes: nodes)
+
+            if hypot(newVelocity.x, newVelocity.y) > 0.001 {
+                isActive = true
+            }
+
+            tentativeUpdates[node.id] = (newPosition, newVelocity)
+        }
+
+        let parentMap = buildParentMap(from: edges)
+        let isExpandedMap = nodes.reduce(into: [NodeID: Bool]()) { $0[$1.id] = $1.isExpanded }
+        var updatedNodes: [any NodeProtocol] = []
+
+        for node in nodes {
+            let tentative = tentativeUpdates[node.id]!
+            let (finalPosition, finalVelocity) = finalPositionAndVelocity(for: node.id, tentative: tentative, parentMap: parentMap, isExpandedMap: isExpandedMap, tentativeUpdates: tentativeUpdates)
+            updatedNodes.append(node.with(position: finalPosition, velocity: finalVelocity))
+        }
+
+        return (updatedNodes, isActive)
+    }
+}
+----------------------------------------------------------------------------------------------------
+File: Protocols.swift
+Path: GraphEditorShared/Sources/GraphEditorShared/Protocols.swift
+Last modified: 2025-10-03 14:47:43
+
+Contents:
+//
+//  Protocols.swift
+//  GraphEditorShared
+//
+//  Created by handcart on 8/1/25.
+//
+
+// Sources/GraphEditorShared/Protocols.swift
+
+import SwiftUI
+
+@available(iOS 16.0, watchOS 6.0, *)
+public struct ViewState: Codable {
+    public var offset: CGPoint
+    public var zoomScale: CGFloat
+    public var selectedNodeID: UUID?
+    public var selectedEdgeID: UUID?
+
+    // Explicit initializer to fix "Extra arguments" error
+    public init(offset: CGPoint, zoomScale: CGFloat, selectedNodeID: UUID? = nil, selectedEdgeID: UUID? = nil) {
+        self.offset = offset
+        self.zoomScale = zoomScale
+        self.selectedNodeID = selectedNodeID
+        self.selectedEdgeID = selectedEdgeID
+    }
+
+    // Custom Codable conformance to handle decoding/encoding
+    enum CodingKeys: String, CodingKey {
+        case offset
+        case zoomScale
+        case selectedNodeID
+        case selectedEdgeID
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let offsetX = try container.decode(CGFloat.self, forKey: .offset)
+        let offsetY = try container.decode(CGFloat.self, forKey: .offset)
+        offset = CGPoint(x: offsetX, y: offsetY)  // Assuming offset is encoded as two values; adjust if encoded as dict/array
+        zoomScale = try container.decode(CGFloat.self, forKey: .zoomScale)
+        selectedNodeID = try container.decodeIfPresent(UUID.self, forKey: .selectedNodeID)
+        selectedEdgeID = try container.decodeIfPresent(UUID.self, forKey: .selectedEdgeID)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(offset.x, forKey: .offset)  // Adjust encoding if needed
+        try container.encode(offset.y, forKey: .offset)
+        try container.encode(zoomScale, forKey: .zoomScale)
+        try container.encodeIfPresent(selectedNodeID, forKey: .selectedNodeID)
+        try container.encodeIfPresent(selectedEdgeID, forKey: .selectedEdgeID)
+    }
+}
+
+@available(iOS 16.0, watchOS 6.0, *)
+public protocol GraphStorage {
+    /// Saves the graph nodes and edges, throwing on failure (e.g., encoding or writing errors).
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge]) async throws
+    /// Loads the graph nodes and edges, throwing on failure (e.g., file not found or decoding errors).
+    func load() async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func clear() async throws  // Unchanged
+    func saveViewState(_ viewState: ViewState) async throws
+    func loadViewState() async throws -> ViewState?
+    // Multi-graph methods (required to preserve functionality)
+    func listGraphNames() async throws -> [String]
+    func createNewGraph(name: String) async throws
+    func save(nodes: [any NodeProtocol], edges: [GraphEdge], for name: String) async throws
+    func load(for name: String) async throws -> (nodes: [any NodeProtocol], edges: [GraphEdge])
+    func deleteGraph(name: String) async throws
+    func saveViewState(_ viewState: ViewState, for name: String) throws
+    func loadViewState(for name: String) throws -> ViewState?
+}
+
+@available(iOS 16.0, watchOS 6.0, *)
+extension GraphStorage {
+    func saveViewState(_ viewState: ViewState) throws {
+        // Default: Do nothing (for storages that don't support view state)
+    }
+    
+    func loadViewState() throws -> ViewState? {
+        return nil  // Default: No state
+    }
+}
+----------------------------------------------------------------------------------------------------
 File: Quadtree.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 Last modified: 2025-09-19 13:45:29

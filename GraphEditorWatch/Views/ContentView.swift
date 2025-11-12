@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 import os  // Added for logging
 
-struct ContentView: View { // swiftlint:disable:this type_body_length
+struct ContentView: View { 
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
     
     @ObservedObject var viewModel: GraphViewModel
@@ -249,51 +249,7 @@ struct ContentView: View { // swiftlint:disable:this type_body_length
         logger.debug("Centering graph: Old centroid x=\(oldCentroid.x), y=\(oldCentroid.y), Shift width=\(centroidShift.width), height=\(centroidShift.height), New target x=\(newCentroid.x), y=\(newCentroid.y)")
 #endif
     }
-    
-    // Existing add node button (unchanged, but renamed for clarity)
-    private func addNodeButton(in geo: GeometryProxy) -> some View {
-        Button(action: {
-            WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            
-#if DEBUG
-            logger.debug("Add Node button tapped!")
-#endif
-            
-            let randomPos = CGPoint(x: CGFloat.random(in: -100...100), y: CGFloat.random(in: -100...100))
-            Task { await viewModel.addNode(at: randomPos) }
-        }, label: {
-            Image(systemName: "plus.circle.fill")
-                .font(.system(size: 30))
-                .foregroundColor(.green)
-        })
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
-        .padding(10)
-        .background(Color.blue.opacity(0.2))  // TEMP: Visualize tappable area; remove later
-    }
-    
-    private func menuButton(in geo: GeometryProxy) -> some View {
-        Button(action: {
-            WKInterfaceDevice.current().play(.click)  // Haptic feedback
-            
-#if DEBUG
-            logger.debug("Menu button tapped!")
-#endif
-            
-            showMenu.toggle()
-        }, label: {
-            Image(systemName: showMenu ? "point.3.filled.connected.trianglepath.dotted" : "line.3.horizontal")
-                .font(.system(size: 30))
-                .foregroundColor(showMenu ? .green : .blue)
-        })
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .frame(minWidth: 44, minHeight: 44)
-        .padding(10)
-        .background(Color.red.opacity(0.2))  // TEMP: Visualize; different color for distinction
-        .accessibilityLabel("Menu")
-    }
+      
 }
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {

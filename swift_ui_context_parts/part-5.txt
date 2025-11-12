@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-11 12:40:29
+Current date: 2025-11-12 10:00:34
 Table of Contents:
 1. GraphEditorWatch/ViewModels/GraphViewModel.swift
 2. GraphEditorWatch/Views/AccessibleCanvas.swift
@@ -9,7 +9,7 @@ Table of Contents:
 4. GraphEditorWatch/Views/BoundingBoxOverlay.swift--------------------------------------------------
 File: GraphViewModel.swift
 Path: GraphEditorWatch/ViewModels/GraphViewModel.swift
-Last modified: 2025-11-10 23:12:08
+Last modified: 2025-11-12 09:16:52
 
 Contents:
 //
@@ -95,11 +95,11 @@ import os  // Added for logging
             }
         }
         
-        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
         }
 
-        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
     }
