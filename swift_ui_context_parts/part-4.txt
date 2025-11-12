@@ -1,7 +1,7 @@
 ## Focused Project Concatenation
 This file includes only UI, interactivity, model, and core logic files.
 Excluded: Tests/*, UITests/*, Package.swift, AppDelegate.swift, and other non-UI items.
-Current date: 2025-11-10 19:46:46
+Current date: 2025-11-11 12:40:28
 Table of Contents:
 1. GraphEditorShared/Sources/GraphEditorShared/Quadtree.swift
 2. GraphEditorShared/Sources/GraphEditorShared/RepulsionCalculator.swift
@@ -550,7 +550,7 @@ public struct ToggleNode: NodeProtocol, HierarchicalNode, Equatable {  // Update
 ----------------------------------------------------------------------------------------------------
 File: Utilities.swift
 Path: GraphEditorShared/Sources/GraphEditorShared/Utilities.swift
-Last modified: 2025-10-14 09:10:51
+Last modified: 2025-11-10 20:54:12
 
 Contents:
 // Utilities.swift (Updated with rounding in screenToModel)

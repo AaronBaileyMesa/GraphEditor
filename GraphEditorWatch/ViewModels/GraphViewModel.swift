@@ -81,11 +81,11 @@ import os  // Added for logging
             }
         }
         
-        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
         }
 
-        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
     }
