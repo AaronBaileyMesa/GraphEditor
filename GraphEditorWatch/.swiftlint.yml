@@ -6,4 +6,6 @@ opt_in_rules: # Enable optional rules
 excluded: # Skip directories
   - Pods
   - Carthage
+  - .build  # Exclude all SPM build artifacts
+  - DerivedData  # If using Xcode
 reporter: "xcode" # Output format for Xcode integration
