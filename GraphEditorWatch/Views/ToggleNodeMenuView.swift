@@ -183,30 +183,24 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    private var editContentsButton: some View {  // UPDATED: Now a simple return
-            Button {
-                WKInterfaceDevice.current().play(.click)  // Optional haptic
-                showEditSheet = true
-            } label: {
-                Label("Contents", systemImage: "pencil")
-                    .labelStyle(.titleAndIcon)
-                    .font(.caption)
+    private var editContentsButton: some View {
+        NavigationLink(destination: EditContentSheet(
+            selectedID: selectedNodeID ?? NodeID(),
+            viewModel: viewModel,
+            onSave: { newContents in
+                if let id = selectedNodeID {
+                    Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
+                }
+                // No need for manual dismissal here—navigation pop handles it
             }
-            .accessibilityIdentifier("editContentsButton")
-            .sheet(isPresented: $showEditSheet) {
-                EditContentSheet(
-                    selectedID: selectedNodeID ?? NodeID(),
-                    viewModel: viewModel,
-                    onSave: { newContents in
-                        if let id = selectedNodeID {
-                            Task { await viewModel.model.updateNodeContents(withID: id, newContents: newContents) }
-                        }
-                        showEditSheet = false  // Auto-dismiss on save
-                    }
-                )
-                .environment(\.disableCanvasFocus, true)  // Keep for safety
-            }
+        )
+        .environment(\.disableCanvasFocus, true)) {  // Keep for safety
+            Label("Contents", systemImage: "pencil")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
         }
+        .accessibilityIdentifier("editContentsButton")
+    }
     
     private var toggleExpandButton: some View {
         MenuButton(

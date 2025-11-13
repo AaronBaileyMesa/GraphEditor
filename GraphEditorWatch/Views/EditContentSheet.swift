@@ -34,11 +34,11 @@ struct EditContentSheet: View {
             .focused($isSheetFocused)
             .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
             .onChange(of: dateValue) { _, _ in
-                        dateChanged = true  // NEW: Set flag on any change (no add here)
-                    }
-                    .onChange(of: selectedType) { oldValue, _ in
-                        addPendingContent(for: oldValue)  // NEW: Add pending for previous type on switch
-                    }
+                dateChanged = true  // NEW: Set flag on any change (no add here)
+            }
+            .onChange(of: selectedType) { oldValue, _ in
+                addPendingContent(for: oldValue)  // NEW: Add pending for previous type on switch
+            }
             .onChange(of: isSheetFocused) { _, newValue in
                 print("Sheet focus changed to: \(newValue)")
             }
@@ -52,65 +52,76 @@ struct EditContentSheet: View {
             .onDisappear {
                 print("onDisappear triggered - saving contents: \(contents)")  // Debug log
                 addPendingContent(for: selectedType)  // Handle unsaved for current type
-                        onSave(contents)
+                onSave(contents)
             }
         }
     }
     
     private func contentsSection(proxy: ScrollViewProxy) -> some View {
-        Section(
-            footer: DataTypeSegmentedControl(selectedType: $selectedType)  // Replaced header with segmented control
-        ) {
+        Section(footer: DataTypeSegmentedControl(selectedType: $selectedType)) {
             if contents.isEmpty {
-                Text("No contents yet").font(.caption).foregroundColor(.gray)  // Placeholder
+                Text("No contents yet")
+                    .font(.caption)
+                    .foregroundColor(.gray)
             } else {
                 ForEach(contents.indices, id: \.self) { index in
-                    if editingIndex == index {
-                        // Inline edit mode (tap to enter)
-                        inlineEditView(for: index)
-                            .swipeActions {  // Moved inside ForEach, per row
-                                Button("Delete", role: .destructive) {
-                                    contents.remove(at: index)  // Use captured index
-                                    editingIndex = nil  // Reset if deleted while editing
-                                }
-                            }
-                    } else {
-                        Text(displayText(for: contents[index]))
-                            .font(.caption)  // Smaller font for compactness
-                            .onTapGesture {
-                                editingIndex = index  // Enter edit mode on tap
-                                proxy.scrollTo(index, anchor: .top)  // Scroll to edited item
-                            }
-                            .swipeActions {
-                                Button("Delete", role: .destructive) {
-                                    contents.remove(at: index)
-                                }
-                            }
+                    contentRow(at: index, proxy: proxy)
+                }
+            }
+
+            if let type = selectedType {
+                inputField(for: type)
+            }
+        }
+    }
+
+    // MARK: - Row View
+    @ViewBuilder
+    private func contentRow(at index: Int, proxy: ScrollViewProxy) -> some View {
+        if editingIndex == index {
+            inlineEditView(for: index)
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        contents.remove(at: index)
+                        editingIndex = nil
                     }
                 }
-            }
-            
-            if let type = selectedType {
-                switch type {
-                case .string:
-                    TextField("Enter text", text: $stringValue)
-                        .focused($isSheetFocused)
-                        .onSubmit { addStringContent() }
-                case .date:
-                    GraphicalDatePicker(date: $dateValue)
-                        .listRowInsets(EdgeInsets())
-                        .listRowBackground(Color.clear)
-                        .background {
-                            RoundedRectangle(cornerRadius: 18)
-                                .fill(Color.gray.opacity(0.1))
-                        }
-                        .fixedSize(horizontal: false, vertical: true)  // Allow dynamic vertical expansion
-                case .number:
-                    NumericKeypadView(text: $numberString)
-                        .focused($isSheetFocused)
-                        .onSubmit { addNumberContent() }
+        } else {
+            Text(displayText(for: contents[index]))
+                .font(.caption)
+                .onTapGesture {
+                    editingIndex = index
+                    proxy.scrollTo(index, anchor: .top)
                 }
-            }
+                .swipeActions {
+                    Button("Delete", role: .destructive) {
+                        contents.remove(at: index)
+                    }
+                }
+        }
+    }
+
+    // MARK: - Input Field
+    @ViewBuilder
+    private func inputField(for type: DataType) -> some View {
+        switch type {
+        case .string:
+            TextField("Enter text", text: $stringValue)
+                .focused($isSheetFocused)
+                .onSubmit { addStringContent() }
+        case .date:
+            GraphicalDatePicker(date: $dateValue)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+                .background(
+                    RoundedRectangle(cornerRadius: 18)
+                        .fill(Color.gray.opacity(0.1))
+                )
+                .fixedSize(horizontal: false, vertical: true)
+        case .number:
+            NumericKeypadView(text: $numberString)
+                .focused($isSheetFocused)
+                .onSubmit { addNumberContent() }
         }
     }
     
@@ -126,8 +137,9 @@ struct EditContentSheet: View {
                     value = newValue
                 }
             ))
-            .focused($isSheetFocused)
-            .onSubmit { editingIndex = nil }
+            .onSubmit {
+                editingIndex = nil  // Exit edit on submit
+            }
         case .date(var value):
             GraphicalDatePicker(date: Binding(
                 get: { value },
@@ -138,75 +150,66 @@ struct EditContentSheet: View {
             ))
             .listRowInsets(EdgeInsets())
             .listRowBackground(Color.clear)
-            .background {
+            .background(
                 RoundedRectangle(cornerRadius: 18)
                     .fill(Color.gray.opacity(0.1))
-            }
-            .fixedSize(horizontal: false, vertical: true)  // Allow dynamic vertical expansion
-            .onChange(of: value) { _, _ in editingIndex = nil }  // Exit edit on change (optional)
+            )
+            .fixedSize(horizontal: false, vertical: true)
         case .number(var value):
             NumericKeypadView(text: Binding(
                 get: { String(format: "%.2f", value) },
-                set: { newString in
-                    if let newValue = Double(newString) {
-                        contents[index] = .number(newValue)
-                        value = newValue
+                set: { newValue in
+                    if let num = Double(newValue) {
+                        contents[index] = .number(num)
+                        value = num
                     }
                 }
             ))
-            .onSubmit { editingIndex = nil }
+            .onSubmit {
+                editingIndex = nil  // Exit edit on submit
+            }
         case .boolean(var value):
-            Toggle("Boolean", isOn: Binding(
+            Toggle(isOn: Binding(
                 get: { value },
                 set: { newValue in
                     contents[index] = .boolean(newValue)
                     value = newValue
                 }
-            ))
-            .onChange(of: value) { _, _ in editingIndex = nil }  // Exit on toggle
+            )) {
+                Text(value ? "True" : "False")
+            }
+            .toggleStyle(.switch)
         }
     }
-    
-    // UPDATED: Rename/add param for clarity; call on type switch and disappear
-        private func addPendingContent(for type: DataType?) {
-            guard let type else { return }
-            switch type {
-            case .string:
-                if !stringValue.isEmpty {
-                    contents.append(.string(stringValue))
-                    stringValue = ""
-                }
-            case .date:
-                if dateChanged {  // NEW: Only add if changed
-                    contents.append(.date(dateValue))
-                    dateChanged = false
-                    dateValue = Date()  // Reset to now
-                }
-            case .number:
-                if !numberString.isEmpty, let number = parseNumber() {
-                    contents.append(.number(number))
-                    numberString = ""
-                }
-            }
-        }
     
     private func addStringContent() {
         if !stringValue.isEmpty {
             contents.append(.string(stringValue))
-            stringValue = ""
+            resetInputFields()
         }
     }
     
-        private func addDateContent() {
+    private func addDateContent() {
+        if dateChanged {
             contents.append(.date(dateValue))
-            dateChanged = false  // NEW
             resetInputFields()
+            dateChanged = false
         }
+    }
     
     private func addNumberContent() {
-        if let number = Double(numberString) {
+        if let number = parseNumber() {
             contents.append(.number(number))
-            numberString = ""
+            resetInputFields()
+        }
+    }
+    
+    private func addPendingContent(for type: DataType?) {
+        guard let type = type else { return }
+        switch type {
+        case .string: addStringContent()
+        case .date: addDateContent()
+        case .number: addNumberContent()
         }
     }
     
@@ -240,6 +243,8 @@ struct EditContentSheet: View {
         numberString = ""  // Reset string instead
     }
 }
+
+// ... (rest of the file: NumericKeypadView, DataTypeSegmentedControl, DataType enum, DateField enum — unchanged)
 
 struct NumericKeypadView: View {
     @Binding var text: String
