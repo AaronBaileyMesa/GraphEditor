@@ -162,7 +162,7 @@ import os  // Added for logging
     }
     
     public func clearGraph() async {
-        await model.clearGraph()
+        await model.resetGraph()
         await saveAfterDelay()
     }
     

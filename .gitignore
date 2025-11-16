@@ -1,0 +1,2 @@
+# Ignore files like part-1.txt, part-10.txt, part-123.txt, etc.
+part-[0-9]*.txt
