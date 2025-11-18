@@ -90,7 +90,7 @@ struct NodeMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // Edge type button (example; adjust if needed)
+    // Edge type button (same as NodeMenuView)
     private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
         Button {
             selectedEdgeType = type
@@ -181,16 +181,24 @@ struct NodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.toggleSelectedNode() }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "arrow.up.arrow.down")
-            },
-            accessibilityIdentifier: "toggleExpandCollapseButton"
-        )
+        if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) as? ToggleNode {
+            let isExpanded = node.isExpanded
+            return AnyView(  // Wrap in AnyView to resolve opaque type
+                MenuButton(
+                    action: {
+                        Task { await viewModel.toggleSelectedNode() }
+                        onDismiss()
+                    },
+                    label: {
+                        Label(isExpanded ? "Collapse" : "Expand",
+                              systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                    },
+                    accessibilityIdentifier: "toggleExpandCollapseButton"
+                )
+            )
+        } else {
+            return AnyView(EmptyView())
+        }
     }
     
     private var deleteNodeButton: some View {

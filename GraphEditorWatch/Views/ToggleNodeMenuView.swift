@@ -65,11 +65,13 @@ struct ToggleNodeMenuView: View {
                 Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     editContentsButton
+                    toggleExpandButton
                     deleteNodeButton  // Assuming this exists; from your truncated code
                 }
                 .padding(.horizontal, 8)
             }
         }
+        .navigationTitle("Toggle Node \(nodeLabel)")  // Added "Toggle" for distinction
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -121,7 +123,6 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    // New: Plain child (uses addPlainChild)
     private var addPlainChildButton: some View {
         MenuButton(
             action: {
@@ -137,7 +138,6 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    // New: Toggle child (uses addToggleChild)
     private var addToggleChildButton: some View {
         MenuButton(
             action: {
@@ -203,16 +203,24 @@ struct ToggleNodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.toggleSelectedNode() }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "arrow.up.arrow.down")
-            },
-            accessibilityIdentifier: "toggleExpandCollapseButton"
-        )
+        if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) as? ToggleNode {
+            let isExpanded = node.isExpanded  // Get current state
+            return AnyView(  // Fixed: Wrap in AnyView to resolve opaque return type
+                MenuButton(
+                    action: {
+                        Task { await viewModel.toggleSelectedNode() }  // Existing toggle logic
+                        onDismiss()
+                    },
+                    label: {
+                        Label(isExpanded ? "Collapse" : "Expand",
+                              systemImage: isExpanded ? "chevron.up" : "chevron.down")  // Matching chevrons
+                    },
+                    accessibilityIdentifier: "toggleExpandCollapseButton"
+                )
+            )
+        } else {
+            return AnyView(EmptyView())  // Fixed: Consistent return type
+        }
     }
     
     private var deleteNodeButton: some View {

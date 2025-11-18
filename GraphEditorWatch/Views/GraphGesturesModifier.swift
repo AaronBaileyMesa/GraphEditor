@@ -284,8 +284,46 @@ extension GraphGesturesModifier {
         }
     }
     
-    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
+    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
         let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        
+        // NEW: Check for chevron tap first if a node is already selected
+        if let selectedID = selectedNodeID,
+           let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode {
+            
+            let screenPos = CoordinateTransformer.modelToScreen(
+                selectedNode.position,
+                effectiveCentroid: context.effectiveCentroid,
+                zoomScale: context.zoomScale,
+                offset: context.offset,
+                viewSize: context.viewSize
+            )
+            
+            let nodeRadius = selectedNode.radius * context.zoomScale
+            let chevronCenter = CGPoint(
+                x: screenPos.x + nodeRadius + 14 * context.zoomScale,
+                y: screenPos.y
+            )
+            
+            let chevronHitRadius: CGFloat = 20 * context.zoomScale  // Tappable area
+            let distanceToChevron = hypot(location.x - chevronCenter.x, location.y - chevronCenter.y)
+            
+            if distanceToChevron < chevronHitRadius {
+                // Chevron tapped: Toggle expansion
+                Task {
+                    await viewModel.model.snapshot()  // For undo
+                    let updated = selectedNode.handlingTap()
+                    if let index = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
+                        viewModel.model.nodes[index] = AnyNode(updated)  // Wrap in AnyNode
+                    }
+                    await viewModel.model.startSimulation()  // Resume physics for children
+                }
+                GraphGesturesModifier.logger.debug("Toggled expansion for node \(selectedNode.label)")
+                return true  // Handled
+            }
+        }
+        
+        // Existing: Node or edge hit
         if let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) {
             if selectedNodeID == hitNode.id {
                 selectedNodeID = nil  // Deselect on second tap

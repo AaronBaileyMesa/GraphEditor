@@ -42,9 +42,9 @@ struct AccessibleCanvas: View {
                 let visibleNodes = viewModel.model.visibleNodes()
                 let visibleEdges = viewModel.model.visibleEdges()  // Fix: Use visibleEdges() instead of all edges
                 
-                #if DEBUG
+#if DEBUG
                 Self.logger.debug("Visible: \(visibleNodes.count)")
-                #endif
+#endif
                 
                 let effectiveCentroid = viewModel.effectiveCentroid
                 
@@ -91,11 +91,68 @@ struct AccessibleCanvas: View {
                 
                 // Draw dragged node and potential edge (keep full color)
                 drawDraggedNodeAndPotentialEdge(in: context, size: size, effectiveCentroid: effectiveCentroid)
+                
+                // Floating chevrons for selected ToggleNodes
+                var mutableContext = context
+                if let selectedID = selectedNodeID,
+                   let selectedToggleNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode {
+                    
+                    let screenPos = CoordinateTransformer.modelToScreen(
+                        selectedToggleNode.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: size
+                    )
+                    
+                    let nodeRadius = selectedToggleNode.radius * zoomScale
+                    let chevronCenter = CGPoint(
+                        x: screenPos.x + nodeRadius + 14 * zoomScale,
+                        y: screenPos.y
+                    )
+                    
+                    drawFloatingChevron(
+                        at: chevronCenter,
+                        isExpanded: selectedToggleNode.isExpanded,
+                        in: &mutableContext,
+                        zoomScale: zoomScale
+                    )
+                }
+                
             }
             
             if showOverlays {
                 BoundingBoxOverlay(viewModel: viewModel, zoomScale: zoomScale, offset: offset, viewSize: viewSize)
             }
+            
+        }
+    }
+    private func drawFloatingChevron(
+        at center: CGPoint,
+        isExpanded: Bool,
+        in context: inout GraphicsContext,
+        zoomScale: CGFloat
+    ) {
+        let size = 20 * zoomScale
+        
+        context.drawLayer { layer in
+            layer.translateBy(x: center.x, y: center.y)
+            layer.rotate(by: isExpanded ? .degrees(90) : .zero)
+            layer.translateBy(x: -center.x, y: -center.y)
+            
+            let path = Path { path in
+                let half = size * 0.4
+                path.move(to: CGPoint(x: center.x - half, y: center.y - half))
+                path.addLine(to: CGPoint(x: center.x + half, y: center.y))
+                path.move(to: CGPoint(x: center.x - half, y: center.y + half))
+                path.addLine(to: CGPoint(x: center.x + half, y: center.y))
+            }
+            
+            layer.stroke(
+                path,
+                with: .color(.white),
+                lineWidth: max(2.5, 3.5 * zoomScale)
+            )
         }
     }
     
@@ -109,57 +166,56 @@ struct AccessibleCanvas: View {
             viewSize: renderContext.size
         )
         let scaledRadius = node.radius * renderContext.zoomScale
-        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 0
-        let borderRadius = scaledRadius + borderWidth / 2
+        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 1.0
+        let nodeRect = CGRect(center: screenPos, size: CGSize(width: scaledRadius * 2, height: scaledRadius * 2)).insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
+        let nodePath = Circle().path(in: nodeRect)
         
-        // Draw border if selected
-        if borderWidth > 0 {
-            let borderPath = Path(ellipseIn: CGRect(x: screenPos.x - borderRadius, y: screenPos.y - borderRadius, width: 2 * borderRadius, height: 2 * borderRadius))
-            renderContext.graphicsContext.stroke(borderPath, with: .color(.yellow), lineWidth: borderWidth)
+        var mutableContext = renderContext.graphicsContext
+        
+        var fillColor = node.fillColor
+        if saturation < 1.0 {
+            fillColor = desaturatedColor(fillColor, saturation: saturation)
         }
+        mutableContext.fill(nodePath, with: .color(fillColor))
         
-        // Use node's own fill color as base, respecting per-node colors (e.g., ToggleNode green/red)
-        let baseColor = node.fillColor
-        let nodeColor = desaturatedColor(baseColor, saturation: saturation)
-        // Draw node circle
-        let innerPath = Path(ellipseIn: CGRect(x: screenPos.x - scaledRadius, y: screenPos.y - scaledRadius, width: 2 * scaledRadius, height: 2 * scaledRadius))
-        renderContext.graphicsContext.fill(innerPath, with: .color(nodeColor))
+        let borderColor = isSelected ? Color.white : Color.gray.opacity(0.5)
+        mutableContext.stroke(nodePath, with: .color(borderColor), lineWidth: borderWidth)
         
-        // Draw label centered inside node
-        let labelFontSize = max(8.0, 12.0 * renderContext.zoomScale)
-        let labelText = Text("\(node.label)").foregroundColor(.white).font(.system(size: labelFontSize))
-        let labelResolved = renderContext.graphicsContext.resolve(labelText)
-        let labelPosition = CGPoint(x: screenPos.x, y: screenPos.y)  // Center
-        renderContext.graphicsContext.draw(labelResolved, at: labelPosition, anchor: .center)
+        let labelText = Text("\(node.label)")
+            .font(.system(size: max(8, 10 * renderContext.zoomScale)))
+            .foregroundStyle(.white)
+        let resolvedText = mutableContext.resolve(labelText)
+        // Draw text centered at the node position using anchor to avoid manual size math
+        mutableContext.draw(resolvedText, at: screenPos, anchor: .center)
         
-        // NEW: Draw contents list vertically below node
         if !node.contents.isEmpty && renderContext.zoomScale > 0.5 {  // Only if zoomed
             var yOffset = scaledRadius + 5 * renderContext.zoomScale  // Start below node
             let contentFontSize = max(6.0, 8.0 * renderContext.zoomScale)
             let maxItems = 3  // Limit for watchOS
             for content in node.contents.prefix(maxItems) {
                 let contentText = Text(content.displayText).font(.system(size: contentFontSize)).foregroundColor(.gray)
-                let resolved = renderContext.graphicsContext.resolve(contentText)
+                let resolved = mutableContext.resolve(contentText)
                 let contentPosition = CGPoint(x: screenPos.x, y: screenPos.y + yOffset)
-                renderContext.graphicsContext.draw(resolved, at: contentPosition, anchor: .center)
+                mutableContext.draw(resolved, at: contentPosition, anchor: .center)
                 yOffset += 10 * renderContext.zoomScale  // Line spacing
             }
             if node.contents.count > maxItems {
                 let moreText = Text("+\(node.contents.count - maxItems) more").font(.system(size: contentFontSize * 0.75)).foregroundColor(.gray)
-                let resolved = renderContext.graphicsContext.resolve(moreText)
-                renderContext.graphicsContext.draw(resolved, at: CGPoint(x: screenPos.x, y: screenPos.y + yOffset), anchor: .center)
+                let resolved = mutableContext.resolve(moreText)
+                mutableContext.draw(resolved, at: CGPoint(x: screenPos.x, y: screenPos.y + yOffset), anchor: .center)
             }
         }
         
-        #if DEBUG
-        Self.logger.debug("Drawing node \(node.label) at x=\(screenPos.x), y=\(screenPos.y)")
-        #endif
+        // Draw chevron if ToggleNode and expanded
+        
+#if DEBUG
+        Self.logger.debug("Drawing node \(node.label) at screen x=\(screenPos.x), y=\(screenPos.y)")
+#endif
     }
     
-    // NEW: Updated single edge line draw with saturation param
     private func drawSingleEdgeLine(renderContext: RenderContext, edge: GraphEdge, saturation: Double, isSelected: Bool) {
-        guard let fromNode = renderContext.visibleNodes.first(where: { $0.id == edge.from }),
-              let toNode = renderContext.visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        let fromNode = renderContext.visibleNodes.first { $0.id == edge.from }!
+        let toNode = renderContext.visibleNodes.first { $0.id == edge.target }!
         
         let fromScreen = CoordinateTransformer.modelToScreen(
             fromNode.position,
@@ -176,26 +232,39 @@ struct AccessibleCanvas: View {
             viewSize: renderContext.size
         )
         
+        let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+        let length = hypot(direction.dx, direction.dy)
+        if length <= 0 { return }
+        
+        let unitDx = direction.dx / length
+        let unitDy = direction.dy / length
+        let fromRadiusScreen = fromNode.radius * renderContext.zoomScale
+        let toRadiusScreen = toNode.radius * renderContext.zoomScale
+        
+        let startPoint = CGPoint(x: fromScreen.x + unitDx * fromRadiusScreen,
+                                 y: fromScreen.y + unitDy * fromRadiusScreen)
+        let endPoint = CGPoint(x: toScreen.x - unitDx * toRadiusScreen,
+                               y: toScreen.y - unitDy * toRadiusScreen)
+        
         let linePath = Path { path in
-            path.move(to: fromScreen)
-            path.addLine(to: toScreen)
+            path.move(to: startPoint)
+            path.addLine(to: endPoint)
         }
         
         let baseColor: Color = isSelected ? .red : .white
-        let edgeColor = desaturatedColor(baseColor, saturation: saturation)
-        let lineWidth: CGFloat = 2.0
+        let lineColor = desaturatedColor(baseColor, saturation: saturation)
+        let lineWidth: CGFloat = isSelected ? 3.0 : 1.0
         
-        renderContext.graphicsContext.stroke(linePath, with: .color(edgeColor), lineWidth: lineWidth)
+        renderContext.graphicsContext.stroke(linePath, with: .color(lineColor), lineWidth: lineWidth)
         
-        #if DEBUG
-        Self.logger.debug("Drawing edge from x=\(fromScreen.x), y=\(fromScreen.y) to x=\(toScreen.x), y=\(toScreen.y) with color \(edgeColor.description)")
-        #endif
+#if DEBUG
+        Self.logger.debug("Drawing line for edge \(edge.id.uuidString.prefix(8)) from x=\(startPoint.x), y=\(startPoint.y) to x=\(endPoint.x), y=\(endPoint.y)")
+#endif
     }
     
-    // NEW: Updated single arrow draw with saturation param
     private func drawSingleArrow(renderContext: RenderContext, edge: GraphEdge, saturation: Double, isSelected: Bool) {
-        guard let fromNode = renderContext.visibleNodes.first(where: { $0.id == edge.from }),
-              let toNode = renderContext.visibleNodes.first(where: { $0.id == edge.target }) else { return }
+        let fromNode = renderContext.visibleNodes.first { $0.id == edge.from }!
+        let toNode = renderContext.visibleNodes.first { $0.id == edge.target }!
         
         let fromScreen = CoordinateTransformer.modelToScreen(
             fromNode.position,
@@ -247,9 +316,9 @@ struct AccessibleCanvas: View {
         
         renderContext.graphicsContext.stroke(arrowPath, with: .color(arrowColor), lineWidth: arrowLineWidth)
         
-        #if DEBUG
+#if DEBUG
         Self.logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundaryPoint.x), y=\(boundaryPoint.y)")
-        #endif
+#endif
     }
     
     // Updated drawEdges to accept saturation and isSelected
@@ -312,5 +381,52 @@ struct AccessibleCanvas: View {
         default:
             return color  // Fallback for unknown
         }
+    }
+    
+    private func drawChevron(
+        for toggleNode: ToggleNode,
+        at screenPos: CGPoint,
+        in context: inout GraphicsContext,
+        zoomScale: CGFloat
+    ) {
+        let chevronSize = toggleNode.radius * zoomScale * 0.6
+        
+        context.drawLayer { layer in
+            // Move origin to node center
+            layer.translateBy(x: screenPos.x, y: screenPos.y)
+            
+            // Rotate 90° when expanded
+            let rotationAngle = toggleNode.isExpanded ? Angle.degrees(90) : .zero
+            layer.rotate(by: rotationAngle)
+            
+            // Move origin back so we can draw relative to center
+            layer.translateBy(x: -screenPos.x, y: -screenPos.y)
+            
+            
+            // Simple chevron made of two lines (looks identical to chevron.right)
+            let path = Path { path in
+                let half = chevronSize * 0.5
+                let offset = chevronSize * 0.15
+                
+                // Top arm
+                path.move(to: CGPoint(x: screenPos.x - half + offset, y: screenPos.y - half))
+                path.addLine(to: CGPoint(x: screenPos.x + half, y: screenPos.y))
+                
+                // Bottom arm
+                path.move(to: CGPoint(x: screenPos.x - half + offset, y: screenPos.y + half))
+                path.addLine(to: CGPoint(x: screenPos.x + half, y: screenPos.y))
+            }
+            
+            // This is the correct stroke signature on watchOS
+            layer.stroke(
+                path,
+                with: .color(.white),
+                lineWidth: max(2.0, 3.0 * zoomScale)
+            )
+        }
+        
+#if DEBUG
+        Self.logger.debug("Drew chevron for node \(toggleNode.label) – expanded: \(toggleNode.isExpanded)")
+#endif
     }
 }
