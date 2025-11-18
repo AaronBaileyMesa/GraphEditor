@@ -125,11 +125,22 @@ struct EditContentSheet: View {
         }
     }
     
-    // UPDATED: Full implementation of inlineEditView with all types
-    @ViewBuilder
     private func inlineEditView(for index: Int) -> some View {
         switch contents[index] {
-        case .string(var value):
+        case .string:
+            return AnyView(stringEditView(for: index))
+        case .date:
+            return AnyView(dateEditView(for: index))
+        case .number:
+            return AnyView(numberEditView(for: index))
+        case .boolean:
+            return AnyView(booleanEditView(for: index))
+        }
+    }
+    
+    @ViewBuilder
+    private func stringEditView(for index: Int) -> some View {
+        if case .string(var value) = contents[index] {
             TextField("Edit text", text: Binding(
                 get: { value },
                 set: { newValue in
@@ -140,7 +151,12 @@ struct EditContentSheet: View {
             .onSubmit {
                 editingIndex = nil  // Exit edit on submit
             }
-        case .date(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func dateEditView(for index: Int) -> some View {
+        if case .date(var value) = contents[index] {
             GraphicalDatePicker(date: Binding(
                 get: { value },
                 set: { newValue in
@@ -155,7 +171,12 @@ struct EditContentSheet: View {
                     .fill(Color.gray.opacity(0.1))
             )
             .fixedSize(horizontal: false, vertical: true)
-        case .number(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func numberEditView(for index: Int) -> some View {
+        if case .number(var value) = contents[index] {
             NumericKeypadView(text: Binding(
                 get: { String(format: "%.2f", value) },
                 set: { newValue in
@@ -168,7 +189,12 @@ struct EditContentSheet: View {
             .onSubmit {
                 editingIndex = nil  // Exit edit on submit
             }
-        case .boolean(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func booleanEditView(for index: Int) -> some View {
+        if case .boolean(var value) = contents[index] {
             Toggle(isOn: Binding(
                 get: { value },
                 set: { newValue in
