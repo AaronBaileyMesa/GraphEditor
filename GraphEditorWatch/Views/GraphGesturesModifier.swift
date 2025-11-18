@@ -284,72 +284,94 @@ extension GraphGesturesModifier {
         }
     }
     
-    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
-        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-        
-        // NEW: Check for chevron tap first if a node is already selected
-        if let selectedID = selectedNodeID,
-           let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode {
-            
-            let screenPos = CoordinateTransformer.modelToScreen(
-                selectedNode.position,
-                effectiveCentroid: context.effectiveCentroid,
-                zoomScale: context.zoomScale,
-                offset: context.offset,
-                viewSize: context.viewSize
-            )
-            
-            let nodeRadius = selectedNode.radius * context.zoomScale
-            let chevronCenter = CGPoint(
-                x: screenPos.x + nodeRadius + 14 * context.zoomScale,
-                y: screenPos.y
-            )
-            
-            let chevronHitRadius: CGFloat = 20 * context.zoomScale  // Tappable area
-            let distanceToChevron = hypot(location.x - chevronCenter.x, location.y - chevronCenter.y)
-            
-            if distanceToChevron < chevronHitRadius {
-                // Chevron tapped: Toggle expansion
-                Task {
-                    await viewModel.model.snapshot()  // For undo
-                    let updated = selectedNode.handlingTap()
-                    if let index = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
-                        viewModel.model.nodes[index] = AnyNode(updated)  // Wrap in AnyNode
-                    }
-                    await viewModel.model.startSimulation()  // Resume physics for children
-                }
-                GraphGesturesModifier.logger.debug("Toggled expansion for node \(selectedNode.label)")
-                return true  // Handled
-            }
-        }
-        
-        // Existing: Node or edge hit
-        if let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) {
-            if selectedNodeID == hitNode.id {
-                selectedNodeID = nil  // Deselect on second tap
-                GraphGesturesModifier.logger.debug("Deselected Node \(hitNode.label)")
-            } else {
-                selectedNodeID = hitNode.id
-                selectedEdgeID = nil  // Clear edge selection
-                GraphGesturesModifier.logger.debug("Selected Node \(hitNode.label)")
-            }
-            return true
-        } else if let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext) {
-            if selectedEdgeID == hitEdge.id {
-                selectedEdgeID = nil  // Deselect on second tap
-                GraphGesturesModifier.logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
-            } else {
-                selectedEdgeID = hitEdge.id
-                selectedNodeID = nil  // Clear node selection
-                GraphGesturesModifier.logger.debug("Selected Edge \(String(describing: hitEdge.id))")
-            }
+    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
+        if handleChevronTap(at: location, visibleNodes: visibleNodes, context: context) {
             return true
         }
+        if handleNodeTap(at: location, visibleNodes: visibleNodes, context: context) {
+            return true
+        }
+        if handleEdgeTap(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: context) {
+            return true
+        }
+        
         // Miss: Deselect both
         selectedNodeID = nil
         selectedEdgeID = nil
-        GraphGesturesModifier.logger.debug("Tap miss: Deselected all")
+        Self.logger.debug("Tap miss: Deselected all")
         return false
+    }
+    
+    private func handleChevronTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
+        guard let selectedID = selectedNodeID,
+              let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode else {
+            return false
+        }
+        
+        let screenPos = CoordinateTransformer.modelToScreen(
+            selectedNode.position,
+            effectiveCentroid: context.effectiveCentroid,
+            zoomScale: context.zoomScale,
+            offset: context.offset,
+            viewSize: context.viewSize
+        )
+        
+        let nodeRadius = selectedNode.radius * context.zoomScale
+        let chevronCenter = CGPoint(
+            x: screenPos.x + nodeRadius + 14 * context.zoomScale,
+            y: screenPos.y
+        )
+        
+        let chevronHitRadius: CGFloat = 20 * context.zoomScale
+        let distanceToChevron = hypot(location.x - chevronCenter.x, location.y - chevronCenter.y)
+        
+        if distanceToChevron < chevronHitRadius {
+            Task {
+                await viewModel.model.snapshot()
+                let updated = selectedNode.handlingTap()
+                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
+                    viewModel.model.nodes[index] = AnyNode(updated)
+                }
+                await viewModel.model.startSimulation()
+            }
+            Self.logger.debug("Toggled expansion for node \(selectedNode.label)")
+            return true
+        }
+        return false
+    }
+
+    private func handleNodeTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        guard let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) else {
+            return false
+        }
+        
+        if selectedNodeID == hitNode.id {
+            selectedNodeID = nil
+            Self.logger.debug("Deselected Node \(hitNode.label)")
+        } else {
+            selectedNodeID = hitNode.id
+            selectedEdgeID = nil
+            Self.logger.debug("Selected Node \(hitNode.label)")
+        }
+        return true
+    }
+
+    private func handleEdgeTap(at location: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
+        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
+        guard let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext) else {
+            return false
+        }
+        
+        if selectedEdgeID == hitEdge.id {
+            selectedEdgeID = nil
+            Self.logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
+        } else {
+            selectedEdgeID = hitEdge.id
+            selectedNodeID = nil
+            Self.logger.debug("Selected Edge \(String(describing: hitEdge.id))")
+        }
+        return true
     }
     
     private func resetGestureState() {
