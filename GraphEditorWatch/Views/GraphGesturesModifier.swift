@@ -9,24 +9,6 @@ import WatchKit
 import GraphEditorShared
 import os  // Added for optimized logging
 
-enum HitType {
-    case node
-    case edge
-}
-
-struct GestureContext {
-    let zoomScale: CGFloat
-    let offset: CGSize
-    let viewSize: CGSize
-    let effectiveCentroid: CGPoint
-}
-
-struct NodeDistanceInfo {
-    let label: Int
-    let screenPos: CGPoint
-    let dist: CGFloat
-}
-
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
@@ -284,6 +266,48 @@ extension GraphGesturesModifier {
         }
     }
     
+    private func resetGestureState() {
+        draggedNode = nil
+        dragStartNode = nil
+        dragOffset = .zero
+        potentialEdgeTarget = nil
+        panStartOffset = nil
+        startLocation = nil
+        isAddingEdge = false  // Reset edge mode
+    }
+}
+
+extension GraphGesturesModifier {
+    public func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
+        let pointX = Double(point.x), pointY = Double(point.y)
+        let startX = Double(startPoint.x), startY = Double(startPoint.y)
+        let endX = Double(endPoint.x), endY = Double(endPoint.y)
+        
+        let lineVecX = endX - startX
+        let lineVecY = endY - startY
+        let lineLen = hypot(lineVecX, lineVecY)
+        
+        if lineLen == 0 {
+            return distance(point, startPoint)
+        }
+        
+        let pointVecX = pointX - startX
+        let pointVecY = pointY - startY
+        let dot = pointVecX * lineVecX + pointVecY * lineVecY
+        let denom = lineLen * lineLen
+        let projectionParam = dot / denom
+        let clampedParam = max(0.0, min(1.0, projectionParam))
+        
+        let projX = startX + lineVecX * clampedParam
+        let projY = startY + lineVecY * clampedParam
+        
+        let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
+        return distance(point, proj)
+    }
+}
+
+// MARK: - Tap Handling
+extension GraphGesturesModifier {
     private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
         if handleChevronTap(at: location, visibleNodes: visibleNodes, context: context) {
             return true
@@ -303,7 +327,7 @@ extension GraphGesturesModifier {
     }
     
     private func handleChevronTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
-        guard let selectedID = selectedNodeID,
+        guard let    selectedID = selectedNodeID,
               let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode else {
             return false
         }
@@ -372,44 +396,5 @@ extension GraphGesturesModifier {
             Self.logger.debug("Selected Edge \(String(describing: hitEdge.id))")
         }
         return true
-    }
-    
-    private func resetGestureState() {
-        draggedNode = nil
-        dragStartNode = nil
-        dragOffset = .zero
-        potentialEdgeTarget = nil
-        panStartOffset = nil
-        startLocation = nil
-        isAddingEdge = false  // Reset edge mode
-    }
-}
-
-extension GraphGesturesModifier {
-    public func pointToLineDistance(point: CGPoint, from startPoint: CGPoint, endPoint: CGPoint) -> CGFloat {
-        let pointX = Double(point.x), pointY = Double(point.y)
-        let startX = Double(startPoint.x), startY = Double(startPoint.y)
-        let endX = Double(endPoint.x), endY = Double(endPoint.y)
-        
-        let lineVecX = endX - startX
-        let lineVecY = endY - startY
-        let lineLen = hypot(lineVecX, lineVecY)
-        
-        if lineLen == 0 {
-            return distance(point, startPoint)
-        }
-        
-        let pointVecX = pointX - startX
-        let pointVecY = pointY - startY
-        let dot = pointVecX * lineVecX + pointVecY * lineVecY
-        let denom = lineLen * lineLen
-        let projectionParam = dot / denom
-        let clampedParam = max(0.0, min(1.0, projectionParam))
-        
-        let projX = startX + lineVecX * clampedParam
-        let projY = startY + lineVecY * clampedParam
-        
-        let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
-        return distance(point, proj)
     }
 }
