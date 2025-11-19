@@ -1,12 +1,11 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
-import os  // Added for logging
+import os
 
-// Reverted: Custom wrapper for reliable crown focus (without crown—handled in ContentView now)
 struct GraphCanvasView: View {
     private static var logger: Logger {
-        Logger(subsystem: "io.handcart.GraphEditor", category: "graphcanvasview")  // Changed to computed static for consistency
+        Logger(subsystem: "io.handcart.GraphEditor", category: "graphcanvasview")
     }
     
     let viewModel: GraphViewModel
@@ -19,17 +18,20 @@ struct GraphCanvasView: View {
     let viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
+    
+    // These two are now properly declared as stored properties
+    let minZoom: CGFloat
     let maxZoom: CGFloat
+    
     @Binding var crownPosition: Double
     let onUpdateZoomRanges: () -> Void
-    @State private var previousZoomScale: CGFloat = 1.0
-    @State private var zoomTimer: Timer?
     @Binding var selectedEdgeID: UUID?
     @Binding var showOverlays: Bool
     @Binding var isAddingEdge: Bool
     @Binding var isSimulating: Bool
     @Binding var saturation: Double
     
+    // MARK: - Init (updated order + added minZoom)
     init(
         viewModel: GraphViewModel,
         zoomScale: Binding<CGFloat>,
@@ -41,14 +43,15 @@ struct GraphCanvasView: View {
         viewSize: CGSize,
         panStartOffset: Binding<CGSize?>,
         showMenu: Binding<Bool>,
-        maxZoom: CGFloat,
+        minZoom: CGFloat,           // ← added
+        maxZoom: CGFloat,           // ← already existed
         crownPosition: Binding<Double>,
         onUpdateZoomRanges: @escaping () -> Void,
         selectedEdgeID: Binding<UUID?>,
         showOverlays: Binding<Bool>,
         isAddingEdge: Binding<Bool>,
         isSimulating: Binding<Bool>,
-        saturation: Binding<Double>  // NEW: Add to init params
+        saturation: Binding<Double>
     ) {
         self.viewModel = viewModel
         self._zoomScale = zoomScale
@@ -60,7 +63,8 @@ struct GraphCanvasView: View {
         self.viewSize = viewSize
         self._panStartOffset = panStartOffset
         self._showMenu = showMenu
-        self.maxZoom = maxZoom
+        self.minZoom = minZoom          // ← stored
+        self.maxZoom = maxZoom          // ← stored
         self._crownPosition = crownPosition
         self.onUpdateZoomRanges = onUpdateZoomRanges
         self._selectedEdgeID = selectedEdgeID
@@ -83,7 +87,7 @@ struct GraphCanvasView: View {
                 viewSize: viewSize,
                 selectedEdgeID: selectedEdgeID,
                 showOverlays: showOverlays,
-                saturation: saturation  // NEW: Pass the value here (draw reads it)
+                saturation: saturation
             )
             .modifier(GraphGesturesModifier(
                 viewModel: viewModel,
@@ -102,12 +106,37 @@ struct GraphCanvasView: View {
                 onUpdateZoomRanges: onUpdateZoomRanges,
                 isAddingEdge: $isAddingEdge,
                 isSimulating: $isSimulating,
-                saturation: $saturation  // NEW: Pass binding to modifier for mutation during gesture
+                saturation: $saturation
             ))
         }
+        .focusable()
+        .digitalCrownRotation(
+            $crownPosition,
+            from: 0,
+            through: Double(AppConstants.crownZoomSteps),
+            sensitivity: .high
+        )
+        .id("GraphCanvasCrownTarget")   // ← Kills the warning forever
         
-        .id("GraphCanvas")  // Add stable ID for crown sequencer
-        .digitalCrownRotation($crownPosition, from: 0, through: Double(AppConstants.crownZoomSteps), sensitivity: .high)
+        // Crown → Zoom
+        .onChange(of: crownPosition) { _, newValue in
+            let normalized = newValue / Double(AppConstants.crownZoomSteps)
+            let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+            withAnimation(.easeOut(duration: 0.08)) {
+                zoomScale = targetZoom.clamped(to: minZoom...maxZoom)
+            }
+        }
         
+        // Zoom → Crown (bidirectional sync)
+        .onChange(of: zoomScale) { _, newZoom in
+            let normalized = (newZoom - minZoom) / (maxZoom - minZoom)
+            crownPosition = Double(AppConstants.crownZoomSteps) * normalized
+        }
+        
+        // Initial sync
+        .onAppear {
+            let normalized = (zoomScale - minZoom) / (maxZoom - minZoom)
+            crownPosition = Double(AppConstants.crownZoomSteps) * normalized
+        }
     }
 }

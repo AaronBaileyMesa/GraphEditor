@@ -30,8 +30,8 @@ struct AccessibleCanvas: View {
         ZStack {
             Canvas { context, size in
                 // Define visibleNodes and visibleEdges
-                let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.visibleEdges()  // Fix: Use visibleEdges() instead of all edges
+                let visibleNodes = viewModel.model.visibleNodes
+                let visibleEdges = viewModel.model.visibleEdges  // Fix: Use visibleEdges() instead of all edges
                 
 #if DEBUG
                 Self.logger.debug("Visible: \(visibleNodes.count)")

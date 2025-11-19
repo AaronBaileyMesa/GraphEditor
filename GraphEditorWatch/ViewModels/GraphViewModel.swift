@@ -47,8 +47,9 @@ import os  // Added for logging
     
     private var resumeTimer: Timer?
     
+    @MainActor
     public var effectiveCentroid: CGPoint {
-        return model.centroid ?? .zero
+        model.centroid ?? .zero
     }
     
     public enum AppFocusState: Equatable {
@@ -145,6 +146,7 @@ import os  // Added for logging
     public func toggleExpansion(for nodeID: NodeID) async {
         await model.toggleExpansion(for: nodeID)
         await saveAfterDelay()
+        
     }
     
     public func toggleSelectedNode() async {  // NEW: Add this method to fix 'no member 'toggleSelectedNode''
@@ -196,7 +198,7 @@ import os  // Added for logging
         
         // Efficient hit test with queryNearby
         let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
-        let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes())
+        let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes)
         
         #if DEBUG
         GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
@@ -243,8 +245,8 @@ import os  // Added for logging
         objectWillChange.send()
     }
     
-    public func centerGraph() {
-        let viewSize = CGSize(width: 300, height: 300)  // Replace with actual view size if passed
+    /// Centers and fits the graph to the view — intended for initial load or explicit user action only
+    public func resetViewToFitGraph(in viewSize: CGSize = CGSize(width: 205, height: 251)) {
         let (minZoom, _) = calculateZoomRanges(for: viewSize)
         zoomScale = minZoom
         offset = .zero

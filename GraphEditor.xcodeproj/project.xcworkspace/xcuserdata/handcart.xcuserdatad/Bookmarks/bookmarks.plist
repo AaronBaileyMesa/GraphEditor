@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>126</string>
+					<string>118</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>126</string>
+					<string>117</string>
 					<key>Timestamp</key>
-					<string>784660657.84058</string>
+					<string>785189307.365249</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -34,15 +34,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
+</string>
 				<key>leading</key>
-				<string>                }
-                .onReceive(viewModel.model.$isStable) { isStable in
+				<string>                    viewModel.objectWillChange.send()  // Force re-render if needed
+                }
 </string>
 				<key>trailing</key>
-				<string>                    if isStable {
-#if DEBUG
-                        logger.debug("Simulation stable: Centering nodes")
+				<string>#if DEBUG
+                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+#endif
 </string>
 			</dict>
 			<key>title</key>
@@ -58,13 +59,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>126</string>
+					<string>118</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>126</string>
+					<string>117</string>
 					<key>Timestamp</key>
-					<string>784660657.840554</string>
+					<string>785189307.364796</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -80,15 +81,16 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string></string>
+				<string>                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
+</string>
 				<key>leading</key>
-				<string>                }
-                .onReceive(viewModel.model.$isStable) { isStable in
+				<string>                    viewModel.objectWillChange.send()  // Force re-render if needed
+                }
 </string>
 				<key>trailing</key>
-				<string>                    if isStable {
-#if DEBUG
-                        logger.debug("Simulation stable: Centering nodes")
+				<string>#if DEBUG
+                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
+#endif
 </string>
 			</dict>
 			<key>title</key>

@@ -39,6 +39,7 @@ struct InnerViewConfig {
     let panStartOffset: Binding<CGSize?>
     let showMenu: Binding<Bool>
     let showOverlays: Binding<Bool>
+    let minZoom: CGFloat
     let maxZoom: CGFloat
     let crownPosition: Binding<Double>
     let updateZoomRangesHandler: (CGSize) -> Void
@@ -61,6 +62,7 @@ struct InnerViewConfig {
         panStartOffset: Binding<CGSize?>,
         showMenu: Binding<Bool>,
         showOverlays: Binding<Bool>,
+        minZoom: CGFloat,
         maxZoom: CGFloat,
         crownPosition: Binding<Double>,
         updateZoomRangesHandler: @escaping (CGSize) -> Void,
@@ -82,6 +84,7 @@ struct InnerViewConfig {
         self.panStartOffset = panStartOffset
         self.showMenu = showMenu
         self.showOverlays = showOverlays
+        self.minZoom = minZoom
         self.maxZoom = maxZoom
         self.crownPosition = crownPosition
         self.updateZoomRangesHandler = updateZoomRangesHandler

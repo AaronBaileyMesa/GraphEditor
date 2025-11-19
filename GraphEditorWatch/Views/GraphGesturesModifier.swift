@@ -44,14 +44,14 @@ struct GraphGesturesModifier: ViewModifier {
     func body(content: Content) -> some View {
         let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
             .onChanged { value in
-                let visibleNodes = viewModel.model.visibleNodes()  // Or viewModel.model.nodes if no visibleNodes()
+                let visibleNodes = viewModel.model.visibleNodes // Or viewModel.model.nodes if no visibleNodes()
                 let effectiveCentroid = viewModel.effectiveCentroid  // From ViewModel
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragChanged(value: value, visibleNodes: visibleNodes, context: context)
             }
             .onEnded { value in
-                let visibleNodes = viewModel.model.visibleNodes()
-                let visibleEdges = viewModel.model.visibleEdges()  // NEW: Get visible edges (assume method exists; use model.edges if not)
+                let visibleNodes = viewModel.model.visibleNodes
+                let visibleEdges = viewModel.model.visibleEdges // NEW: Get visible edges (assume method exists; use model.edges if not)
                 let effectiveCentroid = viewModel.effectiveCentroid
                 let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
                 handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
@@ -327,7 +327,7 @@ extension GraphGesturesModifier {
     }
     
     private func handleChevronTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
-        guard let    selectedID = selectedNodeID,
+        guard let selectedID = selectedNodeID,
               let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode else {
             return false
         }
@@ -349,21 +349,17 @@ extension GraphGesturesModifier {
         let chevronHitRadius: CGFloat = 20 * context.zoomScale
         let distanceToChevron = hypot(location.x - chevronCenter.x, location.y - chevronCenter.y)
         
-        if distanceToChevron < chevronHitRadius {
-            Task {
-                await viewModel.model.snapshot()
-                let updated = selectedNode.handlingTap()
-                if let index = viewModel.model.nodes.firstIndex(where: { $0.id == selectedID }) {
-                    viewModel.model.nodes[index] = AnyNode(updated)
-                }
-                await viewModel.model.startSimulation()
-            }
-            Self.logger.debug("Toggled expansion for node \(selectedNode.label)")
-            return true
+        guard distanceToChevron < chevronHitRadius else { return false }
+        
+        // THE CORRECT WAY — one line, does everything including the missing cache invalidation
+        Task { @MainActor in
+            await viewModel.model.toggleExpansion(for: selectedID)
         }
-        return false
+        
+        Self.logger.debug("Chevron tapped → toggled expansion for node \(selectedNode.label)")
+        return true
     }
-
+    
     private func handleNodeTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
         let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
         guard let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) else {

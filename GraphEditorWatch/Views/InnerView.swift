@@ -34,6 +34,7 @@ struct InnerView: View {
             viewSize: config.geo.size,
             panStartOffset: config.panStartOffset,
             showMenu: config.showMenu,
+            minZoom: config.minZoom,
             maxZoom: config.maxZoom,
             crownPosition: config.crownPosition,
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },

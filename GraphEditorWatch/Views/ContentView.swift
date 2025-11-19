@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 import os  // Added for logging
 
-struct ContentView: View { 
+struct ContentView: View {
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
     
     @ObservedObject var viewModel: GraphViewModel
@@ -65,8 +65,8 @@ struct ContentView: View {
                     
                     canvasFocus = true
                     
-                    let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
-                    zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
+                    //let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
+                    //zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
                     
 #if DEBUG
                     logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
@@ -80,13 +80,13 @@ struct ContentView: View {
                 .onChange(of: viewModel.model.edges) { _, _ in
                     updateZoomRanges(for: viewSize)  // New: Use viewSize
                 }
-                .onChange(of: crownPosition) { oldValue, newValue in
+                /*.onChange(of: crownPosition) { oldValue, newValue in
 #if DEBUG
                     logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
 #endif
                     
                     handleCrownRotation(newValue: newValue)
-                }
+                }*/
                 .onChange(of: canvasFocus) { oldValue, newValue in
 #if DEBUG
                     logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
@@ -170,6 +170,7 @@ struct ContentView: View {
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
                 showOverlays: $showOverlays,
+                minZoom: minZoom,
                 maxZoom: maxZoom,
                 crownPosition: $crownPosition,
                 updateZoomRangesHandler: { updateZoomRanges(for: $0) },
@@ -205,6 +206,7 @@ struct ContentView: View {
         }
     }
     
+    /*
     private func handleCrownRotation(newValue: Double) {
 #if DEBUG
         logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
@@ -217,12 +219,13 @@ struct ContentView: View {
         withAnimation(.easeInOut(duration: 0.1)) {
             zoomScale = targetZoom
         }
-        viewModel.centerGraph()  // Direct call
+        centerGraph()  // Direct call
         
 #if DEBUG
         logger.debug("Updated zoomScale to: \(self.zoomScale)")
 #endif
     }
+    */
     
     private func updateZoomRanges(for viewSize: CGSize) {
         let ranges = viewModel.calculateZoomRanges(for: viewSize)
@@ -234,23 +237,27 @@ struct ContentView: View {
     // New: Animated centering from new version (with corrected shift sign if needed; tested as-is)
     private func centerGraph() {
         let oldCentroid = viewModel.effectiveCentroid
-        viewModel.centerGraph()
+        
+        viewModel.resetViewToFitGraph(in: viewSize)
+        
         let newCentroid = viewModel.effectiveCentroid
+        
         let centroidShift = CGSize(
-            width: (oldCentroid.x - newCentroid.x) * zoomScale,
+            width:  (oldCentroid.x - newCentroid.x) * zoomScale,
             height: (oldCentroid.y - newCentroid.y) * zoomScale
         )
+        
         withAnimation(.easeInOut(duration: 0.3)) {
-            offset.width += centroidShift.width
+            offset.width  += centroidShift.width
             offset.height += centroidShift.height
         }
         
 #if DEBUG
-        logger.debug("Centering graph: Old centroid x=\(oldCentroid.x), y=\(oldCentroid.y), Shift width=\(centroidShift.width), height=\(centroidShift.height), New target x=\(newCentroid.x), y=\(newCentroid.y)")
+        logger.debug("Centering graph: oldCentroid=(\(oldCentroid.x), \(oldCentroid.y)), newCentroid=(\(newCentroid.x), \(newCentroid.y)), shift=(\(centroidShift.width), \(centroidShift.height))")
 #endif
     }
-      
 }
+
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))
