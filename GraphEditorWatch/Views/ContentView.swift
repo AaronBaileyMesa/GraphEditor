@@ -76,29 +76,6 @@ struct ContentView: View {
             }
             .onChange(of: viewModel.model.nodes) { updateZoomRanges(for: viewSize) }
             .onChange(of: viewModel.model.edges) { updateZoomRanges(for: viewSize) }
-            
-            // Crown → Zoom (single source)
-            .onChange(of: crownPosition) { _, newValue in
-                let normalized = newValue / Double(AppConstants.crownZoomSteps)
-                let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized.clamped(to: 0...1))
-                
-                if abs(targetZoom - zoomScale) > 0.01 {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        zoomScale = targetZoom
-                    }
-                }
-            }
-            
-            // Zoom → Crown (single source – replaces your duplicate one below)
-            .onChange(of: zoomScale) { _, newValue in
-                let normalized = (newValue - minZoom) / (maxZoom - minZoom)
-                let targetCrown = Double(AppConstants.crownZoomSteps) * normalized.clamped(to: 0...1)
-                
-                if abs(targetCrown - crownPosition) > 0.1 {
-                    crownPosition = targetCrown
-                }
-            }
-            
             .onChange(of: canvasFocus) { _, newValue in
                 if !newValue { canvasFocus = true }
             }
