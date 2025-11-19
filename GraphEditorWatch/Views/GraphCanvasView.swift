@@ -110,13 +110,6 @@ struct GraphCanvasView: View {
             ))
         }
         .focusable()
-        .digitalCrownRotation(
-            $crownPosition,
-            from: 0,
-            through: Double(AppConstants.crownZoomSteps),
-            sensitivity: .high
-        )
-        .id("GraphCanvasCrownTarget")   // ← Kills the warning forever
         
         // Crown → Zoom
         .onChange(of: crownPosition) { _, newValue in

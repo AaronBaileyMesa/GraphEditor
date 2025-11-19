@@ -64,7 +64,7 @@ struct ContentView: View {
 #endif
                     
                     canvasFocus = true
-                         
+                    
 #if DEBUG
                     logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
 #endif
@@ -77,13 +77,13 @@ struct ContentView: View {
                 .onChange(of: viewModel.model.edges) { _, _ in
                     updateZoomRanges(for: viewSize)  // New: Use viewSize
                 }
-                /*.onChange(of: crownPosition) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
-#endif
-                    
-                    handleCrownRotation(newValue: newValue)
-                }*/
+            /*.onChange(of: crownPosition) { oldValue, newValue in
+             #if DEBUG
+             logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
+             #endif
+             
+             handleCrownRotation(newValue: newValue)
+             }*/
                 .onChange(of: canvasFocus) { oldValue, newValue in
 #if DEBUG
                     logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
@@ -148,9 +148,17 @@ struct ContentView: View {
                 $crownPosition,
                 from: 0,
                 through: Double(AppConstants.crownZoomSteps),
-                sensitivity: .medium
+                sensitivity: .medium,
+                isContinuous: false,
+                isHapticFeedbackEnabled: true
             )
-        
+            .onChange(of: canvasFocus) { oldValue, newValue in
+                            #if DEBUG
+                            logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
+                            #endif
+                            if !newValue { canvasFocus = true }   // keep focus on canvas
+                        }
+
         finalView
     }
     
@@ -202,27 +210,6 @@ struct ContentView: View {
             }
         }
     }
-    
-    /*
-    private func handleCrownRotation(newValue: Double) {
-#if DEBUG
-        logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
-#endif
-        
-        let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
-        let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-        
-        // New: Animate the zoom change for smoothness
-        withAnimation(.easeInOut(duration: 0.1)) {
-            zoomScale = targetZoom
-        }
-        centerGraph()  // Direct call
-        
-#if DEBUG
-        logger.debug("Updated zoomScale to: \(self.zoomScale)")
-#endif
-    }
-    */
     
     private func updateZoomRanges(for viewSize: CGSize) {
         let ranges = viewModel.calculateZoomRanges(for: viewSize)

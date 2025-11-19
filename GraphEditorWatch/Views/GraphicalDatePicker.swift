@@ -13,6 +13,7 @@ import WatchKit  // Added for screenBounds
 struct GraphicalDatePicker: View {
     @Binding var date: Date
     @State private var displayMonth: Date  // Keep as Date for display
+    @State private var crownAccumulator = 0.0   // ← ADD THIS LINE
     
     // NEW: Reference date for crown value (e.g., 1970-01-01)
     private let referenceDate = Date(timeIntervalSince1970: 0)
@@ -51,14 +52,19 @@ struct GraphicalDatePicker: View {
                 if value.translation.width > 50 { previousMonth() }
             }
         )
-        .digitalCrownRotation(  // Attached to main VStack
-            crownValue,
-            from: monthsToMinDate,
-            through: monthsToMaxDate,
-            sensitivity: .high,
-            isContinuous: false,
-            isHapticFeedbackEnabled: false
-        )
+        .digitalCrownRotation($crownAccumulator)
+                .onChange(of: crownAccumulator) { _, newValue in
+                    let delta = newValue - crownAccumulator
+                    let months = Int(delta.rounded())
+                    if months != 0 {
+                        crownAccumulator = newValue
+                        if months > 0 {
+                            for _ in 0 ..< months { nextMonth() }
+                        } else {
+                            for _ in 0 ..< -months { previousMonth() }
+                        }
+                    }
+                }
     }
     
     // NEW: Helper to compute number of weeks (for dynamic height)
