@@ -181,23 +181,21 @@ struct NodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        if let id = selectedNodeID, let node = viewModel.model.nodes.first(where: { $0.id == id }) as? ToggleNode {
-            let isExpanded = node.isExpanded
-            return AnyView(  // Wrap in AnyView to resolve opaque type
+        Group {
+            if let toggleNode = viewModel.model.toggleNode(with: selectedNodeID) {
                 MenuButton(
                     action: {
                         Task { await viewModel.toggleSelectedNode() }
                         onDismiss()
                     },
                     label: {
-                        Label(isExpanded ? "Collapse" : "Expand",
-                              systemImage: isExpanded ? "chevron.up" : "chevron.down")
+                        Label(toggleNode.isExpanded ? "Collapse" : "Expand",
+                              systemImage: toggleNode.isExpanded ? "chevron.up" : "chevron.down")
                     },
                     accessibilityIdentifier: "toggleExpandCollapseButton"
                 )
-            )
-        } else {
-            return AnyView(EmptyView())
+            }
+            // else branch is implicitly EmptyView() → Group handles the type mismatch perfectly
         }
     }
     

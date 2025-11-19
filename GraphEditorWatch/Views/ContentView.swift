@@ -240,7 +240,7 @@ struct ContentView: View {
         let newCentroid = viewModel.effectiveCentroid
         
         let centroidShift = CGSize(
-            width:  (oldCentroid.x - newCentroid.x) * zoomScale,
+            width: (oldCentroid.x - newCentroid.x) * zoomScale,
             height: (oldCentroid.y - newCentroid.y) * zoomScale
         )
         
