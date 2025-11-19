@@ -308,7 +308,7 @@ extension GraphGesturesModifier {
 
 // MARK: - Tap Handling
 extension GraphGesturesModifier {
-    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
+     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
         if handleChevronTap(at: location, visibleNodes: visibleNodes, context: context) {
             return true
         }

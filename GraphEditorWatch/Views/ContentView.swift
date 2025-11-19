@@ -64,10 +64,7 @@ struct ContentView: View {
 #endif
                     
                     canvasFocus = true
-                    
-                    //let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
-                    //zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
-                    
+                         
 #if DEBUG
                     logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
 #endif
