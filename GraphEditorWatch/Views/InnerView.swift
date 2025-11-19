@@ -36,7 +36,6 @@ struct InnerView: View {
             showMenu: config.showMenu,
             minZoom: config.minZoom,
             maxZoom: config.maxZoom,
-            crownPosition: config.crownPosition,
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
             selectedEdgeID: config.selectedEdgeID,
             showOverlays: config.showOverlays,

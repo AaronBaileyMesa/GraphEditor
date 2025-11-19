@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>115</string>
+					<string>247</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>114</string>
+					<string>247</string>
 					<key>Timestamp</key>
-					<string>785229343.074559</string>
+					<string>785261407.015718</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -34,17 +34,13 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
-</string>
+				<string></string>
 				<key>leading</key>
-				<string>                    viewModel.objectWillChange.send()  // Force re-render if needed
-                }
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
 				<key>trailing</key>
-				<string>#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-</string>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -59,13 +55,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>115</string>
+					<string>247</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>114</string>
+					<string>247</string>
 					<key>Timestamp</key>
-					<string>785229343.074536</string>
+					<string>785261407.0152121</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -81,17 +77,13 @@
 			<key>text-context</key>
 			<dict>
 				<key>focused</key>
-				<string>                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
-</string>
+				<string></string>
 				<key>leading</key>
-				<string>                    viewModel.objectWillChange.send()  // Force re-render if needed
-                }
+				<string>    ContentView(viewModel: mockViewModel)
+}
 </string>
 				<key>trailing</key>
-				<string>#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-</string>
+				<string></string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>
@@ -106,13 +98,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>56</string>
+					<string>58</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>56</string>
+					<string>58</string>
 					<key>Timestamp</key>
-					<string>782240611.431348</string>
+					<string>785259670.983585</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
