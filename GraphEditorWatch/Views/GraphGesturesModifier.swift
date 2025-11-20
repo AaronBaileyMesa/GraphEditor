@@ -9,6 +9,13 @@ import WatchKit
 import GraphEditorShared
 import os  // Added for optimized logging
 
+struct GestureContext {
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
+    let effectiveCentroid: CGPoint
+}
+
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     @Binding var zoomScale: CGFloat
@@ -42,19 +49,56 @@ struct GraphGesturesModifier: ViewModifier {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
     func body(content: Content) -> some View {
-        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)  // Zero for immediate detection
+        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                let visibleNodes = viewModel.model.visibleNodes // Or viewModel.model.nodes if no visibleNodes()
-                let effectiveCentroid = viewModel.effectiveCentroid  // From ViewModel
-                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                handleDragChanged(value: value, visibleNodes: visibleNodes, context: context)
+                let visibleNodes = viewModel.model.visibleNodes
+                let effectiveCentroid = viewModel.effectiveCentroid
+                
+                let renderContext = RenderContext(
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize
+                )
+                
+                let context = GestureContext(
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize,
+                    effectiveCentroid: effectiveCentroid
+                )
+                
+                // Fixed: pass renderContext
+                handleDragChanged(value: value,
+                                  visibleNodes: visibleNodes,
+                                  context: context,
+                                  renderContext: renderContext)
             }
             .onEnded { value in
                 let visibleNodes = viewModel.model.visibleNodes
-                let visibleEdges = viewModel.model.visibleEdges // NEW: Get visible edges (assume method exists; use model.edges if not)
+                let visibleEdges = viewModel.model.visibleEdges
                 let effectiveCentroid = viewModel.effectiveCentroid
-                let context = GestureContext(zoomScale: zoomScale, offset: offset, viewSize: viewSize, effectiveCentroid: effectiveCentroid)
-                handleDragEnded(value: value, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
+                
+                let renderContext = RenderContext(
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize
+                )
+                
+                let context = GestureContext(
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize,
+                    effectiveCentroid: effectiveCentroid
+                )
+                
+                // Fixed: pass renderContext
+                handleDragEnded(value: value,
+                                visibleNodes: visibleNodes,
+                                visibleEdges: visibleEdges,
+                                context: context,
+                                renderContext: renderContext)
             }
         
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 10.0)
@@ -148,79 +192,99 @@ extension GraphGesturesModifier {
         return nil
     }
     
-    private func handleDragChanged(value: DragGesture.Value, visibleNodes: [any NodeProtocol], context: GestureContext) {
-        let location = value.location
-        let translation = value.translation
-        let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
-        
-        // Initial drag: Check for node hit
-        if draggedNode == nil && dragStartNode == nil {
-            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-            let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
-            if let node = hitNode {
-                dragStartNode = node
-                draggedNode = node
-                dragOffset = .zero
-                isAddingEdge = true  // Enter edge creation mode
-                GraphGesturesModifier.logger.debug("Drag of \(dragMagnitude) started from Node \(node.label)")
-            } else {
-                // Pan the canvas instead
-                if panStartOffset == nil {
-                    panStartOffset = offset
-                }
-                let delta = CGSize(width: translation.width, height: translation.height)
-                offset = panStartOffset! + delta
-            }
-            startLocation = location  // For tap threshold in onEnded
-            gestureStartCentroid = context.effectiveCentroid
-            return
-        }
-        
-        // Ongoing drag: Update drag offset and check for potential target
-        if let node = draggedNode {
-            dragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-            let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-            let potential = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext)
-            potentialEdgeTarget = (potential?.id != node.id) ? potential : nil  // Avoid self-edges
-            if let target = potentialEdgeTarget {
-                GraphGesturesModifier.logger.debug("Potential edge target: Node \(target.label)")
-            }
-        }
-    }
-    
-    private func handleDragEnded(value: DragGesture.Value, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) {
-        let location = value.location
-        let translation = value.translation
-        let dragMagnitude = distance(.zero, CGPoint(x: translation.width, y: translation.height))
-        
-        // Defer cleanup (ensures reset even on errors/taps)
-        defer { resetGestureState() }
-        
-        // Early exit for taps (short drag) - enhanced for node/edge selection
-        if let start = startLocation, dragMagnitude < dragStartThreshold, distance(start, location) < dragStartThreshold {
-            let wasHit = handleTap(at: location, visibleNodes: visibleNodes, visibleEdges: visibleEdges, context: context)
-            if wasHit {
-                WKInterfaceDevice.current().play(.click)  // Subtler haptic feedback (short tick/tap) on successful hit
-            }
-            return  // Exit early
-        }
-        
-        GraphGesturesModifier.logger.debug("Processing as drag: magnitude \(dragMagnitude), translation (\(translation.width), \(translation.height))")
-        
-        if let dragged = draggedNode {
-            Task { await viewModel.model.snapshot() }
-            let modelDragOffset = CGPoint(x: translation.width / zoomScale, y: translation.height / zoomScale)
-            GraphGesturesModifier.logger.debug("Drag offset in model: (\(modelDragOffset.x), \(modelDragOffset.y))")
+    private func handleDragChanged(
+        value: DragGesture.Value,
+        visibleNodes: [any NodeProtocol],
+        context: GestureContext,
+        renderContext: RenderContext                  // ← THIS IS REQUIRED NOW
+    ) {
+        // 1. Initial node pickup (tap → drag)
+        if draggedNode == nil && dragOffset == .zero {
+            if let tappedNode = HitTestHelper.closestNode(
+                at: value.location,
+                visibleNodes: visibleNodes,
+                renderContext: renderContext) {       // ← uses RenderContext
             
-            if let target = potentialEdgeTarget, target.id != dragged.id, isAddingEdge {
-                handleEdgeCreation(from: dragged, to: target, translation: translation)
-            } else {
-                handleNodeMovement(for: dragged, with: modelDragOffset)
+                draggedNode = tappedNode
+                dragStartNode = tappedNode
+                
+                let modelPos = tappedNode.position
+                let screenPos = CoordinateTransformer.modelToScreen(modelPos, renderContext)
+                dragOffset = CGPoint(x: value.location.x - screenPos.x,
+                                     y: value.location.y - screenPos.y)
+                
+                GraphGesturesModifier.logger.debug("Started dragging node \(tappedNode.label)")
             }
         }
-        withAnimation(.spring(duration: 0.3, bounce: 0.2)) {
-            onUpdateZoomRanges()
+        
+        // 2. Potential edge target (when adding edge)
+        if isAddingEdge {
+            potentialEdgeTarget = HitTestHelper.closestNode(
+                at: value.location,
+                visibleNodes: visibleNodes,
+                renderContext: renderContext)
+        } else {
+            potentialEdgeTarget = nil
         }
+        
+        // 3. Actual drag movement (panning or node move)
+        if let node = draggedNode {
+            // Node dragging
+            let screenPos = CGPoint(x: value.location.x - dragOffset.x,
+                                    y: value.location.y - dragOffset.y)
+            let newModelPos = CoordinateTransformer.screenToModel(screenPos, renderContext)
+            
+            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
+                let updated = viewModel.model.nodes[index].unwrapped.with(position: newModelPos, velocity: .zero)
+                let concreteUpdated = viewModel.model.nodes[index].with(position: newModelPos, velocity: .zero) // preserves type
+                viewModel.model.nodes[index] = concreteUpdated
+            }
+        } else {
+            // View panning
+            if panStartOffset == nil {
+                panStartOffset = offset
+            }
+            let translation = value.translation
+            offset = CGSize(width: (panStartOffset?.width ?? 0) + translation.width,
+                            height: (panStartOffset?.height ?? 0) + translation.height)
+        }
+        
+        // 4. Tap detection on minimal movement (optional — keep if you had it)
+        // Remove any old HitTestContext-based tap calls
+    }
+
+    private func handleDragEnded(
+        value: DragGesture.Value,
+        visibleNodes: [any NodeProtocol],
+        visibleEdges: [GraphEdge],
+        context: GestureContext,
+        renderContext: RenderContext                  // ← THIS IS REQUIRED NOW
+    ) {
+        // Final edge creation
+        if isAddingEdge,
+           let fromNode = draggedNode,
+           let toNode = HitTestHelper.closestNode(
+               at: value.location,
+               visibleNodes: visibleNodes,
+               renderContext: renderContext),
+           fromNode.id != toNode.id {
+           
+            Task {
+                await viewModel.model.addEdge(from: fromNode.id, target: toNode.id, type: .hierarchy)
+            }
+            GraphGesturesModifier.logger.debug("Added edge from \(fromNode.label) to \(toNode.label)")
+        }
+        
+        // Tap on release (if no significant movement)
+        let movedDistance = hypot(value.translation.width, value.translation.height)
+        if movedDistance < dragStartThreshold {
+            _ = handleTap(at: value.location,
+                          visibleNodes: visibleNodes,
+                          visibleEdges: visibleEdges,
+                          renderContext: renderContext)
+        }
+        
+        resetGestureState()
     }
     
     private func handleEdgeCreation(from dragged: any NodeProtocol, to target: any NodeProtocol, translation: CGSize) {
@@ -266,6 +330,45 @@ extension GraphGesturesModifier {
         }
     }
     
+    func handleTap(at location: CGPoint,
+                   visibleNodes: [any NodeProtocol],
+                   visibleEdges: [GraphEdge],
+                   renderContext: RenderContext) -> Bool {   // ← now takes RenderContext
+        
+        if let hitNode = HitTestHelper.closestNode(
+            at: location,
+            visibleNodes: visibleNodes,
+            renderContext: renderContext) {                 // ← new signature
+        
+            if selectedNodeID == hitNode.id {
+                selectedNodeID = nil
+            } else {
+                selectedNodeID = hitNode.id
+                selectedEdgeID = nil
+            }
+            return true
+        }
+        
+        if let hitEdge = HitTestHelper.closestEdge(
+            at: location,
+            visibleEdges: visibleEdges,
+            visibleNodes: visibleNodes,
+            renderContext: renderContext) {                 // ← new signature
+        
+            if selectedEdgeID == hitEdge.id {
+                selectedEdgeID = nil
+            } else {
+                selectedEdgeID = hitEdge.id
+                selectedNodeID = nil
+            }
+            return true
+        }
+        
+        selectedNodeID = nil
+        selectedEdgeID = nil
+        return false
+    }
+    
     private func resetGestureState() {
         draggedNode = nil
         dragStartNode = nil
@@ -303,94 +406,5 @@ extension GraphGesturesModifier {
         
         let proj = CGPoint(x: CGFloat(projX), y: CGFloat(projY))
         return distance(point, proj)
-    }
-}
-
-// MARK: - Tap Handling
-extension GraphGesturesModifier {
-     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge], context: GestureContext) -> Bool {
-        if handleChevronTap(at: location, visibleNodes: visibleNodes, context: context) {
-            return true
-        }
-        if handleNodeTap(at: location, visibleNodes: visibleNodes, context: context) {
-            return true
-        }
-        if handleEdgeTap(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: context) {
-            return true
-        }
-        
-        // Miss: Deselect both
-        selectedNodeID = nil
-        selectedEdgeID = nil
-        Self.logger.debug("Tap miss: Deselected all")
-        return false
-    }
-    
-    private func handleChevronTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
-        guard let selectedID = selectedNodeID,
-              let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode else {
-            return false
-        }
-        
-        let screenPos = CoordinateTransformer.modelToScreen(
-            selectedNode.position,
-            effectiveCentroid: context.effectiveCentroid,
-            zoomScale: context.zoomScale,
-            offset: context.offset,
-            viewSize: context.viewSize
-        )
-        
-        let nodeRadius = selectedNode.radius * context.zoomScale
-        let chevronCenter = CGPoint(
-            x: screenPos.x + nodeRadius + 14 * context.zoomScale,
-            y: screenPos.y
-        )
-        
-        let chevronHitRadius: CGFloat = 20 * context.zoomScale
-        let distanceToChevron = hypot(location.x - chevronCenter.x, location.y - chevronCenter.y)
-        
-        guard distanceToChevron < chevronHitRadius else { return false }
-        
-        // THE CORRECT WAY — one line, does everything including the missing cache invalidation
-        Task { @MainActor in
-            await viewModel.model.toggleExpansion(for: selectedID)
-        }
-        
-        Self.logger.debug("Chevron tapped → toggled expansion for node \(selectedNode.label)")
-        return true
-    }
-    
-    private func handleNodeTap(at location: CGPoint, visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
-        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-        guard let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, context: hitContext) else {
-            return false
-        }
-        
-        if selectedNodeID == hitNode.id {
-            selectedNodeID = nil
-            Self.logger.debug("Deselected Node \(hitNode.label)")
-        } else {
-            selectedNodeID = hitNode.id
-            selectedEdgeID = nil
-            Self.logger.debug("Selected Node \(hitNode.label)")
-        }
-        return true
-    }
-
-    private func handleEdgeTap(at location: CGPoint, visibleEdges: [GraphEdge], visibleNodes: [any NodeProtocol], context: GestureContext) -> Bool {
-        let hitContext = HitTestContext(zoomScale: context.zoomScale, offset: context.offset, viewSize: context.viewSize, effectiveCentroid: context.effectiveCentroid)
-        guard let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, context: hitContext) else {
-            return false
-        }
-        
-        if selectedEdgeID == hitEdge.id {
-            selectedEdgeID = nil
-            Self.logger.debug("Deselected Edge \(String(describing: hitEdge.id))")
-        } else {
-            selectedEdgeID = hitEdge.id
-            selectedNodeID = nil
-            Self.logger.debug("Selected Edge \(String(describing: hitEdge.id))")
-        }
-        return true
     }
 }

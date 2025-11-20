@@ -27,6 +27,5 @@ struct ToggleNodeView: View {
                 .rotationEffect(.degrees(node.isExpanded ? 90 : 0))  // 90° for down-facing when expanded
                 .animation(.easeInOut(duration: 0.2), value: node.isExpanded)  // Smooth transition
         }
-        .onTapGesture(perform: onTap)  // If tapping the node should toggle
     }
 }

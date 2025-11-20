@@ -9,6 +9,26 @@ struct GraphCanvasView: View {
     }
     
     let viewModel: GraphViewModel
+    
+        // This is the clean logical drawable area (square, no letterboxing)
+        var logicalViewSize: CGSize {
+            AppConstants.logicalCanvasSize
+        }
+        
+        // This offset centers the logical square inside the physical watch screen
+        var logicalViewOffset: CGSize {
+            let physical = viewSize
+            let logical = logicalViewSize
+            let extraX = (physical.width - logical.width) * 0.5
+            let extraY = (physical.height - logical.height) * 0.5
+            return CGSize(width: extraX, height: extraY)
+        }
+        
+        // Combined offset that gestures already manage + our new centering offset
+        var effectiveOffset: CGSize {
+            offset + logicalViewOffset
+        }
+    
     @Binding var zoomScale: CGFloat
     @Binding var offset: CGSize
     @Binding var draggedNode: (any NodeProtocol)?
@@ -82,12 +102,13 @@ struct GraphCanvasView: View {
             AccessibleCanvas(
                 viewModel: viewModel,
                 zoomScale: zoomScale,
-                offset: offset,
+                offset: effectiveOffset,
                 draggedNode: draggedNode,
                 dragOffset: dragOffset,
                 potentialEdgeTarget: potentialEdgeTarget,
                 selectedNodeID: selectedNodeID,
-                viewSize: viewSize,
+                viewSize: viewSize,              // ← was logicalViewSize → now physical
+                logicalViewSize: logicalViewSize, // ← was viewSize → now logical
                 selectedEdgeID: selectedEdgeID,
                 showOverlays: showOverlays,
                 saturation: saturation
@@ -101,7 +122,7 @@ struct GraphCanvasView: View {
                 potentialEdgeTarget: $potentialEdgeTarget,
                 selectedNodeID: $selectedNodeID,
                 selectedEdgeID: $selectedEdgeID,
-                viewSize: viewSize,
+                viewSize: viewSize,  
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
                 maxZoom: maxZoom,

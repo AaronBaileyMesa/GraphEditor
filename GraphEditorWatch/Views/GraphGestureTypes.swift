@@ -13,13 +13,6 @@ enum HitType {
     case edge
 }
 
-struct GestureContext {
-    let zoomScale: CGFloat
-    let offset: CGSize
-    let viewSize: CGSize
-    let effectiveCentroid: CGPoint
-}
-
 struct NodeDistanceInfo {
     let label: Int
     let screenPos: CGPoint

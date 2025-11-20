@@ -30,7 +30,7 @@ struct ContentView: View {
     @State private var saturation: Double = 1.0
     // MARK: - Crown from Environment (single source of truth)
     @Environment(\.crownPosition) private var crownPositionBinding: Binding<Double>
-
+    
     private var crownPosition: Double {
         get { crownPositionBinding.wrappedValue }
         nonmutating set { crownPositionBinding.wrappedValue = newValue }
@@ -67,12 +67,13 @@ struct ContentView: View {
                 updateZoomRanges(for: geo.size)
                 wristSide = WKInterfaceDevice.current().wristLocation
                 canvasFocus = true
+                viewModel.resetViewToFitGraph(viewSize: geo.size)
                 viewSize = geo.size
                 
-                #if DEBUG
+#if DEBUG
                 logger.debug("Geometry size: width=\(geo.size.width), height=\(geo.size.height)")
                 logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
-                #endif
+#endif
             }
             .onChange(of: viewModel.model.nodes) { updateZoomRanges(for: viewSize) }
             .onChange(of: viewModel.model.edges) { updateZoomRanges(for: viewSize) }
@@ -82,9 +83,9 @@ struct ContentView: View {
             
             // Keep all your existing .onChange and .onReceive handlers exactly as they were
             .onChange(of: viewModel.selectedNodeID) { _, newValue in
-                #if DEBUG
+#if DEBUG
                 logger.debug("ContentView: ViewModel selectedNodeID → \(newValue?.uuidString.prefix(8) ?? "nil")")
-                #endif
+#endif
                 selectedNodeID = newValue
             }
             .onChange(of: viewModel.selectedEdgeID) { _, newValue in
@@ -190,9 +191,12 @@ struct ContentView: View {
     
     // New: Animated centering from new version (with corrected shift sign if needed; tested as-is)
     private func centerGraph() {
+        guard viewSize.width > 0 else { return }
+        
         let oldCentroid = viewModel.effectiveCentroid
         
-        viewModel.resetViewToFitGraph(in: viewSize)
+        // ← NOW CORRECT: uses the stored real size
+        viewModel.resetViewToFitGraph(viewSize: viewSize)
         
         let newCentroid = viewModel.effectiveCentroid
         
@@ -202,15 +206,14 @@ struct ContentView: View {
         )
         
         withAnimation(.easeInOut(duration: 0.3)) {
-            self.offset.width += centroidShift.width
-            self.offset.height += centroidShift.height
+            offset.width  += centroidShift.width
+            offset.height += centroidShift.height
         }
         
-#if DEBUG
-        logger.debug("Centering graph: oldCentroid=(\(oldCentroid.x), \(oldCentroid.y)), newCentroid=(\(newCentroid.x), \(newCentroid.y)), shift=(\(centroidShift.width), \(centroidShift.height))")
-#endif
-    }
-}
+    #if DEBUG
+        logger.debug("Centering graph – oldCentroid: (\(oldCentroid.x), \(oldCentroid.y)), newCentroid: (\(newCentroid.x), \(newCentroid.y)), shift: (\(centroidShift.width), \(centroidShift.height))")
+    #endif
+    }}
 
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {

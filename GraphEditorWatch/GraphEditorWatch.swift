@@ -32,7 +32,7 @@ struct ContentLoaderView: View {
         } else {
             Text("Loading...")
                 .task {
-                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let physicsEngine = PhysicsEngine(simulationBounds: AppConstants.logicalCanvasSize)
                     let storage = PersistenceManager()
                     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
                     await model.loadGraph()
