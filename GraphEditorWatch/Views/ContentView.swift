@@ -5,7 +5,7 @@ import Foundation
 import CoreGraphics
 import os  // Added for logging
 
-struct ContentView: View { 
+struct ContentView: View {
     private let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "contentview")  // Added for consistent logging
     
     @ObservedObject var viewModel: GraphViewModel
@@ -22,13 +22,19 @@ struct ContentView: View {
     @FocusState private var canvasFocus: Bool
     @State private var minZoom: CGFloat = AppConstants.defaultMinZoom
     @State private var maxZoom: CGFloat = AppConstants.defaultMaxZoom
-    @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2
     @State private var wristSide: WKInterfaceDeviceWristLocation = .left  // Default to left
     @State private var showEditSheet: Bool = false
     @State private var isAddingEdge: Bool = false
     @State private var viewSize: CGSize = .zero
     @State private var isSimulating: Bool = false
     @State private var saturation: Double = 1.0
+    // MARK: - Crown from Environment (single source of truth)
+    @Environment(\.crownPosition) private var crownPositionBinding: Binding<Double>
+    
+    private var crownPosition: Double {
+        get { crownPositionBinding.wrappedValue }
+        nonmutating set { crownPositionBinding.wrappedValue = newValue }
+    }
     
     // NEW: Custom Bindings to sync @State with ViewModel (two-way)
     private var selectedNodeIDBinding: Binding<NodeID?> {
@@ -52,109 +58,79 @@ struct ContentView: View {
     }
     
     var body: some View {
-        let geoView = GeometryReader { geo in
-            let baseView = mainContent(in: geo)
-                .onAppear {
-                    Task { await viewModel.resumeSimulation() }
-                    updateZoomRanges(for: geo.size)
-                    wristSide = WKInterfaceDevice.current().wristLocation
-                    
+        GeometryReader { geo in
+            ZStack {
+                mainContent(in: geo)
+            }
+            .onAppear {
+                Task { await viewModel.resumeSimulation() }
+                updateZoomRanges(for: geo.size)
+                wristSide = WKInterfaceDevice.current().wristLocation
+                canvasFocus = true
+                viewModel.resetViewToFitGraph(viewSize: geo.size)
+                viewSize = geo.size
+                
 #if DEBUG
-                    logger.debug("Geometry size: width=\(geo.size.width), height=\(geo.size.height)")
+                logger.debug("Geometry size: width=\(geo.size.width), height=\(geo.size.height)")
+                logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
 #endif
-                    
-                    canvasFocus = true
-                    
-                    let initialNormalized = crownPosition / Double(AppConstants.crownZoomSteps)
-                    zoomScale = minZoom + (maxZoom - minZoom) * CGFloat(initialNormalized)
-                    
-#if DEBUG
-                    logger.debug("Initial sync: crownPosition \(self.crownPosition) -> zoomScale \(self.zoomScale)")
-#endif
-                    
-                    viewSize = geo.size  // New: Set viewSize here
-                }
-                .onChange(of: viewModel.model.nodes) { _, _ in
-                    updateZoomRanges(for: viewSize)  // New: Use viewSize
-                }
-                .onChange(of: viewModel.model.edges) { _, _ in
-                    updateZoomRanges(for: viewSize)  // New: Use viewSize
-                }
-                .onChange(of: crownPosition) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("Crown position changed in ContentView: from \(oldValue) to \(newValue)")
-#endif
-                    
-                    handleCrownRotation(newValue: newValue)
-                }
-                .onChange(of: canvasFocus) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView canvas focus changed: from \(oldValue) to \(newValue)")
-#endif
-                    
-                    if !newValue { canvasFocus = true }
-                }
+            }
+            .onChange(of: viewModel.model.nodes) { updateZoomRanges(for: viewSize) }
+            .onChange(of: viewModel.model.edges) { updateZoomRanges(for: viewSize) }
+            .onChange(of: canvasFocus) { _, newValue in
+                if !newValue { canvasFocus = true }
+            }
             
-            let intermediateView = baseView
-                .onChange(of: zoomScale) { oldValue, newValue in
-                    let normalized = (newValue - minZoom) / (maxZoom - minZoom)
-                    let targetCrown = Double(AppConstants.crownZoomSteps) * Double(normalized).clamped(to: 0...1)
-                    if abs(targetCrown - crownPosition) > 0.01 {
-                        crownPosition = targetCrown
-                        
+            // Keep all your existing .onChange and .onReceive handlers exactly as they were
+            .onChange(of: viewModel.selectedNodeID) { _, newValue in
 #if DEBUG
-                        logger.debug("Zoom sync: zoomScale from \(oldValue) to \(newValue) -> crownPosition \(self.crownPosition)")
+                logger.debug("ContentView: ViewModel selectedNodeID → \(newValue?.uuidString.prefix(8) ?? "nil")")
 #endif
-                    }
+                selectedNodeID = newValue
+            }
+            .onChange(of: viewModel.selectedEdgeID) { _, newValue in
+                selectedEdgeID = newValue
+            }
+            .onReceive(viewModel.model.$isStable) { isStable in
+                if isStable { centerGraph() }
+            }
+            .onReceive(viewModel.model.$simulationError) { error in
+                if let error = error {
+                    logger.error("Simulation error: \(error.localizedDescription)")
                 }
-                .onChange(of: viewModel.selectedNodeID) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedNodeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-                    
-                    selectedNodeID = newValue  // Sync to local @State
-                    viewModel.objectWillChange.send()  // Force re-render if needed
-                }
-                .onChange(of: viewModel.selectedEdgeID) { oldValue, newValue in
-#if DEBUG
-                    logger.debug("ContentView: ViewModel selectedEdgeID changed from \(oldValue?.uuidString.prefix(8) ?? "nil") to \(newValue?.uuidString.prefix(8) ?? "nil")")
-#endif
-                    
-                    selectedEdgeID = newValue
-                    viewModel.objectWillChange.send()
-                }
-                .onReceive(viewModel.model.$isStable) { isStable in
-                    if isStable {
-#if DEBUG
-                        logger.debug("Simulation stable: Centering nodes")
-#endif
-                        
-                        centerGraph()
-                    }
-                }
-                .onReceive(viewModel.model.$simulationError) { error in
-                    if let error = error {
-#if DEBUG
-                        logger.error("Simulation error: \(error.localizedDescription)")
-#endif
-                    }
-                }
-            
-            intermediateView
+            }
         }
-        
-        let finalView = geoView
-            .ignoresSafeArea()
-            .focusable(true)  // Make the whole view focusable for crown
-            .focused($canvasFocus)  // Bind focus state
-            .digitalCrownRotation(  // Restored: Put back here for root-level handling
-                $crownPosition,
-                from: 0,
-                through: Double(AppConstants.crownZoomSteps),
-                sensitivity: .medium
-            )
-        
-        finalView
+        .ignoresSafeArea()
+        // THE ONE AND ONLY digitalCrownRotation in the entire app
+        .digitalCrownRotation(
+            crownPositionBinding,
+            from: 0,
+            through: Double(AppConstants.crownZoomSteps),
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
+        .focusable()
+        .focused($canvasFocus)
+        .sheet(isPresented: $showMenu) {
+            NavigationStack {
+                MenuView(
+                    viewModel: viewModel,
+                    isSimulatingBinding: $isSimulating,
+                    onCenterGraph: centerGraph,
+                    showMenu: $showMenu,
+                    showOverlays: $showOverlays,
+                    selectedNodeID: selectedNodeIDBinding,
+                    selectedEdgeID: selectedEdgeIDBinding
+                )
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .onDisappear {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    saturation = 1.0
+                }
+            }
+        }
     }
     
     private func mainContent(in geo: GeometryProxy) -> some View {
@@ -170,8 +146,9 @@ struct ContentView: View {
                 panStartOffset: $panStartOffset,
                 showMenu: $showMenu,
                 showOverlays: $showOverlays,
+                minZoom: minZoom,
                 maxZoom: maxZoom,
-                crownPosition: $crownPosition,
+                crownPosition: crownPositionBinding,
                 updateZoomRangesHandler: { updateZoomRanges(for: $0) },
                 selectedNodeID: selectedNodeIDBinding,  // Use your custom binding
                 selectedEdgeID: selectedEdgeIDBinding,  // Use your custom binding
@@ -205,25 +182,6 @@ struct ContentView: View {
         }
     }
     
-    private func handleCrownRotation(newValue: Double) {
-#if DEBUG
-        logger.debug("handleCrownRotation triggered with newValue: \(newValue)")
-#endif
-        
-        let normalized = newValue.clamped(to: 0...Double(AppConstants.crownZoomSteps)) / Double(AppConstants.crownZoomSteps)
-        let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-        
-        // New: Animate the zoom change for smoothness
-        withAnimation(.easeInOut(duration: 0.1)) {
-            zoomScale = targetZoom
-        }
-        viewModel.centerGraph()  // Direct call
-        
-#if DEBUG
-        logger.debug("Updated zoomScale to: \(self.zoomScale)")
-#endif
-    }
-    
     private func updateZoomRanges(for viewSize: CGSize) {
         let ranges = viewModel.calculateZoomRanges(for: viewSize)
         minZoom = ranges.min
@@ -233,24 +191,30 @@ struct ContentView: View {
     
     // New: Animated centering from new version (with corrected shift sign if needed; tested as-is)
     private func centerGraph() {
+        guard viewSize.width > 0 else { return }
+        
         let oldCentroid = viewModel.effectiveCentroid
-        viewModel.centerGraph()
+        
+        // ← NOW CORRECT: uses the stored real size
+        viewModel.resetViewToFitGraph(viewSize: viewSize)
+        
         let newCentroid = viewModel.effectiveCentroid
+        
         let centroidShift = CGSize(
             width: (oldCentroid.x - newCentroid.x) * zoomScale,
             height: (oldCentroid.y - newCentroid.y) * zoomScale
         )
+        
         withAnimation(.easeInOut(duration: 0.3)) {
-            offset.width += centroidShift.width
+            offset.width  += centroidShift.width
             offset.height += centroidShift.height
         }
         
-#if DEBUG
-        logger.debug("Centering graph: Old centroid x=\(oldCentroid.x), y=\(oldCentroid.y), Shift width=\(centroidShift.width), height=\(centroidShift.height), New target x=\(newCentroid.x), y=\(newCentroid.y)")
-#endif
-    }
-      
-}
+    #if DEBUG
+        logger.debug("Centering graph – oldCentroid: (\(oldCentroid.x), \(oldCentroid.y)), newCentroid: (\(newCentroid.x), \(newCentroid.y)), shift: (\(centroidShift.width), \(centroidShift.height))")
+    #endif
+    }}
+
 extension CGFloat {
     func clamped(to range: ClosedRange<CGFloat>) -> CGFloat {
         Swift.max(range.lowerBound, Swift.min(self, range.upperBound))

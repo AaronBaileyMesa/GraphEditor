@@ -125,11 +125,22 @@ struct EditContentSheet: View {
         }
     }
     
-    // UPDATED: Full implementation of inlineEditView with all types
-    @ViewBuilder
     private func inlineEditView(for index: Int) -> some View {
         switch contents[index] {
-        case .string(var value):
+        case .string:
+            return AnyView(stringEditView(for: index))
+        case .date:
+            return AnyView(dateEditView(for: index))
+        case .number:
+            return AnyView(numberEditView(for: index))
+        case .boolean:
+            return AnyView(booleanEditView(for: index))
+        }
+    }
+    
+    @ViewBuilder
+    private func stringEditView(for index: Int) -> some View {
+        if case .string(var value) = contents[index] {
             TextField("Edit text", text: Binding(
                 get: { value },
                 set: { newValue in
@@ -140,7 +151,12 @@ struct EditContentSheet: View {
             .onSubmit {
                 editingIndex = nil  // Exit edit on submit
             }
-        case .date(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func dateEditView(for index: Int) -> some View {
+        if case .date(var value) = contents[index] {
             GraphicalDatePicker(date: Binding(
                 get: { value },
                 set: { newValue in
@@ -155,7 +171,12 @@ struct EditContentSheet: View {
                     .fill(Color.gray.opacity(0.1))
             )
             .fixedSize(horizontal: false, vertical: true)
-        case .number(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func numberEditView(for index: Int) -> some View {
+        if case .number(var value) = contents[index] {
             NumericKeypadView(text: Binding(
                 get: { String(format: "%.2f", value) },
                 set: { newValue in
@@ -168,7 +189,12 @@ struct EditContentSheet: View {
             .onSubmit {
                 editingIndex = nil  // Exit edit on submit
             }
-        case .boolean(var value):
+        }
+    }
+
+    @ViewBuilder
+    private func booleanEditView(for index: Int) -> some View {
+        if case .boolean(var value) = contents[index] {
             Toggle(isOn: Binding(
                 get: { value },
                 set: { newValue in
@@ -241,119 +267,6 @@ struct EditContentSheet: View {
         stringValue = ""
         dateValue = Date()
         numberString = ""  // Reset string instead
-    }
-}
-
-// ... (rest of the file: NumericKeypadView, DataTypeSegmentedControl, DataType enum, DateField enum — unchanged)
-
-struct NumericKeypadView: View {
-    @Binding var text: String
-    
-    let columns = [
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2),
-        GridItem(.flexible(), spacing: 2)
-    ]
-    
-    var body: some View {
-        VStack(spacing: 2) {
-            Text(text.isEmpty ? "0" : text)
-                .font(.system(size: 12, weight: .medium))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(4)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(4)
-                .lineLimit(1)
-                .truncationMode(.tail)
-            
-            LazyVGrid(columns: columns, spacing: 2) {
-                keypadButton("7") { appendDigit("7") }
-                keypadButton("8") { appendDigit("8") }
-                keypadButton("9") { appendDigit("9") }
-                keypadButton("4") { appendDigit("4") }
-                keypadButton("5") { appendDigit("5") }
-                keypadButton("6") { appendDigit("6") }
-                keypadButton("1") { appendDigit("1") }
-                keypadButton("2") { appendDigit("2") }
-                keypadButton("3") { appendDigit("3") }
-                keypadButton(".") { appendDigit(".") }
-                keypadButton("0") { appendDigit("0") }
-                keypadButton("-") { toggleNegative() }
-            }
-            
-            keypadButton("⌫", background: Color.red.opacity(0.2)) {
-                deleteLastCharacter()
-            }
-            .font(.system(size: 10))
-        }
-        .font(.system(size: 10))
-    }
-    
-    private func keypadButton(_ label: String, background: Color = Color.gray.opacity(0.1), action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .frame(maxWidth: .infinity, minHeight: 20)
-                .background(background)
-                .cornerRadius(4)
-        }
-        .buttonStyle(.plain)
-    }
-    
-    private func appendDigit(_ digit: String) {
-        if digit == "." && text.contains(".") { return }
-        text += digit
-    }
-    
-    private func toggleNegative() {
-        if text.hasPrefix("-") {
-            text.removeFirst()
-        } else if !text.isEmpty || text == "0" {
-            text = "-" + text
-        }
-    }
-    
-    private func deleteLastCharacter() {
-        if !text.isEmpty {
-            text.removeLast()
-        }
-    }
-}
-
-// MARK: - Custom Segmented Control for Data Types (watchOS-compatible version, with toggle behavior)
-struct DataTypeSegmentedControl: View {
-    @Binding var selectedType: DataType?
-    
-    var body: some View {
-        HStack(spacing: 4) {  // Compact spacing for watchOS
-            ForEach(DataType.allCases) { type in
-                Button {
-                    if selectedType == type {
-                        selectedType = nil  // Deselect and hide inputs
-                    } else {
-                        selectedType = type  // Select and show inputs
-                    }
-                } label: {
-                    Group {
-                        if type == .date {
-                            Image(systemName: "calendar")
-                        } else if type == .string {
-                            Text("A")
-                        } else {
-                            Text("123")
-                        }
-                    }
-                    .font(.caption2)  // Small font for watchOS
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(selectedType == type ? Color.blue : Color.gray.opacity(0.3))
-                    .foregroundColor(selectedType == type ? .white : .primary)
-                    .clipShape(Capsule())
-                }
-                .buttonStyle(.plain)  // Avoid default button styling
-            }
-        }
-        .frame(maxWidth: .infinity)  // Stretch to fill available width
     }
 }
 

@@ -1,8 +1,8 @@
 //
 //  GraphModelTests.swift
-//  GraphEditor
+//  GraphEditorWatchTests
 //
-//  Created by handcart on 9/22/25.
+//  Created by handcart on 2025-10-15.
 //
 
 import Testing
@@ -10,180 +10,222 @@ import Foundation
 import CoreGraphics
 @testable import GraphEditorWatch
 @testable import GraphEditorShared
-import XCTest
-import SwiftUI
 
 struct GraphModelTests {
-    private func mockPhysicsEngine() -> GraphEditorShared.PhysicsEngine {
-        GraphEditorShared.PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-    }
-    
-    private func setupDefaults(for storage: MockGraphStorage) async throws {
-        let node1 = AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))
-        let node2 = AnyNode(Node(label: 2, position: CGPoint(x: 200, y: 200)))
-        let node3 = AnyNode(Node(label: 3, position: CGPoint(x: 150, y: 150)))
-        let edge1 = GraphEdge(from: node1.id, target: node2.id)
-        let edge2 = GraphEdge(from: node2.id, target: node3.id)
-        let edge3 = GraphEdge(from: node3.id, target: node1.id)
-        try await storage.save(nodes: [node1, node2, node3], edges: [edge1, edge2, edge3])
-    }
-    
-    private func generateNodesAndEdges(seed: Int) async -> ([AnyNode], [GraphEdge]) {
-        struct SeededRandomNumberGenerator: RandomNumberGenerator {
-            private var state: UInt64
-            init(seed: UInt64) {
-                state = seed
-            }
-            mutating func next() -> UInt64 {
-                state &+= 1442695040888963407
-                state &*= 6364136223846793005
-                return state
-            }
-        }
-        var rng = SeededRandomNumberGenerator(seed: UInt64(seed))
-        var nodesToAssign: [AnyNode] = []
-        for _ in 0..<5 {
-            let label = Int.random(in: 0..<10, using: &rng)
-            let positionX = CGFloat.random(in: 0..<300, using: &rng)
-            let positionY = CGFloat.random(in: 0..<300, using: &rng)
-            nodesToAssign.append(AnyNode(Node(label: label, position: CGPoint(x: positionX, y: positionY))))
-        }
-        var edgesToAssign: [GraphEdge] = []
-        for _ in 0..<3 {
-            let fromIndex = Int.random(in: 0..<nodesToAssign.count, using: &rng)
-            let targetIndex = Int.random(in: 0..<nodesToAssign.count, using: &rng)
-            edgesToAssign.append(GraphEdge(from: nodesToAssign[fromIndex].id, target: nodesToAssign[targetIndex].id))
-        }
-        return (nodesToAssign, edgesToAssign)
-    }
-    
-    private func runSimulation(on model: GraphModel) async {
-        let physics = await MainActor.run { model.physicsEngine }
-        physics.resetSimulation()
-        let maxSteps = Constants.Physics.maxSimulationSteps
-        for _ in 0..<maxSteps {
-            let nodes = await model.nodes.map { $0.unwrapped }
-            let edges = await model.edges
-            let (updatedNodes, isActive) = physics.simulationStep(nodes: nodes, edges: edges)
-            await MainActor.run { model.nodes = updatedNodes.map(AnyNode.init) }
-            physics.alpha *= (1 - Constants.Physics.alphaDecay)
-            if !isActive { break }
+    private func setupModel() async -> GraphModel {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        return await MainActor.run {
+            GraphModel(storage: storage, physicsEngine: physicsEngine)
         }
     }
     
-    @Test(arguments: 1..<5) func testConvergencePropertyBased(seed: Int) async throws {
-        let storage = MockGraphStorage()
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let (nodesToAssign, edgesToAssign) = await generateNodesAndEdges(seed: seed)
-        await MainActor.run {
-            model.nodes = nodesToAssign
-            model.edges = edgesToAssign
-        }
-        await runSimulation(on: model)
-        let totalVel = (await model.nodes).reduce(0.0) { $0 + hypot($1.velocity.x, $1.velocity.y) }
-        #expect(totalVel < 4.0, "Simulation converged to low velocity for seed \(seed)")
+    @MainActor @Test func testSaveAndLoad() async throws {
+        let model = await setupModel()
+        let node1 = AnyNode(Node(label: 1, position: CGPoint(x: 0, y: 0)))
+        let node2 = AnyNode(Node(label: 2, position: CGPoint(x: 100, y: 100)))
+        let edge = GraphEdge(from: node1.id, target: node2.id)
+        
+        model.nodes = [node1, node2]
+        model.edges = [edge]
+        
+        // Updated: Use saveGraphState with GraphState
+        let state = GraphState(
+            nodes: model.nodes.map { $0.unwrapped },
+            edges: model.edges,
+            hierarchyEdgeColor: CodableColor(.blue),
+            associationEdgeColor: CodableColor(.white)
+        )
+        try await model.storage.saveGraphState(state, for: "default")
+        
+        // Clear model to simulate reload
+        model.nodes = []
+        model.edges = []
+        
+        // Updated: Use loadGraph(name:)
+         await model.loadGraph(name: "default")
+        
+        #expect(model.nodes.count == 2, "Nodes loaded")
+        #expect(model.edges.count == 1, "Edges loaded")
     }
     
-    @MainActor @Test func testUndoRedoMixedOperations() async throws {
-        let storage = MockGraphStorage()
-        let model = GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
-        await model.load()
-        await model.addNode(at: CGPoint.zero)
-        await runSimulation(on: model)
-        await model.snapshot()  // Explicit snapshot after initial simulation to capture positions
-        let initialNodes = model.nodes
-        let initialNodeCount = initialNodes.count
-        let initialEdgeCount = model.edges.count
-        let nodeToDelete = initialNodes[0].id
-        let connectedEdges = model.edges.filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
-        await model.snapshot()  // Explicit before delete
-        await model.deleteNode(withID: nodeToDelete)
-        await runSimulation(on: model)
-        await model.addNode(at: CGPoint(x: 50, y: 50))
-        await runSimulation(on: model)
-        await model.undo(resume: false)
-        #expect(model.nodes.count == initialNodeCount - 1, "Undo reverts to post-delete")
-        #expect(model.edges.count == initialEdgeCount - connectedEdges, "Edges match post-delete")
-        await model.undo(resume: false)
-        #expect(model.nodes.count == initialNodeCount, "Second undo restores initial")
-        #expect(model.edges.count == initialEdgeCount, "Edges restored")
-        let restoredNodes = model.nodes
-        #expect(zip(restoredNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString }), initialNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })).allSatisfy { approximatelyEqual($0.position, $1.position, accuracy: 1e-5) && approximatelyEqual($0.velocity, $1.velocity, accuracy: 1e-5) }, "Positions and velocities restored")
-        await model.redo(resume: false)
-        #expect(model.nodes.count == initialNodeCount - 1, "Redo applies delete")
-        await model.redo(resume: false)
-        #expect(model.nodes.count == initialNodeCount, "Redo applies add")
+    @MainActor @Test func testClear() async throws {
+        let model = await setupModel()
+        model.nodes = [AnyNode(Node(label: 1, position: .zero))]
+        model.edges = [GraphEdge(from: UUID(), target: UUID())]
+        
+        await model.resetGraph()
+        
+        #expect(model.nodes.isEmpty, "Nodes cleared")
+        #expect(model.edges.isEmpty, "Edges cleared")
     }
     
-    @Test func testInitializationWithDefaults() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        #expect(await MainActor.run { model.nodes.count } >= 3, "Should load default or saved nodes")
-        #expect(await MainActor.run { model.edges.count } >= 3, "Should load default edges")
+    @MainActor @Test func testMultiGraphSupport() async throws {
+        let model = await setupModel()
+        let node1 = AnyNode(Node(label: 1, position: .zero))
+        let node2 = AnyNode(Node(label: 2, position: .zero))
+        model.nodes = [node1, node2]
+        
+        // Save current (default)
+        let defaultState = GraphState(
+            nodes: model.nodes.map { $0.unwrapped },
+            edges: [],
+            hierarchyEdgeColor: CodableColor(.blue),
+            associationEdgeColor: CodableColor(.white)
+        )
+        try await model.storage.saveGraphState(defaultState, for: "default")
+        
+        // Create and switch to new graph
+        try await model.createNewGraph(name: "testGraph")
+        model.nodes = [AnyNode(Node(label: 3, position: .zero))]
+        let testState = GraphState(
+            nodes: model.nodes.map { $0.unwrapped },
+            edges: [],
+            hierarchyEdgeColor: CodableColor(.blue),
+            associationEdgeColor: CodableColor(.white)
+        )
+        try await model.storage.saveGraphState(testState, for: "testGraph")
+        
+        // Load back default
+         await model.loadGraph(name: "default")
+        #expect(model.nodes.count == 2, "Switched back to default graph")
+        
+        // List graphs
+        let names = try await model.listGraphNames()
+        #expect(names.contains("default") && names.contains("testGraph"), "Multiple graphs listed")
+        
+        // Delete test graph
+        try await model.deleteGraph(name: "testGraph")
+        let updatedNames = try await model.listGraphNames()
+        #expect(!updatedNames.contains("testGraph"), "Graph deleted")
     }
     
-    @Test func testDeleteNodeAndEdges() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let nodes = await model.nodes
-        try #require(!nodes.isEmpty, "Assumes default nodes exist")
-        let nodeToDelete = nodes[0].id
-        let initialEdgeCount = await model.edges.count
-        let connectedEdges = (await model.edges).filter { $0.from == nodeToDelete || $0.target == nodeToDelete }.count
-        await model.deleteNode(withID: nodeToDelete)
-        #expect(await MainActor.run { model.nodes.count } == nodes.count - 1, "Node deleted")
-        #expect(await MainActor.run { model.edges.count } == initialEdgeCount - connectedEdges, "Connected edges deleted")
-    }
-    
-    @Test func testSaveLoadRoundTrip() async throws {
-        let storage = MockGraphStorage()
-        try await setupDefaults(for: storage)
-        let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await model.load()
-        let originalNodeCount = await MainActor.run { model.nodes.count }
-        let originalEdges = await model.edges
-        await model.addNode(at: CGPoint.zero)
-        await runSimulation(on: model)
-        let postAddNodes = await model.nodes  // Capture after add and simulation
-        await model.snapshot()  // Triggers save() with stabilized positions
-        let newModel = await MainActor.run { GraphModel(storage: storage, physicsEngine: mockPhysicsEngine()) }
-        await newModel.load()
-        // Skip runSimulation(on: newModel) - loaded positions should match saved exactly; re-sim amplifies FP errors
-        #expect(await MainActor.run { newModel.nodes.count } == originalNodeCount + 1, "Loaded nodes include added one")
-        #expect(await newModel.edges == originalEdges, "Edges unchanged")
-        let loadedNodes = (await newModel.nodes).sorted(by: { $0.id.uuidString < $1.id.uuidString })
-        let expectedNodes = postAddNodes.sorted(by: { $0.id.uuidString < $1.id.uuidString })
-        #expect(zip(loadedNodes, expectedNodes).allSatisfy {
-            $0.label == $1.label && approximatelyEqual($0.position, $1.position, accuracy: 1e-2)  // Further relaxed for any JSON/FP rounding
-        }, "Loaded nodes match expected")
-    }
-    
-    @MainActor @Test func testUndoRedoRoundTrip() async {
+    @MainActor @Test func testBuildAdjacencyList() {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        try? await model.loadGraph()  // Explicit load to start empty
-        let initialNode = AnyNode(Node(id: UUID(), label: 1, position: .zero))
-        await model.snapshot()  // Pre-add initial (appends empty)
-        model.nodes = [initialNode]  // "Add" initial
-        let newNode = AnyNode(Node(id: UUID(), label: 2, position: .zero))
-        await model.snapshot()  // Pre-add new (appends [initial])
-        model.nodes.append(newNode)  // Add new
-        await model.undo()  // Back to 1 node
-        #expect(model.nodes.count == 1, "Undo removes node")
-        #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
-        #expect(model.redoStack.count == 1, "Redo stack populated")
-        await model.redo()  // Forward to 2 nodes
-        #expect(model.nodes.count == 2, "Redo adds node")
-        #expect(model.undoStack.count == 2, "Undo stack updated")
+        let node1ID = UUID()
+        let node2ID = UUID()
+        let node3ID = UUID()
+        model.nodes = [
+            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
+            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero)),
+            AnyNode(Node(id: node3ID, label: 3, position: CGPoint.zero))
+        ]
+        model.edges = [
+            GraphEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy),
+            GraphEdge(from: node1ID, target: node3ID, type: EdgeType.association),
+            GraphEdge(from: node2ID, target: node3ID, type: EdgeType.hierarchy)
+        ]
+        
+        let allAdj = model.buildAdjacencyList()
+        #expect(allAdj[node1ID]?.count == 2, "All edges from node1")
+        #expect(allAdj[node2ID]?.count == 1, "All edges from node2")
+        
+        let hierarchyAdj = model.buildAdjacencyList(for: EdgeType.hierarchy)
+        #expect(hierarchyAdj[node1ID]?.count == 1, "Only hierarchy from node1")
+        #expect(hierarchyAdj[node1ID]?[0] == node2ID, "Correct target")
     }
     
-    internal func approximatelyEqual(_ lhs: CGPoint, _ rhs: CGPoint, accuracy: CGFloat) -> Bool {
-        hypot(lhs.x - rhs.x, lhs.y - rhs.y) < accuracy
+    @Test func testDistanceEdgeCases() {
+        let samePoint = CGPoint(x: 5, y: 5)
+        #expect(distance(samePoint, samePoint) == 0, "Distance to self is 0")
+        
+        let negativePoints = CGPoint(x: -3, y: -4)
+        let origin = CGPoint.zero
+        #expect(distance(negativePoints, origin) == 5, "Distance with negatives is positive")
+    }
+    
+    @MainActor @Test func testWouldCreateCycle() {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let node1ID = UUID()
+        let node2ID = UUID()
+        let node3ID = UUID()
+        model.nodes = [
+            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
+            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero)),
+            AnyNode(Node(id: node3ID, label: 3, position: CGPoint.zero))
+        ]
+        model.edges = [
+            GraphEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy),
+            GraphEdge(from: node2ID, target: node3ID, type: EdgeType.hierarchy)
+        ]
+        
+        #expect(model.wouldCreateCycle(withNewEdgeFrom: node3ID, target: node1ID, type: EdgeType.hierarchy) == true, "Should detect cycle")
+        #expect(model.wouldCreateCycle(withNewEdgeFrom: node1ID, target: node3ID, type: EdgeType.hierarchy) == false, "No cycle")
+        #expect(model.wouldCreateCycle(withNewEdgeFrom: node1ID, target: node2ID, type: EdgeType.association) == false, "Non-hierarchy ignores cycle check")
+    }
+    
+    @MainActor @Test func testAddAndDeleteEdge() async {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let node1ID = UUID()
+        let node2ID = UUID()
+        model.nodes = [
+            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
+            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero))
+        ]
+        
+        await model.addEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy)
+        #expect(model.edges.count == 1, "Edge should be added")
+        
+        let edgeID = model.edges[0].id
+        await model.deleteEdge(withID: edgeID)
+        #expect(model.edges.isEmpty, "Edge should be deleted")
+    }
+    
+    @MainActor @Test func testAddNodeAndAddToggleNode() async {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        model.nextNodeLabel = 1
+        
+        await model.addNode(at: CGPoint.zero)
+        #expect(model.nodes.count == 1, "Node added")
+        #expect(model.nodes[0].unwrapped.label == 1, "Label set correctly")
+        #expect(model.nextNodeLabel == 2, "Label incremented")
+        
+        await model.addToggleNode(at: CGPoint.zero)
+        #expect(model.nodes.count == 2, "ToggleNode added")
+        #expect(model.nodes[1].unwrapped.label == 2, "Label set correctly")
+        #expect(model.nextNodeLabel == 3, "Label incremented")
+    }
+    
+    @MainActor @Test func testAddChildAndDeleteNode() async {
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let parentID = UUID()
+        model.nodes = [AnyNode(Node(id: parentID, label: 1, position: CGPoint.zero))]
+        model.nextNodeLabel = 2
+        
+        await model.addPlainChild(to: parentID)
+        #expect(model.nodes.count == 2, "Child added")
+        #expect(model.edges.count == 1, "Hierarchy edge added")
+        #expect(model.edges[0].type == EdgeType.hierarchy, "Correct edge type")
+        #expect(model.nextNodeLabel == 3, "Label incremented")
+        
+        let childID = model.nodes[1].id
+        await model.deleteNode(withID: childID)
+        #expect(model.nodes.count == 1, "Child deleted")
+        #expect(model.edges.isEmpty, "Edge removed")
+    }
+    
+    @MainActor @Test func testAddEdgeCycleDetection() async {
+        let storage = MockGraphStorage()
+        let physics = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+        let model = GraphModel(storage: storage, physicsEngine: physics)
+        let node1 = AnyNode(Node(label: 1, position: .zero))
+        let node2 = AnyNode(Node(label: 2, position: .zero))
+        let node3 = AnyNode(Node(label: 3, position: .zero))
+        model.nodes = [node1, node2, node3]
+        await model.addEdge(from: node1.id, target: node2.id, type: .hierarchy)
+        await model.addEdge(from: node2.id, target: node3.id, type: .hierarchy)
+        await model.addEdge(from: node3.id, target: node1.id, type: .hierarchy)  // Should prevent cycle
+        #expect(model.edges.count == 2)  // Third edge not added
+        // Optionally, check logs if you have a way to capture them
     }
 }

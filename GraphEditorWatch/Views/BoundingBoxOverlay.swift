@@ -16,25 +16,30 @@ struct BoundingBoxOverlay: View {
     
     var body: some View {
         let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
-        let minScreen = CoordinateTransformer.modelToScreen(
-            CGPoint(x: graphBounds.minX, y: graphBounds.minY),
+        
+        let renderContext = RenderContext(
             effectiveCentroid: viewModel.effectiveCentroid,
             zoomScale: zoomScale,
             offset: offset,
             viewSize: viewSize
+        )
+        
+        let minScreen = CoordinateTransformer.modelToScreen(
+            CGPoint(x: graphBounds.minX, y: graphBounds.minY),
+            renderContext
         )
         let maxScreen = CoordinateTransformer.modelToScreen(
             CGPoint(x: graphBounds.maxX, y: graphBounds.maxY),
-            effectiveCentroid: viewModel.effectiveCentroid,
-            zoomScale: zoomScale,
-            offset: offset,
-            viewSize: viewSize
+            renderContext
         )
-        let scaledBounds = CGRect(x: minScreen.x, y: minScreen.y, width: maxScreen.x - minScreen.x, height: maxScreen.y - minScreen.y)
+        
+        let scaledBounds = CGRect(x: minScreen.x, y: minScreen.y,
+                                  width: maxScreen.x - minScreen.x,
+                                  height: maxScreen.y - minScreen.y)
+        
         Rectangle()
             .stroke(Color.blue, lineWidth: 2)
             .frame(width: scaledBounds.width, height: scaledBounds.height)
             .position(x: scaledBounds.midX, y: scaledBounds.midY)
             .opacity(0.5)
-    }
-}
+    }}

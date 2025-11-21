@@ -17,3 +17,14 @@ extension EnvironmentValues {
         set { self[DisableCanvasFocusKey.self] = newValue }
     }
 }
+
+struct CrownPositionKey: EnvironmentKey {
+    static let defaultValue: Binding<Double> = .constant(10)  // fallback only
+}
+
+extension EnvironmentValues {
+    var crownPosition: Binding<Double> {
+        get { self[CrownPositionKey.self] }
+        set { self[CrownPositionKey.self] = newValue }
+    }
+}

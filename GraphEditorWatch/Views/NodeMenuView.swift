@@ -90,7 +90,7 @@ struct NodeMenuView: View {
         .ignoresSafeArea(.keyboard)
     }
     
-    // Edge type button (example; adjust if needed)
+    // Edge type button (same as NodeMenuView)
     private func edgeTypeButton(type: GraphEditorShared.EdgeType) -> some View {
         Button {
             selectedEdgeType = type
@@ -181,16 +181,22 @@ struct NodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.toggleSelectedNode() }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "arrow.up.arrow.down")
-            },
-            accessibilityIdentifier: "toggleExpandCollapseButton"
-        )
+        Group {
+            if let toggleNode = viewModel.model.toggleNode(with: selectedNodeID) {
+                MenuButton(
+                    action: {
+                        Task { await viewModel.toggleSelectedNode() }
+                        onDismiss()
+                    },
+                    label: {
+                        Label(toggleNode.isExpanded ? "Collapse" : "Expand",
+                              systemImage: toggleNode.isExpanded ? "chevron.up" : "chevron.down")
+                    },
+                    accessibilityIdentifier: "toggleExpandCollapseButton"
+                )
+            }
+            // else branch is implicitly EmptyView() → Group handles the type mismatch perfectly
+        }
     }
     
     private var deleteNodeButton: some View {

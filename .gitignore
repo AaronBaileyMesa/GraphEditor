@@ -1,0 +1,6 @@
+# Ignore context part files
+swift_ui_context_parts/part-*.txt
+
+# Context dumps
+*_context_parts/
+*.txt

@@ -25,8 +25,8 @@ struct FocusableView<Content: View>: View {
     
     var body: some View {
         content
-            .id("CrownFocusableCanvas")
-            .focused($isFocused)
+            .id("GraphCanvasCrownTarget")   // ← Match the outer ID
+                    .focused($isFocused)
             .onAppear {
                 if !disableCanvasFocus {  // NEW: Only set if not disabled
                     isFocused = true

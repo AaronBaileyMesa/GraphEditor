@@ -65,11 +65,13 @@ struct ToggleNodeMenuView: View {
                 Text("Edit").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     editContentsButton
+                    toggleExpandButton
                     deleteNodeButton  // Assuming this exists; from your truncated code
                 }
                 .padding(.horizontal, 8)
             }
         }
+        .navigationTitle("Toggle Node \(nodeLabel)")  // Added "Toggle" for distinction
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
@@ -121,7 +123,6 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    // New: Plain child (uses addPlainChild)
     private var addPlainChildButton: some View {
         MenuButton(
             action: {
@@ -137,7 +138,6 @@ struct ToggleNodeMenuView: View {
         )
     }
     
-    // New: Toggle child (uses addToggleChild)
     private var addToggleChildButton: some View {
         MenuButton(
             action: {
@@ -203,16 +203,24 @@ struct ToggleNodeMenuView: View {
     }
     
     private var toggleExpandButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.toggleSelectedNode() }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "arrow.up.arrow.down")
-            },
-            accessibilityIdentifier: "toggleExpandCollapseButton"
-        )
+        Group {
+            if let toggleNode = viewModel.model.toggleNode(with: selectedNodeID) {
+                MenuButton(
+                    action: {
+                        Task { await viewModel.toggleSelectedNode() }
+                        onDismiss()
+                    },
+                    label: {
+                        Label(
+                            toggleNode.isExpanded ? "Collapse" : "Expand",
+                            systemImage: toggleNode.isExpanded ? "chevron.up" : "chevron.down"
+                        )
+                    },
+                    accessibilityIdentifier: "toggleExpandCollapseButton"
+                )
+            }
+            // No else needed — Group with no content = EmptyView
+        }
     }
     
     private var deleteNodeButton: some View {

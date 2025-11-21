@@ -12,9 +12,11 @@ import GraphEditorShared
 // In GraphEditorWatch.swift
 @main
 struct GraphEditorWatch: App {
+    @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2.0
     var body: some Scene {
         WindowGroup {
             ContentLoaderView()
+                .environment(\.crownPosition, $crownPosition)
         }
     }
 }
@@ -30,7 +32,7 @@ struct ContentLoaderView: View {
         } else {
             Text("Loading...")
                 .task {
-                    let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
+                    let physicsEngine = PhysicsEngine(simulationBounds: AppConstants.logicalCanvasSize)
                     let storage = PersistenceManager()
                     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
                     await model.loadGraph()
