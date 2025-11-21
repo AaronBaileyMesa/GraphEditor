@@ -227,20 +227,28 @@ extension GraphGesturesModifier {
             potentialEdgeTarget = nil
         }
         
-        // 3. Actual drag movement (panning or node move)
-        if let node = draggedNode {
-            // Node dragging
+        // 3. Actual drag movement (node dragging or view panning)
+        if let dragged = draggedNode {
+            // Optional live edge preview
+            if isAddingEdge {
+                potentialEdgeTarget = HitTestHelper.closestNode(
+                    at: value.location,
+                    visibleNodes: visibleNodes,
+                    renderContext: renderContext)
+            } else {
+                potentialEdgeTarget = nil
+            }
+
+            // Live, buttery-smooth node movement
             let screenPos = CGPoint(x: value.location.x - dragOffset.x,
                                     y: value.location.y - dragOffset.y)
             let newModelPos = CoordinateTransformer.screenToModel(screenPos, renderContext)
-            
-            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                let updated = viewModel.model.nodes[index].unwrapped.with(position: newModelPos, velocity: .zero)
-                let concreteUpdated = viewModel.model.nodes[index].with(position: newModelPos, velocity: .zero) // preserves type
-                viewModel.model.nodes[index] = concreteUpdated
+
+            Task { @MainActor in
+                await viewModel.model.moveNode(withID: dragged.id, to: newModelPos)
             }
         } else {
-            // View panning
+            // Existing view panning code — leave unchanged
             if panStartOffset == nil {
                 panStartOffset = offset
             }
@@ -248,9 +256,6 @@ extension GraphGesturesModifier {
             offset = CGSize(width: (panStartOffset?.width ?? 0) + translation.width,
                             height: (panStartOffset?.height ?? 0) + translation.height)
         }
-        
-        // 4. Tap detection on minimal movement (optional — keep if you had it)
-        // Remove any old HitTestContext-based tap calls
     }
 
     private func handleDragEnded(
@@ -260,6 +265,9 @@ extension GraphGesturesModifier {
         context: GestureContext,
         renderContext: RenderContext                  // ← THIS IS REQUIRED NOW
     ) {
+        Task { @MainActor in
+            await viewModel.model.resumeSimulation()
+        }
         // Final edge creation
         if isAddingEdge,
            let fromNode = draggedNode,
