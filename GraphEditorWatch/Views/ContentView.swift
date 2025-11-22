@@ -210,9 +210,9 @@ struct ContentView: View {
             offset.height += centroidShift.height
         }
         
-    #if DEBUG
+#if DEBUG
         logger.debug("Centering graph – oldCentroid: (\(oldCentroid.x), \(oldCentroid.y)), newCentroid: (\(newCentroid.x), \(newCentroid.y)), shift: (\(centroidShift.width), \(centroidShift.height))")
-    #endif
+#endif
     }}
 
 extension CGFloat {

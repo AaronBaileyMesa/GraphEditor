@@ -123,25 +123,6 @@ struct AccessibleCanvas: View {
                 // MARK: - Dragged node + potential edge
                 drawDraggedNodeAndPotentialEdge(in: context, renderContext: renderContext)
 
-                // MARK: - Floating Chevron (now offset to the left)
-                if let selectedID = selectedNodeID,
-                   let selectedNode = visibleNodes.first(where: { $0.id == selectedID }) as? ToggleNode {
-                    
-                    let screenPos = CoordinateTransformer.modelToScreen(selectedNode.position, in: renderContext)
-                    
-                    // Offset the chevron to the left of the node
-                    let nodeScreenRadius = selectedNode.radius * renderContext.zoomScale
-                    let chevronOffsetX = -(nodeScreenRadius + 12 * renderContext.zoomScale)  // 12 model units ≈ good separation
-                    let chevronCenter = CGPoint(x: screenPos.x + chevronOffsetX, y: screenPos.y)
-                    
-                    var mutableContext = context
-                    AccessibleCanvasRenderer.drawFloatingChevron(
-                        at: chevronCenter,
-                        isExpanded: selectedNode.isExpanded,
-                        in: &mutableContext,
-                        zoomScale: renderContext.zoomScale
-                    )
-                }
             }
 
             if showOverlays {

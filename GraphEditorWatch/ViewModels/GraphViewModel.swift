@@ -244,9 +244,23 @@ import os  // Added for logging
         await resumeSimulationAfterDelay()
     }
     
-    public func setSelectedNode(_ id: UUID?) {
+    // GraphViewModel.swift – replace your current method with this one
+
+    @MainActor
+    public func setSelectedNode(_ id: NodeID?) {
         selectedNodeID = id
+        selectedEdgeID = nil                                 // clear any edge selection
         focusState = id.map { .node($0) } ?? .graph
+        
+        // This is the only new line we need
+        Task { @MainActor in
+            await model.updateControlNodes(for: id)
+        }
+        
+        #if os(watchOS)
+        WKInterfaceDevice.current().play(.click)
+        #endif
+        
         objectWillChange.send()
     }
 
