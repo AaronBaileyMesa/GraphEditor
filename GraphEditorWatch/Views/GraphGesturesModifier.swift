@@ -56,8 +56,8 @@ struct GraphGesturesModifier: ViewModifier {
                 
                 let renderContext = RenderContext(
                     effectiveCentroid: effectiveCentroid,
-                    zoomScale: zoomScale,
-                    offset: offset,
+                    zoomScale: viewModel.zoomScale,
+                    offset: CGSize(width: viewModel.offset.x, height: viewModel.offset.y),
                     viewSize: viewSize
                 )
                 
@@ -81,8 +81,8 @@ struct GraphGesturesModifier: ViewModifier {
                 
                 let renderContext = RenderContext(
                     effectiveCentroid: effectiveCentroid,
-                    zoomScale: zoomScale,
-                    offset: offset,
+                    zoomScale: viewModel.zoomScale,
+                    offset: CGSize(width: viewModel.offset.x, height: viewModel.offset.y),
                     viewSize: viewSize
                 )
                 
@@ -316,6 +316,7 @@ extension GraphGesturesModifier {
     }
     
     private func handleNodeMovement(for dragged: any NodeProtocol, with modelDragOffset: CGPoint) {
+        viewModel.draggedNodeID = dragged.id
         // No target: Move the node (with casts for .with, as it's not on protocol)
         if let index = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
             let oldNode = viewModel.model.nodes[index]
@@ -385,6 +386,7 @@ extension GraphGesturesModifier {
         panStartOffset = nil
         startLocation = nil
         isAddingEdge = false  // Reset edge mode
+        viewModel.draggedNodeID = nil
     }
 }
 

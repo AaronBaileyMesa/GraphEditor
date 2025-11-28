@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>227</string>
+					<string>165</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>227</string>
+					<string>165</string>
 					<key>Timestamp</key>
-					<string>785274150.9354481</string>
+					<string>786054644.005722</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,7 +36,7 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    ContentView(viewModel: mockViewModel)
+				<string>    }
 }
 </string>
 				<key>trailing</key>
@@ -55,13 +55,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>227</string>
+					<string>165</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>227</string>
+					<string>165</string>
 					<key>Timestamp</key>
-					<string>785274150.9354351</string>
+					<string>786054644.005284</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -79,7 +79,7 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    ContentView(viewModel: mockViewModel)
+				<string>    }
 }
 </string>
 				<key>trailing</key>

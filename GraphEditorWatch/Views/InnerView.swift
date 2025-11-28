@@ -25,23 +25,19 @@ struct InnerView: View {
         
         let canvasView = GraphCanvasView(
             viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
-            offset: config.offset,
             draggedNode: draggedNodeBinding,
             dragOffset: config.dragOffset,
             potentialEdgeTarget: potentialEdgeTargetBinding,
             selectedNodeID: config.selectedNodeID,
+            selectedEdgeID: config.selectedEdgeID,
             viewSize: config.geo.size,
             panStartOffset: config.panStartOffset,
             showMenu: config.showMenu,
-            minZoom: config.minZoom,
-            maxZoom: config.maxZoom,
             onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
-            selectedEdgeID: config.selectedEdgeID,
-            showOverlays: config.showOverlays,
             isAddingEdge: config.isAddingEdge,
             isSimulating: config.isSimulating,
-            saturation: config.saturation  // NEW: Pass the binding here
+            saturation: config.saturation,
+            crownPosition: config.crownPosition
         )
             .accessibilityIdentifier("GraphCanvas")
             .focused(config.canvasFocus.projectedValue)

@@ -16,7 +16,7 @@ struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
             ContentLoaderView()
-                .environment(\.crownPosition, $crownPosition)
+                //.environment(\.crownPosition, $crownPosition)
         }
     }
 }

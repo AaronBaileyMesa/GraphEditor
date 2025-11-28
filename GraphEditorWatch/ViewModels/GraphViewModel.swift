@@ -18,6 +18,7 @@ import os  // Added for logging
     @Published public var offset: CGPoint = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
+    @Published public var draggedNodeID: UUID? = nil 
     
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
