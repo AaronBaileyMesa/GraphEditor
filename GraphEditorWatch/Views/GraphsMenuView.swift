@@ -61,7 +61,7 @@ struct GraphsMenuView: View {
                     Task {
                         do {
                             try await viewModel.model.createNewGraph(name: newGraphName)
-                            viewModel.currentGraphName = newGraphName
+                            try await viewModel.model.switchToGraph(named: newGraphName)  // loads + updates name
                             showNewSheet = false
                             onDismiss()
                         } catch {

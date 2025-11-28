@@ -93,6 +93,10 @@ import os  // Added for logging
         activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
+        
+        model.setupControlSubscriptions(
+                selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
+            )
     }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
