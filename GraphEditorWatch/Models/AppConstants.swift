@@ -22,7 +22,3 @@ public struct AppConstants {
     public static let crownZoomSteps: Int = 20  // Smooth steps for crown
     
 }
-
-extension AppConstants {
-    static let logicalCanvasSize = CGSize(width: 184, height: 184) // square, fits all current watches
-}

@@ -15,10 +15,10 @@ import os  // Added for logging
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
     @Published public var selectedNodeID: UUID?
-    @Published public var offset: CGPoint = .zero
+    @Published public var offset: CGSize = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
-    @Published public var draggedNodeID: UUID? = nil 
+    @Published public var draggedNodeID: UUID?
     
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
@@ -58,10 +58,6 @@ import os  // Added for logging
         case node(UUID)
         case edge(UUID)
         case menu
-    }
-    
-    private var logicalCanvasSize: CGSize {
-        AppConstants.logicalCanvasSize
     }
 
     @Published public var focusState: AppFocusState = .graph
@@ -122,7 +118,7 @@ import os  // Added for logging
     }
     
     public func addNode(at position: CGPoint) async {
-        await model.addNode(at: position)
+        let _ = await model.addNode(at: position)
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
@@ -259,7 +255,7 @@ import os  // Added for logging
         
         // This is the only new line we need
         Task { @MainActor in
-            await model.updateControlNodes(for: id)
+            model.updateControlNodes(for: id)
         }
         
         #if os(watchOS)
@@ -274,45 +270,42 @@ import os  // Added for logging
         focusState = id.map { .edge($0) } ?? .graph
         objectWillChange.send()
     }
-    
-    // MARK: - Zoom to Fit & Centering (now uses logical canvas)
-
-    /// Updates zoom to fit all visible nodes with padding
+   
+    // MARK: - Modern Zoom-to-Fit (uses real screen size)
     @MainActor
-    public func updateZoomToFit(paddingFactor: CGFloat = AppConstants.zoomPaddingFactor) {
-        let visibleNodes = model.visibleNodes
-        guard !visibleNodes.isEmpty else { return }
-        
-        let bounds = boundingBox(nodes: visibleNodes).insetBy(dx: -20, dy: -20) // small extra margin
-        
+    public func updateZoomToFit(
+        viewSize: CGSize,
+        paddingFactor: CGFloat = AppConstants.zoomPaddingFactor
+    ) {
+        guard !model.visibleNodes.isEmpty else {
+            zoomScale = 1.0
+            offset = .zero
+            return
+        }
+
+        // Pass the actual node objects — physicsEngine.boundingBox expects [any NodeProtocol]
+        // model.visibleNodes is already [AnyNode], and AnyNode conforms to NodeProtocol
+        var bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+            .insetBy(dx: -30, dy: -30)  // breathing room
+
         guard bounds.width > 0, bounds.height > 0 else { return }
-        
-        // Critical: use logical canvas size here
-        let scaleX = logicalCanvasSize.width  / bounds.width
-        let scaleY = logicalCanvasSize.height / bounds.height
-        let newZoom = min(scaleX, scaleY) * paddingFactor
-        
-        // Clamp to reasonable bounds
-        zoomScale = max(0.2, min(5.0, newZoom))
-        
-        // Re-center after zoom change
-        centerGraph()
+
+        let scaleX = viewSize.width  / bounds.width
+        let scaleY = viewSize.height / bounds.height
+        let targetZoom = min(scaleX, scaleY) * paddingFactor
+
+        zoomScale = targetZoom.clamped(to: 0.2...5.0)
+
+        let centroid = model.centroid ?? .zero
+        offset = CGSize(
+            width: viewSize.width  / 2 - centroid.x * zoomScale,
+            height: viewSize.height / 2 - centroid.y * zoomScale
+        )
     }
     
     /// Centers and fits the graph to the view — intended for initial load or explicit user action only
     @MainActor
-    public func resetViewToFitGraph(viewSize: CGSize) {
-        guard viewSize.width > 0 && viewSize.height > 0 else {
-            Self.logger.warning("resetViewToFitGraph called with invalid size: \(String(describing: viewSize))")
-            return
-        }
-        
-        let (minZoom, _) = calculateZoomRanges(for: viewSize)
-        zoomScale = minZoom
-        offset = .zero
-        objectWillChange.send()
-    }
-    
+    // MARK: - Viewport Fitting (Correct & Clean)
     deinit {
         if let pause = pauseObserver { NotificationCenter.default.removeObserver(pause) }
         if let resume = resumeObserver { NotificationCenter.default.removeObserver(resume) }
@@ -360,15 +353,18 @@ extension GraphViewModel {
             selectedNodeID = viewState.selectedNodeID
             selectedEdgeID = viewState.selectedEdgeID
         } else {
-            // Default if no view state
+            // No saved view state → reset to perfect fit once view appears
             offset = .zero
             zoomScale = 1.0
-            resetViewToFitGraph()
+            
+            // Do NOT call resetViewToFitGraph here — we don't have viewSize yet!
+            // Instead, ContentView.onAppear will call it with real geo.size
+            // So just reset to defaults:
             selectedNodeID = nil
             selectedEdgeID = nil
         }
-        focusState = .graph
         
+        focusState = .graph
         await resumeSimulation()
         objectWillChange.send()
     }
@@ -391,6 +387,7 @@ extension GraphViewModel {
     
     /// Saves current view state for the current graph.
     public func saveViewState() throws {
+        let point = CGPoint(x: offset.width, y: offset.height)
         let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
         try model.storage.saveViewState(viewState, for: currentGraphName)
         
@@ -422,66 +419,26 @@ extension GraphViewModel {
 }
 
 extension GraphViewModel {
-    // MARK: - Logical Canvas Zoom & Centering (final consistent version)
-    
-    /// Centers the visible graph perfectly in the logical square canvas
     @MainActor
-        public func centerGraph() {
-            guard !model.visibleNodes.isEmpty else {
-                offset = .zero
-                return
-            }
-        
-        let centroid = model.centroid ?? .zero
-        
-        // Use logical canvas — this is now the single source of truth
-        let canvas = logicalCanvasSize
-        offset = CGPoint(
-            x: canvas.width  / 2 - centroid.x * zoomScale,
-            y: canvas.height / 2 - centroid.y * zoomScale
-        )
-    }
-    
-    /// Zooms to fit all visible nodes with consistent padding
-    @MainActor
-    public func resetViewToFitGraph(paddingFactor: CGFloat = 0.8) {
-        let visibleNodes = model.visibleNodes
-        guard !visibleNodes.isEmpty else {
+    public func resetViewToFitGraph(viewSize: CGSize, paddingFactor: CGFloat = 0.85) {
+        guard !model.visibleNodes.isEmpty else {
             zoomScale = 1.0
             offset = .zero
             return
         }
-        
-        // Compute graph bounds with a little breathing room
-        let bounds = boundingBox(nodes: visibleNodes).insetBy(dx: -30, dy: -30)
+
+        var bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+            .insetBy(dx: -40, dy: -40)
+
         guard bounds.width > 0, bounds.height > 0 else { return }
-        
-        let canvas = logicalCanvasSize
-        
-        let scaleX = canvas.width  / bounds.width
-        let scaleY = canvas.height / bounds.height
+
+        let scaleX = viewSize.width  / bounds.width
+        let scaleY = viewSize.height / bounds.height
         let newZoom = min(scaleX, scaleY) * paddingFactor
-        
+
         zoomScale = newZoom.clamped(to: 0.2...5.0)
-        centerGraph()  // Re-center after zoom change
-    }
-    
-    /// Helper: compute axis-aligned bounding box of nodes
-    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard let first = nodes.first else { return .zero }
-        
-        var minX = first.position.x - first.radius
-        var minY = first.position.y - first.radius
-        var maxX = first.position.x + first.radius
-        var maxY = first.position.y + first.radius
-        
-        for node in nodes.dropFirst() {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
-        }
-        
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+
+        let centroid = model.centroid ?? .zero
+        let point = CGPoint(x: offset.width, y: offset.height)
     }
 }

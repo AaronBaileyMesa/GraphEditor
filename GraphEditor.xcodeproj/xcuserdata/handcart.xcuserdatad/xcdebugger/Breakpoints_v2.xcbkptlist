@@ -8,7 +8,7 @@
          BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
          <BreakpointContent
             uuid = "BC4C0291-E23D-4491-A352-8863B281318A"
-            shouldBeEnabled = "Yes"
+            shouldBeEnabled = "No"
             ignoreCount = "0"
             continueAfterRunningActions = "No"
             filePath = "GraphEditorShared/Sources/GraphEditorShared/GraphSimulator.swift"
@@ -17,22 +17,6 @@
             startingLineNumber = "228"
             endingLineNumber = "228"
             landmarkName = "performSimulationStep(baseInterval:nodeCount:)"
-            landmarkType = "7">
-         </BreakpointContent>
-      </BreakpointProxy>
-      <BreakpointProxy
-         BreakpointExtensionID = "Xcode.Breakpoint.FileBreakpoint">
-         <BreakpointContent
-            uuid = "D4EECFD8-0B44-46A0-9EB8-B66368A5B332"
-            shouldBeEnabled = "No"
-            ignoreCount = "0"
-            continueAfterRunningActions = "No"
-            filePath = "GraphEditorShared/Sources/GraphEditorShared/RenderContext.swift"
-            startingColumnNumber = "9223372036854775807"
-            endingColumnNumber = "9223372036854775807"
-            startingLineNumber = "24"
-            endingLineNumber = "24"
-            landmarkName = "init(effectiveCentroid:zoomScale:offset:viewSize:)"
             landmarkType = "7">
          </BreakpointContent>
       </BreakpointProxy>

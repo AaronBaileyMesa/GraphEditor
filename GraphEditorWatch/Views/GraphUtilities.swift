@@ -50,6 +50,9 @@ struct InnerViewConfig {
     let isAddingEdge: Binding<Bool>
     let isSimulating: Binding<Bool>
     let saturation: Binding<Double>  // NEW: Add this binding
+    let viewSize: Binding<CGSize>
+    let currentDragLocation: Binding<CGPoint?>  // NEW: For live finger position
+    let dragStartNode: Binding<NodeWrapper>     // NEW: Wrapped for existential safety
     
     init(
         geo: GeometryProxy,
@@ -72,7 +75,10 @@ struct InnerViewConfig {
         onCenterGraph: @escaping () -> Void,
         isAddingEdge: Binding<Bool>,
         isSimulating: Binding<Bool>,
-        saturation: Binding<Double>  // NEW: Add this param
+        saturation: Binding<Double>,
+        viewSize: Binding<CGSize>,
+        currentDragLocation: Binding<CGPoint?>,
+        dragStartNode: Binding<NodeWrapper>
     ) {
         self.geo = geo
         self.viewModel = viewModel
@@ -95,5 +101,8 @@ struct InnerViewConfig {
         self.isAddingEdge = isAddingEdge
         self.isSimulating = isSimulating
         self.saturation = saturation  // NEW
+        self.viewSize = viewSize
+        self.currentDragLocation = currentDragLocation
+        self.dragStartNode = dragStartNode
     }
 }

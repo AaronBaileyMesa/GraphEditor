@@ -14,9 +14,11 @@ struct ContentView: View {
     @ObservedObject var viewModel: GraphViewModel
     
     // Local gesture/UI state only
-    @State private var draggedNode: (any NodeProtocol)? = nil
+    @State private var draggedNode: (any NodeProtocol)? 
     @State private var dragOffset: CGPoint = .zero
-    @State private var potentialEdgeTarget: (any NodeProtocol)? = nil
+    @State private var currentDragLocation: CGPoint? // Live finger position during drag
+    @State private var dragStartNode: (any NodeProtocol)?  // Starting node for edge preview
+    @State private var potentialEdgeTarget: (any NodeProtocol)?
     @State private var selectedNodeID: NodeID?
     @State private var selectedEdgeID: UUID?
     @State private var panStartOffset: CGSize?
@@ -58,14 +60,16 @@ struct ContentView: View {
                             viewModel.selectedEdgeID = newValue
                         }
                     ),
-                    viewSize: geo.size,
+                    viewSize: $viewSize,
                     panStartOffset: $panStartOffset,
                     showMenu: $showMenu,
                     onUpdateZoomRanges: { },
                     isAddingEdge: $isAddingEdge,
                     isSimulating: $isSimulating,
                     saturation: $saturation,
-                    crownPosition: $crownAccumulator
+                    crownPosition: $crownAccumulator,
+                    currentDragLocation: $currentDragLocation,
+                        dragStartNode: $dragStartNode
                 )
             }
             .onAppear {
@@ -74,20 +78,23 @@ struct ContentView: View {
                 canvasFocus = true
                 Task { await viewModel.resumeSimulation() }
                 viewModel.resetViewToFitGraph(viewSize: geo.size)
+                let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: geo.size)
+                    let normalized = (viewModel.zoomScale - minZoom) / (maxZoom - minZoom)
+                    crownAccumulator = Double(AppConstants.crownZoomSteps) * normalized.clamped(to: 0...1)
                 // Crown → zoom sync is now handled inside GraphCanvasView
             }
             .focused($canvasFocus)
         }
-        .onChange(of: viewSize) { newSize in
+        .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
+        .onChange(of: viewSize) { oldSize, newSize in
             viewModel.resetViewToFitGraph(viewSize: newSize)
         }
-        .onChange(of: viewModel.model.nodes) { _ in
-            viewModel.resetViewToFitGraph(viewSize: viewSize)
-        }
         .digitalCrownRotation($crownAccumulator)   // ← OFFICIAL API
-                .onChange(of: crownAccumulator) { handleCrownRotation($0) }
-                .onChange(of: viewModel.zoomScale) { syncZoomToCrown($0) }
-        
+                .onChange(of: crownAccumulator) {_, newValue in handleCrownRotation(newValue) }
+                .onChange(of: viewModel.zoomScale) {_, newZoom in
+                    guard viewSize.width > 50 else { return } // Skip until we have real size
+                    syncZoomToCrown(newZoom)
+                }
         // Menu sheet
         .sheet(isPresented: $showMenu) {
             NavigationStack {
@@ -145,9 +152,9 @@ struct ContentView: View {
         )
         
         withAnimation(.easeInOut(duration: 0.3)) {
-            viewModel.offset = CGPoint(
-                x: viewModel.offset.x + centroidShift.width,
-                y: viewModel.offset.y + centroidShift.height
+            viewModel.offset = CGSize(
+                width:  viewModel.offset.width  + centroidShift.width,
+                height: viewModel.offset.height + centroidShift.height
             )
         }
         

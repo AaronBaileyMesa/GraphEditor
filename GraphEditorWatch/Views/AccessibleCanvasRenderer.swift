@@ -15,9 +15,9 @@ struct AccessibleCanvasRenderer {
     // MARK: - Desaturation Helper (unchanged)
     static func desaturatedColor(_ color: Color, saturation: Double) -> Color {
         switch color {
-        case .red:   return Color(hue: 0,          saturation: saturation, brightness: 1)
-        case .green: return Color(hue: 120/360.0,  saturation: saturation, brightness: 1)
-        case .blue:  return Color(hue: 240/360.0,  saturation: saturation, brightness: 1)
+        case .red: return Color(hue: 0, saturation: saturation, brightness: 1)
+        case .green: return Color(hue: 120/360.0, saturation: saturation, brightness: 1)
+        case .blue: return Color(hue: 240/360.0, saturation: saturation, brightness: 1)
         case .gray, .white: return color
         default: return color
         }
@@ -74,7 +74,7 @@ struct AccessibleCanvasRenderer {
         
         let nodePath = Circle().path(in: nodeRect)
         
-        var ctx = graphicsContext
+        let ctx = graphicsContext
         var fill = node.fillColor
         if saturation < 1.0 {
             fill = desaturatedColor(fill, saturation: saturation)
@@ -111,15 +111,15 @@ struct AccessibleCanvasRenderer {
         else { return }
         
         let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen   = modelToScreen(toNode.position,   renderContext: renderContext)
+        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
         
-        let dx = toScreen.x - fromScreen.x
-        let dy = toScreen.y - fromScreen.y
-        let length = hypot(dx, dy)
+        let diffX = toScreen.x - fromScreen.x
+        let diffY = toScreen.y - fromScreen.y
+        let length = hypot(diffX, diffY)
         guard length > 0 else { return }
         
-        let unitDx = dx / length
-        let unitDy = dy / length
+        let unitDx = diffX / length
+        let unitDy = diffY / length
         
         let fromRadius = fromNode.radius * renderContext.zoomScale
         let toRadius   = toNode.radius   * renderContext.zoomScale
@@ -159,7 +159,7 @@ struct AccessibleCanvasRenderer {
         else { return }
         
         let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen   = modelToScreen(toNode.position,   renderContext: renderContext)
+        let toScreen = modelToScreen(toNode.position, renderContext: renderContext)
         
         let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
         let length = hypot(direction.dx, direction.dy)
@@ -176,14 +176,14 @@ struct AccessibleCanvasRenderer {
         let arrowLen: CGFloat = 10.0
         let arrowAngle: CGFloat = .pi / 6
         
-        let p1 = CGPoint(x: boundary.x - arrowLen * cos(angle - arrowAngle),
+        let path1 = CGPoint(x: boundary.x - arrowLen * cos(angle - arrowAngle),
                          y: boundary.y - arrowLen * sin(angle - arrowAngle))
-        let p2 = CGPoint(x: boundary.x - arrowLen * cos(angle + arrowAngle),
+        let path2 = CGPoint(x: boundary.x - arrowLen * cos(angle + arrowAngle),
                          y: boundary.y - arrowLen * sin(angle + arrowAngle))
         
         let path = Path { path in
-            path.move(to: boundary); path.addLine(to: p1)
-            path.move(to: boundary); path.addLine(to: p2)
+            path.move(to: boundary); path.addLine(to: path1)
+            path.move(to: boundary); path.addLine(to: path2)
         }
         
         let color = desaturatedColor(isSelected ? .red : .white, saturation: saturation)

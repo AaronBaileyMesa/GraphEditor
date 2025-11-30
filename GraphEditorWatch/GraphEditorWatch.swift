@@ -16,7 +16,6 @@ struct GraphEditorWatch: App {
     var body: some Scene {
         WindowGroup {
             ContentLoaderView()
-                //.environment(\.crownPosition, $crownPosition)
         }
     }
 }
@@ -32,10 +31,13 @@ struct ContentLoaderView: View {
         } else {
             Text("Loading...")
                 .task {
-                    let physicsEngine = PhysicsEngine(simulationBounds: AppConstants.logicalCanvasSize)
-                    let storage = PersistenceManager()
-                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-                    await model.loadGraph()
+                    let screenBounds = WKInterfaceDevice.current().screenBounds.size
+
+                        let physicsEngine = PhysicsEngine(simulationBounds: screenBounds) // ← THIS IS KEY
+
+                        let storage = PersistenceManager()
+                        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                        await model.loadGraph()
                     
                     model.nodes = model.nodes.map { anyNode in
                         let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
@@ -44,7 +46,7 @@ struct ContentLoaderView: View {
                     
                     let tempViewModel = GraphViewModel(model: model)
                     if let viewState = try? model.storage.loadViewState(for: model.currentGraphName) {
-                        tempViewModel.offset = viewState.offset
+                        tempViewModel.offset = CGSize(width: viewState.offset.width, height: viewState.offset.height)
                         tempViewModel.zoomScale = viewState.zoomScale
                         tempViewModel.selectedNodeID = viewState.selectedNodeID
                         tempViewModel.selectedEdgeID = viewState.selectedEdgeID

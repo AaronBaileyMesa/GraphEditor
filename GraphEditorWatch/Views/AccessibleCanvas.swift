@@ -1,8 +1,6 @@
 //
 //  AccessibleCanvas.swift
-//  GraphEditor
-//
-//  Updated: Nov 19, 2025 – fully migrated to shared RenderContext (no more AccessibleRenderContext)
+//  GraphEditorWatch
 //
 
 import SwiftUI
@@ -15,17 +13,19 @@ struct AccessibleCanvas: View {
     }
     
     let viewModel: GraphViewModel
-    let zoomScale: CGFloat
+    let zoomScale: CGFloat          // already includes scaleToFit
     let offset: CGSize
     let draggedNode: (any NodeProtocol)?
     let dragOffset: CGPoint
     let potentialEdgeTarget: (any NodeProtocol)?
     let selectedNodeID: NodeID?
-    let viewSize: CGSize
-    let logicalViewSize: CGSize
+    let viewSize: CGSize            // full physical screen
     let selectedEdgeID: UUID?
     let showOverlays: Bool
     let saturation: Double
+    let currentDragLocation: CGPoint?  // NEW (no @Binding needed here, as it's leaf view)
+    let isAddingEdge: Bool  // NEW
+    let dragStartNode: (any NodeProtocol)?  // NEW
 
     var body: some View {
         ZStack {
@@ -34,21 +34,21 @@ struct AccessibleCanvas: View {
                 let visibleEdges = viewModel.model.visibleEdges
                 let effectiveCentroid = viewModel.effectiveCentroid
 
-                // ONE SINGLE source of truth – used by EVERYTHING
+                // ONE source of truth – used by every drawing function and hit-testing
                 let renderContext = RenderContext(
                     effectiveCentroid: effectiveCentroid,
-                    zoomScale: zoomScale,
+                    zoomScale: zoomScale,      // already scaled to fill screen
                     offset: offset,
-                    viewSize: logicalViewSize
+                    viewSize: viewSize         // full physical size → perfect hit-testing
                 )
 
-                // Split selected / non-selected
+                // Split selected / non-selected for proper layering
                 let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
                 let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
                 let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
                 let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
 
-                // MARK: - Edge lines (non-selected)
+                // MARK: - Edges (non-selected)
                 AccessibleCanvasRenderer.drawEdges(
                     renderContext: renderContext,
                     graphicsContext: context,
@@ -59,7 +59,7 @@ struct AccessibleCanvas: View {
                     logger: Self.logger
                 )
 
-                // MARK: - Selected edge line
+                // MARK: - Selected edge
                 if let edge = selectedEdge {
                     AccessibleCanvasRenderer.drawSingleEdgeLine(
                         renderContext: renderContext,
@@ -120,9 +120,8 @@ struct AccessibleCanvas: View {
                     )
                 }
 
-                // MARK: - Dragged node + potential edge
+                // MARK: - Dragged node + potential edge preview
                 drawDraggedNodeAndPotentialEdge(in: context, renderContext: renderContext)
-
             }
 
             if showOverlays {
@@ -136,32 +135,64 @@ struct AccessibleCanvas: View {
         }
     }
 
-    private func drawDraggedNodeAndPotentialEdge(
-        in context: GraphicsContext,
-        renderContext: RenderContext
-    ) {
-        guard let dragged = draggedNode else { return }
+    private func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, renderContext: RenderContext) {
+        // 1. Dragged node ghost
+        if let dragged = draggedNode,
+           let dragLocation = currentDragLocation {  // ← Use shared param
+            
+            let liveModelPos = CoordinateTransformer.screenToModel(dragLocation, renderContext)
+            let livePos = liveModelPos + dragOffset
+            let screenPos = CoordinateTransformer.modelToScreen(livePos, renderContext)
+            
+            // Bright green ring (slightly larger)
+            let ringRect = CGRect(
+                x: screenPos.x - dragged.displayRadius * renderContext.zoomScale - 6,
+                y: screenPos.y - dragged.displayRadius * renderContext.zoomScale - 6,
+                width: (dragged.displayRadius * 2 + 12) * renderContext.zoomScale,
+                height: (dragged.displayRadius * 2 + 12) * renderContext.zoomScale
+            )
+            context.stroke(Circle().path(in: ringRect), with: .color(.green), lineWidth: 6 * renderContext.zoomScale)
 
-        let draggedModelPos = dragged.position + dragOffset
-        let draggedScreen = CoordinateTransformer.modelToScreen(draggedModelPos, in: renderContext)
-        let radius = Constants.App.nodeModelRadius * zoomScale
+            // Node fill
+            let nodeRect = CGRect(
+                x: screenPos.x - dragged.displayRadius * renderContext.zoomScale,
+                y: screenPos.y - dragged.displayRadius * renderContext.zoomScale,
+                width:  dragged.displayRadius * 2 * renderContext.zoomScale,
+                height: dragged.displayRadius * 2 * renderContext.zoomScale
+            )
+            context.fill(Circle().path(in: nodeRect), with: .color(dragged.fillColor))
 
-        let circleRect = CGRect(
-            x: draggedScreen.x - radius,
-            y: draggedScreen.y - radius,
-            width: radius * 2,
-            height: radius * 2
-        )
+            // Label
+            let text = Text("\(dragged.label)")
+                .font(.system(size: 14 * renderContext.zoomScale))
+                .foregroundColor(.white)
+            context.draw(text, at: CGPoint(x: screenPos.x, y: screenPos.y - (dragged.displayRadius + 14) * renderContext.zoomScale))
 
-        context.fill(Circle().path(in: circleRect), with: .color(.green))
-
-        if let target = potentialEdgeTarget {
-            let targetScreen = CoordinateTransformer.modelToScreen(target.position, in: renderContext)
-            let path = Path { path in
-                path.move(to: draggedScreen)
-                path.addLine(to: targetScreen)
+            // +/- for ToggleNode
+            if dragged is ToggleNode {
+                let sign = Text((dragged as? ToggleNode)?.isExpanded == true ? "-" : "+")
+                    .font(.system(size: 18 * renderContext.zoomScale, weight: .bold))
+                    .foregroundColor(.white)
+                context.draw(sign, at: screenPos)
             }
-            context.stroke(path, with: .color(.green), lineWidth: 2.0)
+        }
+
+        // 2. Potential edge preview (unchanged – already uses live position)
+        if isAddingEdge,  // ← Use shared param
+               let target = potentialEdgeTarget,
+               let from = draggedNode ?? dragStartNode,  // ← Use shared param
+               let dragLocation = currentDragLocation {
+                
+                let liveModelPos = CoordinateTransformer.screenToModel(dragLocation, renderContext)
+                let fromScreen = CoordinateTransformer.modelToScreen(liveModelPos + dragOffset, renderContext)
+                let toScreen = CoordinateTransformer.modelToScreen(target.position, renderContext)
+                
+                let path = Path { pathP in
+                    pathP.move(to: fromScreen)
+                    pathP.addLine(to: toScreen)
+                }
+                context.stroke(path, with: .color(.green.opacity(0.7)),
+                               style: StrokeStyle(lineWidth: 4 * renderContext.zoomScale, dash: [8, 6]))
         }
     }
 }
