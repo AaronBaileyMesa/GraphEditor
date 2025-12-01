@@ -36,7 +36,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var longPressTimer: Timer?
     @State private var pressProgress: Double = 0.0
     
-    private let dragStartThreshold: CGFloat = 10.0
+    private let dragStartThreshold: CGFloat = 5.0
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
     func body(content: Content) -> some View {
