@@ -86,7 +86,7 @@ struct ContentView: View {
             .focused($canvasFocus)
         }
         .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
-        .onChange(of: viewSize) { oldSize, newSize in
+        .onChange(of: viewSize) { _, newSize in
             viewModel.resetViewToFitGraph(viewSize: newSize)
         }
         .digitalCrownRotation($crownAccumulator)   // ← OFFICIAL API
@@ -153,7 +153,7 @@ struct ContentView: View {
         
         withAnimation(.easeInOut(duration: 0.3)) {
             viewModel.offset = CGSize(
-                width:  viewModel.offset.width  + centroidShift.width,
+                width: viewModel.offset.width  + centroidShift.width,
                 height: viewModel.offset.height + centroidShift.height
             )
         }

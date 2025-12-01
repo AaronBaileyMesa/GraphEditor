@@ -170,15 +170,15 @@ struct GraphGesturesModifier: ViewModifier {
         // Edge creation
         if isAddingEdge,
            let from = draggedNode ?? dragStartNode,
-           let to = HitTestHelper.closestNode(at: value.location,
+           let target = HitTestHelper.closestNode(at: value.location,
                                               visibleNodes: viewModel.model.visibleNodes,
                                               renderContext: renderContext),
-           from.id != to.id,
-           !viewModel.model.edges.contains(where: { $0.from == from.id && $0.target == to.id ||
-                                                    $0.from == to.id && $0.target == from.id }) {
+           from.id != target.id,
+           !viewModel.model.edges.contains(where: { $0.from == from.id && $0.target == target.id ||
+                                                    $0.from == target.id && $0.target == from.id }) {
             let type = viewModel.pendingEdgeType
-            Task { await viewModel.addEdge(from: from.id, to: to.id, type: type) }
-            Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(to.label)\"")
+            Task { await viewModel.addEdge(from: from.id, to: target.id, type: type) }
+            Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(target.label)\"")
         }
         
         resetGestureState()

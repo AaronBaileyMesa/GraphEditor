@@ -10,6 +10,14 @@ import SwiftUI
 import GraphEditorShared
 import os
 
+struct EdgeDrawingConfig {
+    let renderContext: RenderContext
+    let graphicsContext: GraphicsContext
+    let saturation: Double
+    let isSelected: Bool
+    let logger: Logger?
+}
+
 struct AccessibleCanvasRenderer {
     
     // MARK: - Desaturation Helper (unchanged)
@@ -97,21 +105,20 @@ struct AccessibleCanvasRenderer {
     
     // MARK: - Single Edge Line
     static func drawSingleEdgeLine(
-        renderContext: RenderContext,
-        graphicsContext: GraphicsContext,
+        config: EdgeDrawingConfig,
         edge: GraphEdge,
-        visibleNodes: [any NodeProtocol],
-        saturation: Double,
-        isSelected: Bool,
-        logger: Logger? = nil
+        visibleNodes: [any NodeProtocol]
     ) {
+        let rc = config.renderContext
+        let ctx = config.graphicsContext
+        
         guard
             let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
             let toNode = visibleNodes.first(where: { $0.id == edge.target })
         else { return }
         
-        let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
+        let fromScreen = modelToScreen(fromNode.position, renderContext: rc)
+        let toScreen   = modelToScreen(toNode.position, renderContext: rc)
         
         let diffX = toScreen.x - fromScreen.x
         let diffY = toScreen.y - fromScreen.y
@@ -121,8 +128,8 @@ struct AccessibleCanvasRenderer {
         let unitDx = diffX / length
         let unitDy = diffY / length
         
-        let fromRadius = fromNode.radius * renderContext.zoomScale
-        let toRadius   = toNode.radius   * renderContext.zoomScale
+        let fromRadius = fromNode.radius * rc.zoomScale
+        let toRadius   = toNode.radius   * rc.zoomScale
         
         let start = CGPoint(x: fromScreen.x + unitDx * fromRadius,
                             y: fromScreen.y + unitDy * fromRadius)
@@ -131,13 +138,13 @@ struct AccessibleCanvasRenderer {
         
         let path = Path { $0.move(to: start); $0.addLine(to: end) }
         
-        let color = desaturatedColor(isSelected ? .red : .white, saturation: saturation)
-        let width: CGFloat = isSelected ? 3.0 : 1.0
+        let color = desaturatedColor(config.isSelected ? .red : .white, saturation: config.saturation)
+        let width: CGFloat = config.isSelected ? 3.0 : 1.0
         
-        graphicsContext.stroke(path, with: .color(color), lineWidth: width)
+        ctx.stroke(path, with: .color(color), lineWidth: width)
         
         #if DEBUG
-        if let logger {
+        if let logger = config.logger {
             logger.debug("Drawing line for edge \(edge.id.uuidString.prefix(8)) from x=\(start.x), y=\(start.y) to x=\(end.x), y=\(end.y)")
         }
         #endif
@@ -145,21 +152,20 @@ struct AccessibleCanvasRenderer {
     
     // MARK: - Single Arrowhead
     static func drawSingleArrow(
-        renderContext: RenderContext,
-        graphicsContext: GraphicsContext,
+        config: EdgeDrawingConfig,
         edge: GraphEdge,
-        visibleNodes: [any NodeProtocol],
-        saturation: Double,
-        isSelected: Bool,
-        logger: Logger? = nil
+        visibleNodes: [any NodeProtocol]
     ) {
+        let renderContext = config.renderContext
+        let ctx = config.graphicsContext
+        
         guard
             let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
             let toNode = visibleNodes.first(where: { $0.id == edge.target })
         else { return }
         
         let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen = modelToScreen(toNode.position, renderContext: renderContext)
+        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
         
         let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
         let length = hypot(direction.dx, direction.dy)
@@ -177,25 +183,24 @@ struct AccessibleCanvasRenderer {
         let arrowAngle: CGFloat = .pi / 6
         
         let path1 = CGPoint(x: boundary.x - arrowLen * cos(angle - arrowAngle),
-                         y: boundary.y - arrowLen * sin(angle - arrowAngle))
+                            y: boundary.y - arrowLen * sin(angle - arrowAngle))
         let path2 = CGPoint(x: boundary.x - arrowLen * cos(angle + arrowAngle),
-                         y: boundary.y - arrowLen * sin(angle + arrowAngle))
+                            y: boundary.y - arrowLen * sin(angle + arrowAngle))
         
         let path = Path { path in
             path.move(to: boundary); path.addLine(to: path1)
             path.move(to: boundary); path.addLine(to: path2)
         }
         
-        let color = desaturatedColor(isSelected ? .red : .white, saturation: saturation)
-        graphicsContext.stroke(path, with: .color(color), lineWidth: 3.0)
+        let color = desaturatedColor(config.isSelected ? .red : .white, saturation: config.saturation)
+        ctx.stroke(path, with: .color(color), lineWidth: 3.0)
         
         #if DEBUG
-        if let logger {
+        if let logger = config.logger {
             logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundary.x), y=\(boundary.y)")
         }
         #endif
     }
-    
     // MARK: - Bulk Helpers (unchanged signatures – just forward)
     static func drawEdges(
         renderContext: RenderContext,
@@ -207,13 +212,17 @@ struct AccessibleCanvasRenderer {
         logger: Logger? = nil
     ) {
         for edge in visibleEdges {
-            drawSingleEdgeLine(renderContext: renderContext,
-                               graphicsContext: graphicsContext,
-                               edge: edge,
-                               visibleNodes: visibleNodes,
-                               saturation: saturation,
-                               isSelected: isSelected,
-                               logger: logger)
+            drawSingleEdgeLine(
+                config: EdgeDrawingConfig(
+                    renderContext: renderContext,
+                    graphicsContext: graphicsContext,
+                    saturation: saturation,
+                    isSelected: isSelected,
+                    logger: logger
+                ),
+                edge: edge,
+                visibleNodes: visibleNodes
+            )
         }
     }
     
@@ -227,13 +236,17 @@ struct AccessibleCanvasRenderer {
         logger: Logger? = nil
     ) {
         for edge in visibleEdges {
-            drawSingleArrow(renderContext: renderContext,
-                            graphicsContext: graphicsContext,
-                            edge: edge,
-                            visibleNodes: visibleNodes,
-                            saturation: saturation,
-                            isSelected: isSelected,
-                            logger: logger)
+            drawSingleArrow(
+                config: EdgeDrawingConfig(
+                    renderContext: renderContext,
+                    graphicsContext: graphicsContext,
+                    saturation: saturation,
+                    isSelected: isSelected,
+                    logger: logger
+                ),
+                edge: edge,
+                visibleNodes: visibleNodes
+            )
         }
     }
 }

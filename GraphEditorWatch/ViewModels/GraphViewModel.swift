@@ -118,7 +118,7 @@ import os  // Added for logging
     }
     
     public func addNode(at position: CGPoint) async {
-        let _ = await model.addNode(at: position)
+        _ = await model.addNode(at: position)
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
@@ -285,7 +285,7 @@ import os  // Added for logging
 
         // Pass the actual node objects — physicsEngine.boundingBox expects [any NodeProtocol]
         // model.visibleNodes is already [AnyNode], and AnyNode conforms to NodeProtocol
-        var bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+        let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
             .insetBy(dx: -30, dy: -30)  // breathing room
 
         guard bounds.width > 0, bounds.height > 0 else { return }
@@ -380,20 +380,19 @@ extension GraphViewModel {
     public func listGraphNames() async throws -> [String] {
         try await model.listGraphNames()
     }
-}
-
-extension GraphViewModel {
-    // MARK: - View State Persistence
-    
     /// Saves current view state for the current graph.
     public func saveViewState() throws {
-        let point = CGPoint(x: offset.width, y: offset.height)
-        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        let viewState = ViewState(
+            offset: offset,
+            zoomScale: zoomScale,
+            selectedNodeID: selectedNodeID,
+            selectedEdgeID: selectedEdgeID
+        )
         try model.storage.saveViewState(viewState, for: currentGraphName)
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Saved view state for '\(self.currentGraphName)'")
-        #endif
+#endif
     }
 }
 
@@ -427,7 +426,7 @@ extension GraphViewModel {
             return
         }
 
-        var bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+        let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
             .insetBy(dx: -40, dy: -40)
 
         guard bounds.width > 0, bounds.height > 0 else { return }
@@ -437,8 +436,5 @@ extension GraphViewModel {
         let newZoom = min(scaleX, scaleY) * paddingFactor
 
         zoomScale = newZoom.clamped(to: 0.2...5.0)
-
-        let centroid = model.centroid ?? .zero
-        let point = CGPoint(x: offset.width, y: offset.height)
     }
 }
