@@ -61,6 +61,16 @@ import os  // Added for logging
     }
 
     @Published public var focusState: AppFocusState = .graph
+  
+    @MainActor
+    public func generateControls(for nodeID: NodeID) {
+        model.updateEphemerals(selectedNodeID: nodeID)
+    }
+
+    @MainActor
+    public func clearControls() {
+        model.updateEphemerals(selectedNodeID: nil)
+    }
     
     public init(model: GraphModel) {
         self.model = model

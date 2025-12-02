@@ -187,22 +187,30 @@ struct GraphGesturesModifier: ViewModifier {
     // MARK: - Tap
     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
-            selectedNodeID = selectedNodeID == node.id ? nil : node.id
+            let newID = selectedNodeID == node.id ? nil : node.id
+            selectedNodeID = newID
             selectedEdgeID = nil
+            if let id = newID {
+                viewModel.generateControls(for: id)  // Now defined – generates immediately
+            } else {
+                viewModel.clearControls()  // Now defined – clears immediately
+            }
             WKInterfaceDevice.current().play(.click)
             return true
         }
         if let edge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, renderContext: renderContext) {
             selectedEdgeID = selectedEdgeID == edge.id ? nil : edge.id
             selectedNodeID = nil
+            viewModel.clearControls()  // Clears if switching to edge
             WKInterfaceDevice.current().play(.click)
             return true
         }
         selectedNodeID = nil
         selectedEdgeID = nil
+        viewModel.clearControls()  // Clears on background tap
         return false
     }
-    
+
     // MARK: - Hit Test
     private func hitTest(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> HitType {
         if let nodeN = HitTestHelper.closestNode(at: screenPos, visibleNodes: visibleNodes, renderContext: renderContext) {
