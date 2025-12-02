@@ -185,7 +185,7 @@ struct GraphGesturesModifier: ViewModifier {
     }
     
     // MARK: - Tap
-    private func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
+    func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
             selectedNodeID = selectedNodeID == node.id ? nil : node.id
             selectedEdgeID = nil
