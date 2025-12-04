@@ -42,8 +42,6 @@ struct InnerView: View {
             isAddingEdge: config.isAddingEdge,
             isSimulating: config.isSimulating,
             saturation: config.saturation,
-            crownPosition: config.crownPosition,
-            // ← FILL IN THESE WITH THE NEW BINDINGS (replaces the placeholders)
             currentDragLocation: config.currentDragLocation,
             dragStartNode: dragStartNodeBinding  // Use the custom binding
         )

@@ -32,9 +32,6 @@ struct ContentView: View {
     @State private var isSimulating: Bool = false
     @State private var saturation: Double = 1.0
     
-    // Crown binding comes straight from the environment
-    @State private var crownAccumulator: Double = Double(AppConstants.crownZoomSteps) / 2.0   // ← NEW
-    
     private var minZoom: CGFloat { AppConstants.defaultMinZoom }
     private var maxZoom: CGFloat { AppConstants.defaultMaxZoom }
     
@@ -67,7 +64,6 @@ struct ContentView: View {
                     isAddingEdge: $isAddingEdge,
                     isSimulating: $isSimulating,
                     saturation: $saturation,
-                    crownPosition: $crownAccumulator,
                     currentDragLocation: $currentDragLocation,
                         dragStartNode: $dragStartNode
                 )
@@ -78,10 +74,6 @@ struct ContentView: View {
                 canvasFocus = true
                 Task { await viewModel.resumeSimulation() }
                 viewModel.resetViewToFitGraph(viewSize: geo.size)
-                let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: geo.size)
-                    let normalized = (viewModel.zoomScale - minZoom) / (maxZoom - minZoom)
-                    crownAccumulator = Double(AppConstants.crownZoomSteps) * normalized.clamped(to: 0...1)
-                // Crown → zoom sync is now handled inside GraphCanvasView
             }
             .focused($canvasFocus)
         }
@@ -89,12 +81,7 @@ struct ContentView: View {
         .onChange(of: viewSize) { _, newSize in
             viewModel.resetViewToFitGraph(viewSize: newSize)
         }
-        .digitalCrownRotation($crownAccumulator)   // ← OFFICIAL API
-                .onChange(of: crownAccumulator) {_, newValue in handleCrownRotation(newValue) }
-                .onChange(of: viewModel.zoomScale) {_, newZoom in
-                    guard viewSize.width > 50 else { return } // Skip until we have real size
-                    syncZoomToCrown(newZoom)
-                }
+      
         // Menu sheet
         .sheet(isPresented: $showMenu) {
             NavigationStack {
@@ -122,23 +109,7 @@ struct ContentView: View {
             }
         }
     }
-    
-    private func handleCrownRotation(_ value: Double) {
-            let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
-            let normalized = (value / Double(AppConstants.crownZoomSteps)).clamped(to: 0...1)
-            let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-            withAnimation(.easeOut(duration: 0.08)) { viewModel.zoomScale = targetZoom }
-        }
         
-        private func syncZoomToCrown(_ zoom: CGFloat) {
-            let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
-            let normalized = ((zoom - minZoom) / (maxZoom - minZoom)).clamped(to: 0...1)
-            let target = Double(AppConstants.crownZoomSteps) * normalized
-            if abs(target - crownAccumulator) > 0.5 {
-                crownAccumulator = target
-            }
-        }
-    
     private func centerGraph() {
         guard viewSize.width > 0 else { return }
         

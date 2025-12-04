@@ -23,10 +23,10 @@ struct GraphCanvasView: View {
     @Binding var isAddingEdge: Bool
     @Binding var isSimulating: Bool
     @Binding var saturation: Double
-    @Binding var crownPosition: Double
     @Binding var currentDragLocation: CGPoint?  // NEW
     @Binding var dragStartNode: (any NodeProtocol)?  // NEW
-
+    @State private var crownPosition: Double = Double(AppConstants.crownZoomSteps) / 2.0
+    
     private var renderContext: RenderContext {
         RenderContext(
             effectiveCentroid: viewModel.effectiveCentroid,
@@ -82,6 +82,14 @@ struct GraphCanvasView: View {
                         .onChange(of: geo.size) { _, newValue in viewSize = newValue }
                 })
         .focusable()
+        .digitalCrownRotation(
+            $crownPosition,
+            from: 0.0,
+            through: Double(AppConstants.crownZoomSteps),
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: false  // Manual haptics below
+        )
         
         // Inside GraphCanvasView.body
         .onChange(of: crownPosition) { _, newValue in
