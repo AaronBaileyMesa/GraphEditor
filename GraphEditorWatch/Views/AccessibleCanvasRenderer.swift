@@ -62,15 +62,15 @@ struct AccessibleCanvasRenderer {
     
     // MARK: - Single Node
     static func drawSingleNode(
-        renderContext: RenderContext,                // ← now the shared one
-        graphicsContext: GraphicsContext,            // ← passed separately for mutability
+        renderContext: RenderContext,
+        graphicsContext: GraphicsContext,
         node: any NodeProtocol,
         saturation: Double,
         isSelected: Bool,
         logger: Logger? = nil
     ) {
         let screenPos = modelToScreen(node.position, renderContext: renderContext)
-        let scaledRadius = node.radius * renderContext.zoomScale
+        let scaledRadius = node.radius * renderContext.zoomScale  // Assume ControlNode has smaller radius
         let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 1.0
         
         let nodeRect = CGRect(
@@ -90,15 +90,49 @@ struct AccessibleCanvasRenderer {
         ctx.fill(nodePath, with: .color(fill))
         ctx.stroke(nodePath, with: .color(isSelected ? .white : .gray.opacity(0.5)), lineWidth: borderWidth)
         
-        // Label
-        let labelText = Text("\(node.label)")
-            .font(.system(size: max(8, 10 * renderContext.zoomScale)))
-            .foregroundStyle(.white)
-        ctx.draw(ctx.resolve(labelText), at: screenPos, anchor: .center)
-                
+        // NEW: Handle ControlNode (no label, add icon)
+        if let control = node as? ControlNode {
+            let iconSize = max(8.0, 12.0 * renderContext.zoomScale)
+            let iconRect = CGRect(
+                x: screenPos.x - iconSize / 2,
+                y: screenPos.y - iconSize / 2,
+                width: iconSize,
+                height: iconSize
+            )
+            
+            let icon = Image(systemName: control.kind.systemImage)  // Plain Image (systemName only)
+            
+            ctx.drawLayer { layer in
+                layer.addFilter(.colorMultiply(.white))  // Apply white tint
+                layer.draw(icon, in: iconRect)           // Draw sized in rect
+            }  // No need for removeFilter() – it's scoped to the layer
+            
+            #if DEBUG
+            logger?.debug("Drew control node icon '\(control.kind.systemImage)' at (x: \(screenPos.x, privacy: .public), y: \(screenPos.y, privacy: .public))")
+            #endif
+        } else {
+            // Existing label for regular nodes
+            let labelText = Text("\(node.label)")
+                .font(.system(size: max(8, 12 * renderContext.zoomScale), weight: .bold))
+                .foregroundColor(.white)
+            let labelPos = CGPoint(x: screenPos.x, y: screenPos.y - (node.radius + 12) * renderContext.zoomScale)
+            ctx.draw(labelText, at: labelPos, anchor: .center)
+            
+            // Existing +/- for ToggleNode
+            if let toggleNode = node as? ToggleNode {
+                var chevronContext = ctx
+                drawFloatingChevron(
+                    at: screenPos,
+                    isExpanded: toggleNode.isExpanded,
+                    in: &chevronContext,
+                    zoomScale: renderContext.zoomScale
+                )
+            }
+        }
+        
         #if DEBUG
-        if let logger {
-            logger.debug("Drawing node \(node.label) at screen x=\(screenPos.x), y=\(screenPos.y)")
+        if let logger = logger {
+            logger.debug("Drew node \(node.id.uuidString.prefix(8), privacy: .public) at screen (x: \(screenPos.x, privacy: .public), y: \(screenPos.y, privacy: .public)), model (x: \(node.position.x, privacy: .public), y: \(node.position.y, privacy: .public))")
         }
         #endif
     }
@@ -109,7 +143,7 @@ struct AccessibleCanvasRenderer {
         edge: GraphEdge,
         visibleNodes: [any NodeProtocol]
     ) {
-        let rc = config.renderContext
+        let renderContext = config.renderContext
         let ctx = config.graphicsContext
         
         guard
@@ -117,35 +151,39 @@ struct AccessibleCanvasRenderer {
             let toNode = visibleNodes.first(where: { $0.id == edge.target })
         else { return }
         
-        let fromScreen = modelToScreen(fromNode.position, renderContext: rc)
-        let toScreen   = modelToScreen(toNode.position, renderContext: rc)
+        let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
+        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
         
-        let diffX = toScreen.x - fromScreen.x
-        let diffY = toScreen.y - fromScreen.y
-        let length = hypot(diffX, diffY)
+        let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+        let length = hypot(direction.dx, direction.dy)
         guard length > 0 else { return }
         
-        let unitDx = diffX / length
-        let unitDy = diffY / length
+        let unitDx = direction.dx / length
+        let unitDy = direction.dy / length
         
-        let fromRadius = fromNode.radius * rc.zoomScale
-        let toRadius   = toNode.radius   * rc.zoomScale
+        let fromRadius = fromNode.radius * renderContext.zoomScale
+        let toRadius = toNode.radius * renderContext.zoomScale
         
         let start = CGPoint(x: fromScreen.x + unitDx * fromRadius,
                             y: fromScreen.y + unitDy * fromRadius)
-        let end   = CGPoint(x: toScreen.x   - unitDx * toRadius,
-                            y: toScreen.y   - unitDy * toRadius)
+        let end   = CGPoint(x: toScreen.x - unitDx * toRadius,
+                            y: toScreen.y - unitDy * toRadius)
         
-        let path = Path { $0.move(to: start); $0.addLine(to: end) }
+        // NEW: Customize for spring edges (dashed, thinner, gray)
+        let isSpring = edge.type == .spring  // Assume .spring in EdgeType
+        let lineWidth: CGFloat = config.isSelected ? 3.0 : (isSpring ? 1.0 : 1.5)
+        let color = desaturatedColor(config.isSelected ? .red : (isSpring ? .gray : .white), saturation: config.saturation)
+        let dash: [CGFloat] = isSpring ? [5, 3] : []  // Dashed for springs
         
-        let color = desaturatedColor(config.isSelected ? .red : .white, saturation: config.saturation)
-        let width: CGFloat = config.isSelected ? 3.0 : 1.0
-        
-        ctx.stroke(path, with: .color(color), lineWidth: width)
+        let path = Path { path in
+            path.move(to: start)
+            path.addLine(to: end)
+        }
+        ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, dash: dash))
         
         #if DEBUG
         if let logger = config.logger {
-            logger.debug("Drawing line for edge \(edge.id.uuidString.prefix(8)) from x=\(start.x), y=\(start.y) to x=\(end.x), y=\(end.y)")
+            logger.debug("Drew edge \(edge.id.uuidString.prefix(8), privacy: .public) from (x: \(start.x, privacy: .public), y: \(start.y, privacy: .public)) to (x: \(end.x, privacy: .public), y: \(end.y, privacy: .public))")
         }
         #endif
     }
@@ -197,7 +235,7 @@ struct AccessibleCanvasRenderer {
         
         #if DEBUG
         if let logger = config.logger {
-            logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundary.x), y=\(boundary.y)")
+            logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8), privacy: .public) to boundary x=\(boundary.x, privacy: .public), y=\(boundary.y, privacy: .public)")
         }
         #endif
     }
@@ -250,3 +288,4 @@ struct AccessibleCanvasRenderer {
         }
     }
 }
+

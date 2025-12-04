@@ -13,22 +13,9 @@ import WatchKit  // Added for screenBounds
 struct GraphicalDatePicker: View {
     @Binding var date: Date
     @State private var displayMonth: Date  // Keep as Date for display
-    @State private var crownAccumulator = 0.0   // ← ADD THIS LINE
     
     // NEW: Reference date for crown value (e.g., 1970-01-01)
     private let referenceDate = Date(timeIntervalSince1970: 0)
-    
-    // UPDATED: Computed Double binding for crown (months since reference), with clamping
-    private var crownValue: Binding<Double> {
-        Binding<Double>(
-            get: { Calendar.current.dateComponents([.month], from: referenceDate, to: displayMonth).month.map(Double.init) ?? 0.0 },
-            set: { newMonths in
-                var newDate = Calendar.current.date(byAdding: .month, value: Int(newMonths), to: referenceDate) ?? referenceDate
-                newDate = max(minDate, min(maxDate, newDate))  // Clamp to min/max
-                displayMonth = newDate
-            }
-        )
-    }
     
     private let calendar = Calendar.current
     private let daysOfWeek = DateFormatter().veryShortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]  // Single letters
@@ -52,19 +39,6 @@ struct GraphicalDatePicker: View {
                 if value.translation.width > 50 { previousMonth() }
             }
         )
-        .digitalCrownRotation($crownAccumulator)
-                .onChange(of: crownAccumulator) { _, newValue in
-                    let delta = newValue - crownAccumulator
-                    let months = Int(delta.rounded())
-                    if months != 0 {
-                        crownAccumulator = newValue
-                        if months > 0 {
-                            for _ in 0 ..< months { nextMonth() }
-                        } else {
-                            for _ in 0 ..< -months { previousMonth() }
-                        }
-                    }
-                }
     }
     
     // NEW: Helper to compute number of weeks (for dynamic height)
