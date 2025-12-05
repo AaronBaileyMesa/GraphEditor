@@ -60,8 +60,13 @@ struct GraphsMenuView: View {
                     WKInterfaceDevice.current().play(.click)
                     Task {
                         do {
+                            let available = try await viewModel.model.listGraphNames()
+                            if available.contains(newGraphName) {
+                                errorMessage = "Graph '\(newGraphName)' already exists."
+                                return
+                            }
                             try await viewModel.model.createNewGraph(name: newGraphName)
-                            try await viewModel.model.switchToGraph(named: newGraphName)  // loads + updates name
+                            try await viewModel.model.switchToGraph(named: newGraphName)
                             showNewSheet = false
                             onDismiss()
                         } catch {
@@ -114,10 +119,19 @@ struct GraphsMenuView: View {
         MenuButton(
             action: {
                 Task {
-                    await viewModel.model.loadGraph(name: graphName)
-                    viewModel.currentGraphName = graphName
+                    do {
+                        let availableGraphs = try await viewModel.model.listGraphNames()
+                        guard availableGraphs.contains(graphName) else {
+                            errorMessage = "Graph '\(graphName)' does not exist."
+                            return
+                        }
+                        try await viewModel.model.loadGraph(name: graphName)
+                        viewModel.currentGraphName = graphName
+                        onDismiss()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-                onDismiss()
             },
             label: {
                 Label("Load", systemImage: "folder")
