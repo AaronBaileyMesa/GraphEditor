@@ -38,78 +38,83 @@ struct GraphCanvasView: View {
 
     var body: some View {
         FocusableView {
-            AccessibleCanvas(
-                viewModel: viewModel,
-                zoomScale: viewModel.zoomScale,
-                offset: viewModel.offset,
-                draggedNode: draggedNode,
-                dragOffset: dragOffset,
-                potentialEdgeTarget: potentialEdgeTarget,
-                selectedNodeID: selectedNodeID,
-                viewSize: viewSize,
-                selectedEdgeID: selectedEdgeID,
-                showOverlays: false,
-                saturation: saturation,
-                currentDragLocation: currentDragLocation,  // No $ since it's already a Binding
+            CrownHandlerView(crownPosition: $crownPosition, viewModel: viewModel, viewSize: $viewSize) {
+                AccessibleCanvas(
+                    viewModel: viewModel,
+                    zoomScale: viewModel.zoomScale,
+                    offset: viewModel.offset,
+                    draggedNode: draggedNode,
+                    dragOffset: dragOffset,
+                    potentialEdgeTarget: potentialEdgeTarget,
+                    selectedNodeID: selectedNodeID,
+                    viewSize: viewSize,
+                    selectedEdgeID: selectedEdgeID,
+                    showOverlays: false,
+                    saturation: saturation,
+                    currentDragLocation: currentDragLocation,  // No $ since it's already a Binding
                     isAddingEdge: isAddingEdge,  // Already exists, but ensure it's passed
                     dragStartNode: dragStartNode
-            )
-            .modifier(GraphGesturesModifier(
-                viewModel: viewModel,
-                renderContext: renderContext,
-                zoomScale: $viewModel.zoomScale,
-                offset: $viewModel.offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
-                selectedEdgeID: $selectedEdgeID,
-                viewSize: viewSize,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                maxZoom: AppConstants.defaultMaxZoom,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges,
-                isAddingEdge: $isAddingEdge,
-                isSimulating: $isSimulating,
-                saturation: $saturation,
-                currentDragLocation: $currentDragLocation,
+                )
+                .modifier(GraphGesturesModifier(
+                    viewModel: viewModel,
+                    renderContext: renderContext,
+                    zoomScale: $viewModel.zoomScale,
+                    offset: $viewModel.offset,
+                    draggedNode: $draggedNode,
+                    dragOffset: $dragOffset,
+                    potentialEdgeTarget: $potentialEdgeTarget,
+                    selectedNodeID: $selectedNodeID,
+                    selectedEdgeID: $selectedEdgeID,
+                    viewSize: viewSize,
+                    panStartOffset: $panStartOffset,
+                    showMenu: $showMenu,
+                    maxZoom: AppConstants.defaultMaxZoom,
+                    crownPosition: $crownPosition,
+                    onUpdateZoomRanges: onUpdateZoomRanges,
+                    isAddingEdge: $isAddingEdge,
+                    isSimulating: $isSimulating,
+                    saturation: $saturation,
+                    currentDragLocation: $currentDragLocation,
                     dragStartNode: $dragStartNode  // Will become @Binding in GraphGesturesModifier
-            ))
+                ))
+            }
         }
         .background(GeometryReader { geo in
                     Color.clear.onAppear { viewSize = geo.size }
                         .onChange(of: geo.size) { _, newValue in viewSize = newValue }
                 })
-        .focusable()
-        .digitalCrownRotation(
-            $crownPosition,
-            from: 0.0,
-            through: Double(AppConstants.crownZoomSteps),
-            sensitivity: .medium,
-            isContinuous: false,
-            isHapticFeedbackEnabled: false  // Manual haptics below
-        )
-        
-        // Inside GraphCanvasView.body
-        .onChange(of: crownPosition) { _, newValue in
-            let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize) // ← REAL size
-            let normalized = (newValue / Double(AppConstants.crownZoomSteps)).clamped(to: 0...1)
-            let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-            
-            withAnimation(.easeOut(duration: 0.08)) {
-                viewModel.zoomScale = targetZoom
-            }
-        }
+    }
+}
 
-        .onChange(of: viewModel.zoomScale) { _, userZoom in
-            guard viewSize.width > 50 else { return }
-            let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
-            let normalized = ((userZoom - minZoom) / (maxZoom - minZoom)).clamped(to: 0...1)
-            let targetCrown = Double(AppConstants.crownZoomSteps) * normalized
-            if abs(targetCrown - crownPosition) > 0.5 {
-                crownPosition = targetCrown
+// NEW: Sub-view for crown
+struct CrownHandlerView<Content: View>: View {
+    @Binding var crownPosition: Double
+    let viewModel: GraphViewModel
+    @Binding var viewSize: CGSize
+    let content: () -> Content
+
+    var body: some View {
+        content()
+            .digitalCrownRotation(
+                $crownPosition,
+                from: 0.0,
+                through: Double(AppConstants.crownZoomSteps),
+                sensitivity: .medium,
+                isContinuous: false,
+                isHapticFeedbackEnabled: false
+            )
+            .onChange(of: crownPosition) { _, newValue in
+                let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
+                let normalized = (newValue / Double(AppConstants.crownZoomSteps)).clamped(to: 0...1)
+                let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
+                withAnimation(.easeOut(duration: 0.08)) { viewModel.zoomScale = targetZoom }
             }
-        }
+            .onChange(of: viewModel.zoomScale) { _, userZoom in
+                guard viewSize.width > 50 else { return }
+                let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
+                let normalized = ((userZoom - minZoom) / (maxZoom - minZoom)).clamped(to: 0...1)
+                let targetCrown = Double(AppConstants.crownZoomSteps) * normalized
+                if abs(targetCrown - crownPosition) > 0.5 { crownPosition = targetCrown }
+            }
     }
 }

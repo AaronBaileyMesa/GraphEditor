@@ -30,9 +30,6 @@ struct FocusableView<Content: View>: View {
             .onAppear {
                 if !disableCanvasFocus {  // NEW: Only set if not disabled
                     isFocused = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                        isFocused = true
-                    }
                 }
             }
             .onChange(of: isFocused) { oldValue, newValue in
