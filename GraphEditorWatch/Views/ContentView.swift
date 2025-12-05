@@ -76,6 +76,19 @@ struct ContentView: View {
                 viewModel.resetViewToFitGraph(viewSize: geo.size)
             }
             .focused($canvasFocus)
+            .sheet(item: $viewModel.model.editingNodeID) { id in
+                EditContentSheet(
+                    selectedID: id,
+                    viewModel: viewModel,
+                    onSave: { newContents in
+                        Task {
+                            await viewModel.model.updateNodeContents(withID: id, newContents: newContents)
+                            viewModel.model.editingNodeID = nil  // Dismiss sheet
+                        }
+                    }
+                )
+                .environment(\.disableCanvasFocus, true)  // As in your existing code
+            }
         }
         .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
         .onChange(of: viewSize) { _, newSize in
