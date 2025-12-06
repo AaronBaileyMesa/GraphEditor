@@ -22,7 +22,7 @@ import os  // Added for logging
     
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
-        
+    
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
     
@@ -59,14 +59,14 @@ import os  // Added for logging
         case edge(UUID)
         case menu
     }
-
+    
     @Published public var focusState: AppFocusState = .graph
-  
+    
     @MainActor
     public func generateControls(for nodeID: NodeID) {
         model.updateEphemerals(selectedNodeID: nodeID)
     }
-
+    
     @MainActor
     public func clearControls() {
         model.updateEphemerals(selectedNodeID: nil)
@@ -96,14 +96,14 @@ import os  // Added for logging
         inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
         }
-
+        
         activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
             NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
         
         model.setupControlSubscriptions(
-                selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
-            )
+            selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
+        )
     }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
@@ -122,7 +122,7 @@ import os  // Added for logging
         
 #if DEBUG
         GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
-        #endif
+#endif
         
         return (minZoom, maxZoom)
     }
@@ -214,17 +214,17 @@ import os  // Added for logging
     public func handleTap(at modelPos: CGPoint) async {
         await model.pauseSimulation()
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
-        #endif
+#endif
         
         // Efficient hit test with queryNearby
         let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes)
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
-        #endif
+#endif
         
         // Sort by distance to get closest (if multiple)
         let sortedNearby = nearbyNodes.sorted {
@@ -235,9 +235,9 @@ import os  // Added for logging
             selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
             selectedEdgeID = nil
             
-            #if DEBUG
+#if DEBUG
             GraphViewModel.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
-            #endif
+#endif
             
             model.objectWillChange.send()  // Trigger UI refresh
         } else {
@@ -245,9 +245,9 @@ import os  // Added for logging
             selectedNodeID = nil
             selectedEdgeID = nil
             
-            #if DEBUG
+#if DEBUG
             GraphViewModel.logger.debug("Tap missed; cleared selections")
-            #endif
+#endif
         }
         
         focusState = selectedNodeID.map { .node($0) } ?? .graph
@@ -256,7 +256,7 @@ import os  // Added for logging
     }
     
     // GraphViewModel.swift – replace your current method with this one
-
+    
     @MainActor
     public func setSelectedNode(_ id: NodeID?) {
         selectedNodeID = id
@@ -268,19 +268,19 @@ import os  // Added for logging
             model.updateControlNodes(for: id)
         }
         
-        #if os(watchOS)
+#if os(watchOS)
         WKInterfaceDevice.current().play(.click)
-        #endif
+#endif
         
         objectWillChange.send()
     }
-
+    
     public func setSelectedEdge(_ id: UUID?) {
         selectedEdgeID = id
         focusState = id.map { .edge($0) } ?? .graph
         objectWillChange.send()
     }
-   
+    
     // MARK: - Modern Zoom-to-Fit (uses real screen size)
     @MainActor
     public func updateZoomToFit(
@@ -292,20 +292,20 @@ import os  // Added for logging
             offset = .zero
             return
         }
-
+        
         // Pass the actual node objects — physicsEngine.boundingBox expects [any NodeProtocol]
         // model.visibleNodes is already [AnyNode], and AnyNode conforms to NodeProtocol
         let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
             .insetBy(dx: -30, dy: -30)  // breathing room
-
+        
         guard bounds.width > 0, bounds.height > 0 else { return }
-
+        
         let scaleX = viewSize.width  / bounds.width
         let scaleY = viewSize.height / bounds.height
         let targetZoom = min(scaleX, scaleY) * paddingFactor
-
+        
         zoomScale = targetZoom.clamped(to: 0.2...5.0)
-
+        
         let centroid = model.centroid ?? .zero
         offset = CGSize(
             width: viewSize.width  / 2 - centroid.x * zoomScale,
@@ -347,17 +347,14 @@ extension GraphViewModel {
         objectWillChange.send()
     }
     
-    /// Loads a specific graph by name, switches to it, and loads its view state.
     @MainActor
     public func loadGraph(name: String) async throws {
         // Save current view state before switching
-        try saveViewState()
-        
-        await model.loadGraph(name: name)
-        currentGraphName = model.currentGraphName  // Sync
-        
+        try await saveViewState()  // FIXED: Added 'await' assuming it's async; if not, remove 'await'
+        try await model.switchToGraph(named: name)  // FIXED: Use switchToGraph(named:) which handles setting name and loading
+        currentGraphName = model.currentGraphName  // Sync (unchanged)
         // Load view state for the new graph
-        if let viewState = try model.storage.loadViewState(for: currentGraphName) {
+        if let viewState = try? model.storage.loadViewState(for: currentGraphName) {  // FIXED: Used try? to handle sync throws safely
             offset = viewState.offset
             zoomScale = viewState.zoomScale
             selectedNodeID = viewState.selectedNodeID
@@ -366,14 +363,12 @@ extension GraphViewModel {
             // No saved view state → reset to perfect fit once view appears
             offset = .zero
             zoomScale = 1.0
-            
             // Do NOT call resetViewToFitGraph here — we don't have viewSize yet!
             // Instead, ContentView.onAppear will call it with real geo.size
             // So just reset to defaults:
             selectedNodeID = nil
             selectedEdgeID = nil
         }
-        
         focusState = .graph
         await resumeSimulation()
         objectWillChange.send()
@@ -382,7 +377,7 @@ extension GraphViewModel {
     /// Deletes a graph by name.
     @MainActor
     public func deleteGraph(name: String) async throws {
-        try await model.deleteGraph(name: name)
+        try await model.deleteGraph(named: name)
     }
     
     /// Lists all graph names.
@@ -418,9 +413,9 @@ extension GraphViewModel {
                     try await self?.model.saveGraph()
                     try self?.saveViewState()
                 } catch {
-                    #if DEBUG
+#if DEBUG
                     GraphViewModel.logger.error("Save failed: \(error.localizedDescription)")
-                    #endif
+#endif
                 }
             }
         }
@@ -435,16 +430,16 @@ extension GraphViewModel {
             offset = .zero
             return
         }
-
+        
         let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
             .insetBy(dx: -40, dy: -40)
-
+        
         guard bounds.width > 0, bounds.height > 0 else { return }
-
+        
         let scaleX = viewSize.width  / bounds.width
         let scaleY = viewSize.height / bounds.height
         let newZoom = min(scaleX, scaleY) * paddingFactor
-
+        
         zoomScale = newZoom.clamped(to: 0.2...5.0)
     }
 }

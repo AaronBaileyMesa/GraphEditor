@@ -125,7 +125,7 @@ struct GraphsMenuView: View {
                             errorMessage = "Graph '\(graphName)' does not exist."
                             return
                         }
-                        try await viewModel.model.loadGraph(name: graphName)
+                        try await viewModel.model.switchToGraph(named: graphName)
                         viewModel.currentGraphName = graphName
                         onDismiss()
                     } catch {
@@ -163,11 +163,15 @@ struct GraphsMenuView: View {
         MenuButton(
             action: {
                 Task {
-                    await viewModel.model.loadGraph(name: name)
-                    viewModel.currentGraphName = name
-                    graphName = name
+                    do {
+                        try await viewModel.model.switchToGraph(named: name)
+                        viewModel.currentGraphName = name
+                        graphName = name
+                        onDismiss()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-                onDismiss()
             },
             label: {
                 Label(name, systemImage: "doc")
@@ -182,14 +186,14 @@ struct GraphsMenuView: View {
             action: {
                 Task {
                     do {
-                        try await viewModel.model.deleteGraph(name: graphName)
+                        try await viewModel.model.deleteGraph(named: graphName)
                         graphName = "default"
-                        await viewModel.model.loadGraph(name: "default")
+                        try await viewModel.model.switchToGraph(named: "default")
+                        onDismiss()
                     } catch {
                         errorMessage = error.localizedDescription
                     }
                 }
-                onDismiss()
             },
             label: {
                 Label("Del", systemImage: "trash")
