@@ -17,7 +17,6 @@ struct FocusableView<Content: View>: View {
     
     let content: Content
     @Environment(\.disableCanvasFocus) private var disableCanvasFocus
-    @FocusState private var isFocused: Bool
     
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -25,21 +24,13 @@ struct FocusableView<Content: View>: View {
     
     var body: some View {
         content
-            .id("GraphCanvasCrownTarget")   // ← Match the outer ID
-                    .focused($isFocused)
+            .id("GraphCanvasCrownTarget")
+            .focusable(!disableCanvasFocus)  // Use legacy .focusable for watchOS crown compatibility; conditional
             .onAppear {
-                if !disableCanvasFocus {  // NEW: Only set if not disabled
-                    isFocused = true
-                }
-            }
-            .onChange(of: isFocused) { oldValue, newValue in
-                if disableCanvasFocus { return }  // NEW: Early exit if disabled
                 #if DEBUG
-                Self.logger.debug("Canvas focus changed: from \(oldValue) to \(newValue). Disable flag: \(disableCanvasFocus)")
+                Self.logger.debug("FocusableView appeared. Disable flag: \(disableCanvasFocus)")
                 #endif
-                if !newValue {
-                    isFocused = true
-                }
             }
+            // Removed .onChange forcing to avoid potential loops/termination; watchOS handles focus for crown
     }
 }
