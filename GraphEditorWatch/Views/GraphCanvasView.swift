@@ -38,7 +38,7 @@ struct GraphCanvasView: View {
             viewSize: viewSize
         )
     }
-
+    
     var body: some View {
         FocusableView {
             AccessibleCanvas(
@@ -80,6 +80,7 @@ struct GraphCanvasView: View {
                 dragStartNode: $dragStartNode
             ))
         }
+        .focusable(true)  // NEW: Enables focus for crown sequencer
         .digitalCrownRotation(
             $crownPosition,
             from: 0.0,
@@ -112,6 +113,30 @@ struct GraphCanvasView: View {
                 crownPosition = targetCrown
             }
         }
+        .onChange(of: selectedNodeID) { _, newID in
+            if let id = newID, let dragged = draggedNode, dragged.id == id {
+                viewModel.repositionEphemerals(for: id, to: dragged.position)
+            }
+        }
+        
+        /*
+        .onChange(of: selectedNodeID) { oldID, newID in
+            if let id = newID {
+                Task {
+                    await viewModel.generateControls(for: id)
+                }
+            } else {
+                Task {
+                    await viewModel.clearControls()
+                }
+            }
+            // NEW: If dragging a newly selected node, reposition immediately
+            if let dragged = draggedNode, dragged.id == newID {
+                viewModel.repositionEphemerals(for: newID!, to: dragged.position)
+            }
+        }
+        */
+        
         .background(GeometryReader { geo in
             Color.clear.onAppear { viewSize = geo.size }
                 .onChange(of: geo.size) { _, newValue in viewSize = newValue }

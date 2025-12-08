@@ -14,17 +14,36 @@ import os  // Added for logging
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
-    @Published public var selectedNodeID: UUID?
+    @Published public var selectedNodeID: UUID? {
+        didSet {
+            Task { @MainActor in
+                objectWillChange.send()
+                redrawTrigger += 1  // NEW: Force redraw on selection change
+                Self.logger.debug("Selected node changed to \(self.selectedNodeID?.uuidString.prefix(8) ?? "nil") – triggered controls update")
+                if selectedNodeID != nil {
+                    isAnimating = true  // Start animation on selection (e.g., for future emissions)
+                    // Optionally: Task { try? await Task.sleep(for: .seconds(1)); isAnimating = false } for timed end
+                } else {
+                    isAnimating = false
+                }
+            }
+        }
+    }
+
     @Published public var offset: CGSize = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
     @Published public var draggedNodeID: UUID?
+    @Published public var redrawTrigger: Int = 0  // Increments to force view redraws
+    @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
+    @Published public var lastFrameTime: Date? = nil  // For calculating elapsed time per frame
     
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
     
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()  // Not @Published; just private for subscriptions
     
     private static var logger: Logger {
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
@@ -63,23 +82,36 @@ import os  // Added for logging
     @Published public var focusState: AppFocusState = .graph
     
     @MainActor
-    public func generateControls(for nodeID: NodeID) {
-        model.updateEphemerals(selectedNodeID: nodeID)
+    public func generateControls(for nodeID: NodeID) async {
+        await model.updateEphemerals(selectedNodeID: nodeID)  // FIXED: Match name from GraphModel+ControlNodes.swift
+        Self.logger.debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
     }
     
     @MainActor
-    public func clearControls() {
-        model.updateEphemerals(selectedNodeID: nil)
+    public func clearControls() async {
+        await model.updateEphemerals(selectedNodeID: nil)  // FIXED: Match name
+        Self.logger.debug("Cleared controls")
+    }
+    
+    @MainActor
+    public func repositionEphemerals(for nodeID: NodeID, to position: CGPoint) {
+        model.repositionEphemerals(for: nodeID, to: position)
+        Self.logger.debug("Repositioned ephemerals for node \(nodeID.uuidString.prefix(8)) to (\(position.x), \(position.y))")
     }
     
     public init(model: GraphModel) {
         self.model = model
         self.currentGraphName = model.currentGraphName  // Sync on init
-        cancellable = model.objectWillChange
+        
+        // Forward model's changes (store directly without assigning the whole chain)
+        model.objectWillChange
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
+                print("Model change forwarded to ViewModel")  // DEBUG: Confirm this prints when ephemerals change
+                self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
                 self?.objectWillChange.send()
             }
+            .store(in: &cancellables)
         
         pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
             Task { @MainActor in  // Ensure main for publishes
@@ -101,6 +133,7 @@ import os  // Added for logging
             NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
         }
         
+        // Setup control subscriptions (consolidated to one call)
         model.setupControlSubscriptions(
             selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
         )

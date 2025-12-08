@@ -126,6 +126,7 @@ struct AccessibleCanvas: View {
                 // MARK: - Dragged node + potential edge preview
                 drawDraggedNodeAndPotentialEdge(in: context, renderContext: renderContext)
             }
+            .id(viewModel.redrawTrigger)  // NEW: Forces redraw when trigger changes
             
             if showOverlays {
                 BoundingBoxOverlay(

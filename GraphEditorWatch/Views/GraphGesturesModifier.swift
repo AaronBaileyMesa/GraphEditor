@@ -195,7 +195,7 @@ struct GraphGesturesModifier: ViewModifier {
                                                   renderContext: renderContext),
            from.id != target.id,
            !viewModel.model.edges.contains(where: { ($0.from == from.id && $0.target == target.id) ||
-                                                    ($0.from == target.id && $0.target == from.id) }) {
+               ($0.from == target.id && $0.target == from.id) }) {
             let type = viewModel.pendingEdgeType  // Assume this is set elsewhere (e.g., .hierarchy)
             Task { await viewModel.addEdge(from: from.id, to: target.id, type: type) }
             Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(target.label)\"")
@@ -211,9 +211,13 @@ struct GraphGesturesModifier: ViewModifier {
             selectedNodeID = newID
             selectedEdgeID = nil
             if let id = newID {
-                viewModel.generateControls(for: id)  // Now defined – generates immediately
+                Task{
+                    await viewModel.generateControls(for: id)  // Now defined – generates immediately
+                }
             } else {
-                viewModel.clearControls()  // Now defined – clears immediately
+                Task {
+                    await viewModel.clearControls()  // Now defined – clears immediately
+                }
             }
             WKInterfaceDevice.current().play(.click)
             return true
@@ -221,16 +225,16 @@ struct GraphGesturesModifier: ViewModifier {
         if let edge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, renderContext: renderContext) {
             selectedEdgeID = selectedEdgeID == edge.id ? nil : edge.id
             selectedNodeID = nil
-            viewModel.clearControls()  // Clears if switching to edge
+            Task { await viewModel.clearControls() } // Clears if switching to edge
             WKInterfaceDevice.current().play(.click)
             return true
         }
         selectedNodeID = nil
         selectedEdgeID = nil
-        viewModel.clearControls()  // Clears on background tap
+        Task { await viewModel.clearControls() } // Clears on background tap
         return false
     }
-
+    
     // MARK: - Hit Test (unchanged)
     private func hitTest(at screenPos: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> HitType {
         if let nodeN = HitTestHelper.closestNode(at: screenPos, visibleNodes: visibleNodes, renderContext: renderContext) {
