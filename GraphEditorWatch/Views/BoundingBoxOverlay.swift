@@ -15,7 +15,7 @@ struct BoundingBoxOverlay: View {
     let viewSize: CGSize
     
     var body: some View {
-        let graphBounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.nodes)
+        let graphBounds = computeBoundingBox(for: viewModel.model.nodes)
         
         let renderContext = RenderContext(
             effectiveCentroid: viewModel.effectiveCentroid,

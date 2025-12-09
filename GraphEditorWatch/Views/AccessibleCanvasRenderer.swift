@@ -287,5 +287,37 @@ struct AccessibleCanvasRenderer {
             )
         }
     }
+    
+    // MARK: - Bounding Box Overlay (reuses computeBoundingBox)
+    static func drawBoundingBox(
+        nodes: [any NodeProtocol],
+        in context: inout GraphicsContext,
+        renderContext: RenderContext
+    ) {
+        let modelBounds = computeBoundingBox(for: nodes)  // Reuse global shared func (model space)
+
+        guard !modelBounds.isEmpty else { return }
+
+        // Convert model bounds corners to screen space
+        let topLeftModel = CGPoint(x: modelBounds.minX, y: modelBounds.minY)
+        let bottomRightModel = CGPoint(x: modelBounds.maxX, y: modelBounds.maxY)
+        let topLeftScreen = modelToScreen(topLeftModel, renderContext: renderContext)  // Already private static here
+        let bottomRightScreen = modelToScreen(bottomRightModel, renderContext: renderContext)  // Ditto
+
+        let screenRect = CGRect(
+            x: topLeftScreen.x,
+            y: topLeftScreen.y,
+            width: bottomRightScreen.x - topLeftScreen.x,
+            height: bottomRightScreen.y - topLeftScreen.y
+        )
+
+        // Draw dashed overlay (match your BoundingBoxOverlay style)
+        let path = Path(roundedRect: screenRect, cornerRadius: 4)
+        context.stroke(
+            path,
+            with: .color(.yellow.opacity(0.5)),
+            style: StrokeStyle(lineWidth: 2 * renderContext.zoomScale, dash: [5, 5])
+        )
+    }
 }
 

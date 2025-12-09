@@ -162,6 +162,7 @@ import os  // Added for logging
     
     public func addNode(at position: CGPoint) async {
         _ = await model.addNode(at: position)
+        Task { await startLayoutAnimation() }  // NEW: Animate layout after add
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
@@ -172,6 +173,7 @@ import os  // Added for logging
     public func addEdge(from fromID: NodeID, to targetID: NodeID, type: EdgeType = .association) async {
         await model.addEdge(from: fromID, target: targetID, type: type)
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Animate layout after add
     }
     
     @MainActor
@@ -184,11 +186,13 @@ import os  // Added for logging
     public func undo() async {
         await model.undo()
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Re-layout after undo/redo
     }
     
     public func redo() async {
         await model.redo()
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Re-layout after undo/redo
     }
     
     public func deleteSelected() async {
@@ -241,6 +245,19 @@ import os  // Added for logging
                 }
             }
         }
+    }
+    
+    // NEW: Triggers a physics-based layout animation until stable
+    public func startLayoutAnimation() async {
+        model.pushUndo()  // Now accessible (public)
+        isAnimating = true  // Enable TimelineView for smooth redraws
+        await model.runAnimatedSimulation()  // Use new public wrapper
+        isAnimating = false  // Disable when done
+        
+        // Optional: Post-animation polish (uncomment if needed)
+        await model.resetVelocityHistory()  // Clear for next run
+        // model.nodes = model.physicsEngine.centerNodes(nodes: model.nodes)  // Re-center graph
+        objectWillChange.send()  // Force final redraw
     }
     
     // Fixed: handleTap with proper scoping, removed invalid SwiftUI Text, added ToggleNode update logic (assumes model.updateNode method; adjust if needed)
@@ -405,6 +422,7 @@ extension GraphViewModel {
         focusState = .graph
         await resumeSimulation()
         objectWillChange.send()
+        Task { await startLayoutAnimation() }  // NEW: Animate initial layout on load
     }
     
     /// Deletes a graph by name.

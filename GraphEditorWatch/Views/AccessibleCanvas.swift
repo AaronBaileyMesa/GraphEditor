@@ -29,135 +29,229 @@ struct AccessibleCanvas: View {
     
     var body: some View {
         ZStack {
-            Canvas { context, _ in
-                let visibleNodes = viewModel.model.visibleNodes
-                let visibleEdges = viewModel.model.visibleEdges
-                let effectiveCentroid = viewModel.effectiveCentroid
-                
-                // ONE source of truth – used by every drawing function and hit-testing
-                let renderContext = RenderContext(
-                    effectiveCentroid: effectiveCentroid,
-                    zoomScale: zoomScale,      // already scaled to fill screen
-                    offset: offset,
-                    viewSize: viewSize         // full physical size → perfect hit-testing
-                )
-                
-                // Split selected / non-selected for proper layering
-                let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
-                let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
-                let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
-                let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
-                
-                // MARK: - Edges (non-selected)
-                AccessibleCanvasRenderer.drawEdges(
-                    renderContext: renderContext,
-                    graphicsContext: context,
-                    visibleEdges: nonSelectedEdges,
-                    visibleNodes: visibleNodes,
-                    saturation: saturation,
-                    logger: Self.logger
-                )
-                
-                // MARK: - Selected edge
-                if let edge = selectedEdge {
-                    AccessibleCanvasRenderer.drawSingleEdgeLine(
-                        config: .init(
-                            renderContext: renderContext,
-                            graphicsContext: context,
-                            saturation: 1.0,
-                            isSelected: true,
-                            logger: Self.logger
-                        ),
-                        edge: edge,
-                        visibleNodes: visibleNodes
-                    )
+            if viewModel.isAnimating {
+                TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in  // Keep as-is; inference will handle
+                    animatedCanvas(for: context)
                 }
-                
-                // MARK: - Nodes (non-selected)
-                for node in nonSelectedNodes {
-                    AccessibleCanvasRenderer.drawSingleNode(
-                        renderContext: renderContext,
-                        graphicsContext: context,
-                        node: node,
-                        saturation: saturation,
-                        isSelected: false,
-                        logger: Self.logger
-                    )
-                }
-                
-                // MARK: - Selected node
-                if let node = selectedNode {
-                    AccessibleCanvasRenderer.drawSingleNode(
-                        renderContext: renderContext,
-                        graphicsContext: context,
-                        node: node,
-                        saturation: 1.0,
-                        isSelected: true,
-                        logger: Self.logger
-                    )
-                }
-                
-                // MARK: - Arrowheads (non-selected)
-                AccessibleCanvasRenderer.drawArrows(
-                    renderContext: renderContext,
-                    graphicsContext: context,
-                    visibleEdges: nonSelectedEdges,
-                    visibleNodes: visibleNodes,
-                    saturation: saturation,
-                    logger: Self.logger
-                )
-                
-                // MARK: - Selected arrowhead
-                if let edge = selectedEdge {
-                    // 4. Selected arrow
-                    AccessibleCanvasRenderer.drawSingleArrow(
-                        config: .init(
-                            renderContext: renderContext,
-                            graphicsContext: context,
-                            saturation: 1.0,
-                            isSelected: true,
-                            logger: Self.logger
-                        ),
-                        edge: edge,
-                        visibleNodes: visibleNodes
-                    )
-                }
-                
-                // MARK: - Dragged node + potential edge preview
-                drawDraggedNodeAndPotentialEdge(in: context, renderContext: renderContext)
-            }
-            .id(viewModel.redrawTrigger)  // NEW: Forces redraw when trigger changes
-            
-            if showOverlays {
-                BoundingBoxOverlay(
-                    viewModel: viewModel,
-                    zoomScale: zoomScale,
-                    offset: offset,
-                    viewSize: viewSize
-                )
+            } else {
+                staticCanvas
             }
         }
     }
     
-    private func drawDraggedNodeAndPotentialEdge(in context: GraphicsContext, renderContext: RenderContext) {
-        // 1. Dragged node ghost
-        if let dragged = draggedNode,
-           let dragLocation = currentDragLocation {  // ← Use shared param
+    @ViewBuilder
+    private func animatedCanvas<S: TimelineSchedule>(for context: TimelineView<S, some View>.Context) -> some View {  // Add generic <S: TimelineSchedule> and use S
+        Canvas { graphicsContext, _ in
+            var gc = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
+            let visibleNodes = viewModel.model.visibleNodes
+            let visibleEdges = viewModel.model.visibleEdges
+            let effectiveCentroid = viewModel.effectiveCentroid
             
-            let liveModelPos = CoordinateTransformer.screenToModel(dragLocation, renderContext)
-            let livePos = liveModelPos + dragOffset
-            let screenPos = CoordinateTransformer.modelToScreen(livePos, renderContext)
-            
-            // Bright green ring (slightly larger)
-            let ringRect = CGRect(
-                x: screenPos.x - dragged.displayRadius * renderContext.zoomScale - 6,
-                y: screenPos.y - dragged.displayRadius * renderContext.zoomScale - 6,
-                width: (dragged.displayRadius * 2 + 12) * renderContext.zoomScale,
-                height: (dragged.displayRadius * 2 + 12) * renderContext.zoomScale
+            // ONE source of truth – used by every drawing function and hit-testing
+            let renderContext = RenderContext(
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,      // already scaled to fill screen
+                offset: offset,
+                viewSize: viewSize         // full physical size → perfect hit-testing
             )
-            context.stroke(Circle().path(in: ringRect), with: .color(.green), lineWidth: 6 * renderContext.zoomScale)
             
-            // Node fill
+            // Split selected / non-selected for proper layering
+            let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
+            let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
+            let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
+            let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
+            
+            // MARK: - Edges (non-selected)
+            AccessibleCanvasRenderer.drawEdges(
+                renderContext: renderContext,
+                graphicsContext: gc,  // Change to gc
+                visibleEdges: nonSelectedEdges,
+                visibleNodes: visibleNodes,
+                saturation: saturation
+            )
+            
+            // MARK: - Arrows (non-selected)
+            AccessibleCanvasRenderer.drawArrows(
+                renderContext: renderContext,
+                graphicsContext: gc,  // Change to gc
+                visibleEdges: nonSelectedEdges,
+                visibleNodes: visibleNodes,
+                saturation: saturation
+            )
+            
+            // MARK: - Nodes (non-selected)
+            for node in nonSelectedNodes {
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: gc,
+                    node: node,  // Draw using actual model position
+                    saturation: saturation,
+                    isSelected: false
+                )
+            }
+            
+            // NEW: Draw selected edge (if any) – was missing in animatedCanvas
+            if let edge = selectedEdge {
+                AccessibleCanvasRenderer.drawSingleEdgeLine(
+                    config: EdgeDrawingConfig(
+                        renderContext: renderContext,
+                        graphicsContext: gc,
+                        saturation: saturation,
+                        isSelected: true,
+                        logger: Self.logger
+                    ),
+                    edge: edge,
+                    visibleNodes: visibleNodes
+                )
+                AccessibleCanvasRenderer.drawSingleArrow(
+                    config: EdgeDrawingConfig(
+                        renderContext: renderContext,
+                        graphicsContext: gc,
+                        saturation: saturation,
+                        isSelected: true,
+                        logger: Self.logger
+                    ),
+                    edge: edge,
+                    visibleNodes: visibleNodes
+                )
+            }
+            
+            // NEW: Draw selected node (if any) – was missing in animatedCanvas
+            if let node = selectedNode {
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: gc,
+                    node: node,
+                    saturation: saturation,
+                    isSelected: true
+                )
+            }
+            
+            
+            // MARK: - Overlays (unchanged)
+            if showOverlays {
+                AccessibleCanvasRenderer.drawBoundingBox(
+                    nodes: visibleNodes,
+                    in: &gc,  // Change to &gc
+                    renderContext: renderContext
+                )
+            }
+            
+            // MARK: - Drag Preview (unchanged)
+            drawDragPreview(in: &gc, renderContext: renderContext)  // Change to &gc
+        }
+    }
+    
+    @ViewBuilder
+    private var staticCanvas: some View {
+        Canvas { graphicsContext, _ in
+            var context = graphicsContext  // Mutable copy
+            
+            let visibleNodes = viewModel.model.visibleNodes
+            let visibleEdges = viewModel.model.visibleEdges
+            let effectiveCentroid = viewModel.effectiveCentroid
+            
+            // ONE source of truth – used by every drawing function and hit-testing
+            let renderContext = RenderContext(
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,      // already scaled to fill screen
+                offset: offset,
+                viewSize: viewSize         // full physical size → perfect hit-testing
+            )
+            
+            // Split selected / non-selected for proper layering
+            let nonSelectedNodes = visibleNodes.filter { $0.id != selectedNodeID }
+            let selectedNode = visibleNodes.first { $0.id == selectedNodeID }
+            let nonSelectedEdges = visibleEdges.filter { $0.id != selectedEdgeID }
+            let selectedEdge = visibleEdges.first { $0.id == selectedEdgeID }
+            
+            // MARK: - Edges (non-selected)
+            AccessibleCanvasRenderer.drawEdges(
+                renderContext: renderContext,
+                graphicsContext: context,
+                visibleEdges: nonSelectedEdges,
+                visibleNodes: visibleNodes,
+                saturation: saturation
+            )
+            
+            // MARK: - Arrows (non-selected)
+            AccessibleCanvasRenderer.drawArrows(
+                renderContext: renderContext,
+                graphicsContext: context,
+                visibleEdges: nonSelectedEdges,
+                visibleNodes: visibleNodes,
+                saturation: saturation
+            )
+            
+            // MARK: - Nodes (non-selected)
+            for node in nonSelectedNodes {
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: node,
+                    saturation: saturation,
+                    isSelected: false
+                )
+            }
+            
+            // MARK: - Selected Edge (if any)
+            if let edge = selectedEdge {
+                AccessibleCanvasRenderer.drawSingleEdgeLine(
+                    config: EdgeDrawingConfig(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        saturation: saturation,
+                        isSelected: true,
+                        logger: Self.logger
+                    ),
+                    edge: edge,
+                    visibleNodes: visibleNodes
+                )
+                AccessibleCanvasRenderer.drawSingleArrow(
+                    config: EdgeDrawingConfig(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        saturation: saturation,
+                        isSelected: true,
+                        logger: Self.logger
+                    ),
+                    edge: edge,
+                    visibleNodes: visibleNodes
+                )
+            }
+            
+            // MARK: - Selected Node (if any)
+            if let node = selectedNode {
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: node,
+                    saturation: saturation,
+                    isSelected: true
+                )
+            }
+            
+            // MARK: - Overlays (unchanged)
+            if showOverlays {
+                AccessibleCanvasRenderer.drawBoundingBox(
+                    nodes: visibleNodes,
+                    in: &context,
+                    renderContext: renderContext
+                )
+            }
+            
+            // MARK: - Drag Preview (unchanged)
+            drawDragPreview(in: &context, renderContext: renderContext)
+        }
+    }
+    
+    // Existing drawDragPreview function (unchanged)
+    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext) {
+        // 1. Dragged node preview (unchanged – already uses live position)
+        if let dragged = draggedNode, let dragLocation = currentDragLocation {
+            let liveModelPos = CoordinateTransformer.screenToModel(dragLocation, renderContext)
+            let screenPos = CoordinateTransformer.modelToScreen(liveModelPos + dragOffset, renderContext)
+            
             let nodeRect = CGRect(
                 x: screenPos.x - dragged.displayRadius * renderContext.zoomScale,
                 y: screenPos.y - dragged.displayRadius * renderContext.zoomScale,
@@ -166,13 +260,11 @@ struct AccessibleCanvas: View {
             )
             context.fill(Circle().path(in: nodeRect), with: .color(dragged.fillColor))
             
-            // Label
             let text = Text("\(dragged.label)")
                 .font(.system(size: 14 * renderContext.zoomScale))
                 .foregroundColor(.white)
             context.draw(text, at: CGPoint(x: screenPos.x, y: screenPos.y - (dragged.displayRadius + 14) * renderContext.zoomScale))
             
-            // +/- for ToggleNode
             if dragged is ToggleNode {
                 let sign = Text((dragged as? ToggleNode)?.isExpanded == true ? "-" : "+")
                     .font(.system(size: 18 * renderContext.zoomScale, weight: .bold))
@@ -182,7 +274,7 @@ struct AccessibleCanvas: View {
         }
         
         // 2. Potential edge preview (unchanged – already uses live position)
-        if isAddingEdge,  // ← Use shared param
+        if isAddingEdge,
            let target = potentialEdgeTarget,
            let dragLocation = currentDragLocation {
             
