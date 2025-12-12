@@ -65,7 +65,6 @@
 			membershipExceptions = (
 				"Assets 2.xcassets",
 				graph_icon.svg,
-				"Models/ControlKind+Actions.swift",
 				README.md,
 			);
 			target = 4E3A08C32E3DC9B0008CC9C7 /* GraphEditorWatch */;
@@ -79,23 +78,6 @@
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
-/* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-		4E4428D72EEB5BAE003BEBE6 /* Exceptions for "GraphEditorWatch" folder in "Copy Bundle Resources" phase from "GraphEditorWatch" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 4E3A08C22E3DC9B0008CC9C7 /* Resources */;
-			membershipExceptions = (
-				"Models/ControlKind+Actions.swift",
-			);
-		};
-		4E4428D82EEB5BAE003BEBE6 /* Exceptions for "GraphEditorWatch" folder in "Copy Bundle Resources" phase from "GraphEditorWatchTests" target */ = {
-			isa = PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet;
-			buildPhase = 4EB112702E3EE09D001A8E1A /* Resources */;
-			membershipExceptions = (
-				"Models/ControlKind+Actions.swift",
-			);
-		};
-/* End PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
-
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		4E2830792E416F84005CF8A3 /* GraphEditorWatchUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -106,9 +88,7 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				4E3A08D72E3DC9E0008CC9C7 /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatch" target */,
-				4E4428D72EEB5BAE003BEBE6 /* Exceptions for "GraphEditorWatch" folder in "Copy Bundle Resources" phase from "GraphEditorWatch" target */,
 				4EB112A92E3EFFA9001A8E1A /* Exceptions for "GraphEditorWatch" folder in "GraphEditorWatchTests" target */,
-				4E4428D82EEB5BAE003BEBE6 /* Exceptions for "GraphEditorWatch" folder in "Copy Bundle Resources" phase from "GraphEditorWatchTests" target */,
 			);
 			path = GraphEditorWatch;
 			sourceTree = "<group>";

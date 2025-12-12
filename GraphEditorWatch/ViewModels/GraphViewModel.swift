@@ -37,7 +37,8 @@ import os  // Added for logging
     @Published public var redrawTrigger: Int = 0  // Increments to force view redraws
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
     @Published public var lastFrameTime: Date? = nil  // For calculating elapsed time per frame
-    
+    @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
+
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
     
@@ -305,7 +306,17 @@ import os  // Added for logging
         await resumeSimulationAfterDelay()
     }
     
-    // GraphViewModel.swift – replace your current method with this one
+    @MainActor
+    func handleControlTap(control: ControlNode) async {
+        let action = control.kind.defaultAction()
+        do {
+            await action(self, control.ownerID!)  // Assumes ownerID is non-optional; use ?? if needed
+            Self.logger.debug("Handled tap on control \(control.kind.rawValue) for owner \(control.ownerID!.uuidString.prefix(8))")
+        } catch {
+            Self.logger.error("Control tap failed for \(control.kind.rawValue): \(error.localizedDescription)")
+            // Optional: Show user feedback, e.g., haptic error via WKInterfaceDevice.current().play(.failure)
+        }
+    }
     
     @MainActor
     public func setSelectedNode(_ id: NodeID?) {
@@ -492,5 +503,39 @@ extension GraphViewModel {
         let newZoom = min(scaleX, scaleY) * paddingFactor
         
         zoomScale = newZoom.clamped(to: 0.2...5.0)
+    }
+    
+    @MainActor
+    func startAddingEdge(from nodeID: NodeID) {
+        self.draggedNodeID = nodeID  // Or set dragStartNode
+        self.pendingEdgeType = .hierarchy  // From existing code
+        self.isAddingEdge = true  // Enable gesture mode (from GraphGesturesModifier)
+        Self.logger.debug("Entered add edge mode from node \(nodeID.uuidString.prefix(8))")
+        // Optional: Haptic feedback – WKInterfaceDevice.current().play(.start)
+    }
+}
+
+extension ControlKind {
+    /// Returns a default action closure for this kind (watch-specific).
+    /// - Returns: A closure that performs the action using GraphViewModel and owner NodeID.
+    public func defaultAction() -> @MainActor (GraphViewModel, NodeID) async -> Void {  // FIXED: Added @MainActor for isolation
+        switch self {
+        case .configMode:
+            return { viewModel, _ in
+                // viewModel.isConfigMode.toggle()  // Toggle config mode
+            }
+        case .addChild:
+            return { viewModel, nodeID in
+                await viewModel.model.addPlainChild(to: nodeID)  // Call existing model method (ensure it's public)
+            }
+        case .edit:
+            return { viewModel, nodeID in
+                viewModel.model.editingNodeID = nodeID  // FIXED: Removed invalid 'await' (assignment is sync)
+            }
+        case .addEdge:
+            return { viewModel, nodeID in
+                viewModel.startAddingEdge(from: nodeID)  // FIXED: Removed invalid 'await' (method is not async)
+            }
+        }
     }
 }
