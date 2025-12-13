@@ -38,6 +38,7 @@ import os  // Added for logging
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
     @Published public var lastFrameTime: Date? = nil  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
+    @Published var isEditMode: Bool = false
 
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
@@ -510,31 +511,46 @@ extension GraphViewModel {
         self.draggedNodeID = nodeID  // Or set dragStartNode
         self.pendingEdgeType = .hierarchy  // From existing code
         self.isAddingEdge = true  // Enable gesture mode (from GraphGesturesModifier)
-        Self.logger.debug("Entered add edge mode from node \(nodeID.uuidString.prefix(8))")
+        GraphViewModel.logger.debug("Entered add edge mode from node \(nodeID.uuidString.prefix(8))")
         // Optional: Haptic feedback – WKInterfaceDevice.current().play(.start)
     }
 }
 
 extension ControlKind {
+    // Added: small logger specific to ControlKind so the extension can log without referencing GraphViewModel
+    private static var logger: Logger { Logger(subsystem: "io.handcart.GraphEditor", category: "controlkind") }
+
     /// Returns a default action closure for this kind (watch-specific).
     /// - Returns: A closure that performs the action using GraphViewModel and owner NodeID.
     public func defaultAction() -> @MainActor (GraphViewModel, NodeID) async -> Void {  // FIXED: Added @MainActor for isolation
         switch self {
-        case .configMode:
-            return { viewModel, _ in
-                // viewModel.isConfigMode.toggle()  // Toggle config mode
-            }
         case .addChild:
             return { viewModel, nodeID in
                 await viewModel.model.addPlainChild(to: nodeID)  // Call existing model method (ensure it's public)
             }
         case .edit:
             return { viewModel, nodeID in
-                viewModel.model.editingNodeID = nodeID  // FIXED: Removed invalid 'await' (assignment is sync)
+                viewModel.isEditMode.toggle()
+                if viewModel.isEditMode {
+                    await viewModel.generateControls(for: nodeID)  // Show extras
+                    await viewModel.model.pauseSimulation()  // Or node-specific pause
+                    viewModel.model.editingNodeID = nodeID  // Open editor sheet on enter (merged old action)
+                } else {
+                    await viewModel.clearControls()
+                    await viewModel.model.resumeSimulation()
+                    try! await viewModel.model.saveGraph()  // Auto-save on exit
+                }
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Toggled edit mode for node \(nodeID.uuidString.prefix(8)): \(viewModel.isEditMode)")
             }
         case .addEdge:
             return { viewModel, nodeID in
-                viewModel.startAddingEdge(from: nodeID)  // FIXED: Removed invalid 'await' (method is not async)
+                if viewModel.isEditMode {
+                    viewModel.startAddingEdge(from: nodeID)  // Proceed only in edit mode
+                } else {
+                    Self.logger.warning("Add edge attempted outside edit mode for node \(nodeID.uuidString.prefix(8))")
+                    // Optional: viewModel.isEditMode = true; await viewModel.generateControls(for: nodeID)  // Auto-enter mode if desired
+                }
             }
         }
     }
