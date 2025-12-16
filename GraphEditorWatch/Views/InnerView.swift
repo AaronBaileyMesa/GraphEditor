@@ -38,7 +38,7 @@ struct InnerView: View {
             viewSize: config.viewSize,
             panStartOffset: config.panStartOffset,
             showMenu: config.showMenu,
-            onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
+            onUpdateZoomRanges: { _, _ in config.updateZoomRangesHandler(config.geo.size) },
             isAddingEdge: config.isAddingEdge,
             isSimulating: config.isSimulating,
             saturation: config.saturation,
@@ -52,3 +52,4 @@ struct InnerView: View {
         canvasView
     }
 }
+

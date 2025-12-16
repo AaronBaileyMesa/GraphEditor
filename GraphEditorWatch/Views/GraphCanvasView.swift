@@ -19,7 +19,7 @@ struct GraphCanvasView: View {
     @Binding var viewSize: CGSize
     @Binding var panStartOffset: CGSize?
     @Binding var showMenu: Bool
-    let onUpdateZoomRanges: () -> Void
+    let onUpdateZoomRanges: (CGFloat, CGFloat) -> Void  // Changed to match AccessibleCanvas and usage
     @Binding var isAddingEdge: Bool
     @Binding var isSimulating: Bool
     @Binding var saturation: Double
@@ -40,47 +40,53 @@ struct GraphCanvasView: View {
     }
     
     var body: some View {
+        let innerCanvas = AccessibleCanvas(  // NEW: Assign to let – breaks out the complex init
+            viewModel: viewModel,
+            zoomScale: viewModel.zoomScale,
+            offset: viewModel.offset,
+            draggedNode: draggedNode,
+            dragOffset: dragOffset,
+            potentialEdgeTarget: potentialEdgeTarget,
+            selectedNodeID: selectedNodeID,
+            selectedEdgeID: selectedEdgeID,  // Reordered to precede viewSize
+            viewSize: viewSize,
+            showOverlays: false,
+            saturation: saturation,
+            currentDragLocation: currentDragLocation,
+            isAddingEdge: isAddingEdge,
+            dragStartNode: dragStartNode,
+            onUpdateZoomRanges: onUpdateZoomRanges  // Added with matching type
+        )
+        .modifier(GraphGesturesModifier(  // Still chained here, but now on a smaller expression
+            viewModel: viewModel,
+            renderContext: renderContext,
+            zoomScale: $viewModel.zoomScale,
+            offset: $viewModel.offset,
+            draggedNode: $draggedNode,
+            dragOffset: $dragOffset,
+            potentialEdgeTarget: $potentialEdgeTarget,
+            selectedNodeID: $selectedNodeID,
+            selectedEdgeID: $selectedEdgeID,
+            viewSize: viewSize,
+            panStartOffset: $panStartOffset,
+            showMenu: $showMenu,
+            maxZoom: AppConstants.defaultMaxZoom,
+            crownPosition: $crownPosition,
+            onUpdateZoomRanges: {  // Wrapper for () -> Void if needed; assumes modifier expects () -> Void
+                let (min, max) = viewModel.calculateZoomRanges(for: viewSize)
+                onUpdateZoomRanges(min, max)
+            },
+            isAddingEdge: $isAddingEdge,
+            isSimulating: $isSimulating,
+            saturation: $saturation,
+            currentDragLocation: $currentDragLocation,
+            dragStartNode: $dragStartNode
+        ))
+        
         FocusableView {
-            AccessibleCanvas(
-                viewModel: viewModel,
-                zoomScale: viewModel.zoomScale,
-                offset: viewModel.offset,
-                draggedNode: draggedNode,
-                dragOffset: dragOffset,
-                potentialEdgeTarget: potentialEdgeTarget,
-                selectedNodeID: selectedNodeID,
-                viewSize: viewSize,
-                selectedEdgeID: selectedEdgeID,
-                showOverlays: false,
-                saturation: saturation,
-                currentDragLocation: currentDragLocation,
-                isAddingEdge: isAddingEdge,
-                dragStartNode: dragStartNode
-            )
-            .modifier(GraphGesturesModifier(
-                viewModel: viewModel,
-                renderContext: renderContext,
-                zoomScale: $viewModel.zoomScale,
-                offset: $viewModel.offset,
-                draggedNode: $draggedNode,
-                dragOffset: $dragOffset,
-                potentialEdgeTarget: $potentialEdgeTarget,
-                selectedNodeID: $selectedNodeID,
-                selectedEdgeID: $selectedEdgeID,
-                viewSize: viewSize,
-                panStartOffset: $panStartOffset,
-                showMenu: $showMenu,
-                maxZoom: AppConstants.defaultMaxZoom,
-                crownPosition: $crownPosition,
-                onUpdateZoomRanges: onUpdateZoomRanges,
-                isAddingEdge: $isAddingEdge,
-                isSimulating: $isSimulating,
-                saturation: $saturation,
-                currentDragLocation: $currentDragLocation,
-                dragStartNode: $dragStartNode
-            ))
+            innerCanvas  // Use the let here
         }
-        .focusable(true)  // NEW: Enables focus for crown sequencer
+        .focusable(true)
         .digitalCrownRotation(
             $crownPosition,
             from: 0.0,
@@ -90,26 +96,25 @@ struct GraphCanvasView: View {
             isHapticFeedbackEnabled: false
         )
         .onChange(of: crownPosition) { oldValue, newValue in
-            guard !isUpdatingZoom else { return }  // NEW: Guard against re-entrancy
-            isUpdatingZoom = true  // Set flag
-            defer { isUpdatingZoom = false }  // Reset after execution
+            guard !isUpdatingZoom else { return }
+            isUpdatingZoom = true
+            defer { isUpdatingZoom = false }
             
             let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
             let normalized = (newValue / Double(AppConstants.crownZoomSteps)).clamped(to: 0...1)
             let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
             withAnimation(.easeOut(duration: 0.08)) { viewModel.zoomScale = targetZoom }
         }
-        // In GraphCanvasView.swift's .onChange(of: viewModel.zoomScale)
         .onChange(of: viewModel.zoomScale) { _, userZoom in
-            guard !isUpdatingZoom else { return }  // Existing guard
+            guard !isUpdatingZoom else { return }
             isUpdatingZoom = true
             defer { isUpdatingZoom = false }
             
             guard viewSize.width > 50 else { return }
             let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
             let normalized = ((userZoom - minZoom) / (maxZoom - minZoom)).clamped(to: 0...1)
-            let targetCrown = round(Double(AppConstants.crownZoomSteps) * normalized * 10) / 10  // NEW: Round to 1 decimal (adjust precision as needed; avoids float drift)
-            if abs(targetCrown - crownPosition) > 1.5 {  // Increased from 1.0 to 1.5 for more damping
+            let targetCrown = round(Double(AppConstants.crownZoomSteps) * normalized * 10) / 10
+            if abs(targetCrown - crownPosition) > 1.5 {
                 crownPosition = targetCrown
             }
         }
@@ -118,7 +123,6 @@ struct GraphCanvasView: View {
                 viewModel.repositionEphemerals(for: id, to: dragged.position)
             }
         }
-        
         /*
         .onChange(of: selectedNodeID) { oldID, newID in
             if let id = newID {

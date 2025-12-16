@@ -206,10 +206,12 @@ struct GraphGesturesModifier: ViewModifier {
     
     // MARK: - Tap (unchanged)
     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
+        print("handleTap started at time: \(Date().timeIntervalSinceReferenceDate), location: \(location)")  // NEW: Timestamp tap
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
             let newID = selectedNodeID == node.id ? nil : node.id
             selectedNodeID = newID
             selectedEdgeID = nil
+            print("Selected node changed to \(newID?.uuidString.prefix(8) ?? "nil") at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Log selection change
             if let id = newID {
                 Task{
                     await viewModel.generateControls(for: id)  // Now defined – generates immediately

@@ -18,18 +18,13 @@ import os  // Added for logging
         didSet {
             Task { @MainActor in
                 objectWillChange.send()
-                redrawTrigger += 1  // NEW: Force redraw on selection change
+                redrawTrigger += 1  // Force redraw on selection change
                 Self.logger.debug("Selected node changed to \(self.selectedNodeID?.uuidString.prefix(8) ?? "nil") – triggered controls update")
-                if selectedNodeID != nil {
-                    isAnimating = true  // Start animation on selection (e.g., for future emissions)
-                    // Optionally: Task { try? await Task.sleep(for: .seconds(1)); isAnimating = false } for timed end
-                } else {
-                    isAnimating = false
-                }
+                // REMOVED: isAnimating sets – now synced via $isSimulating subscription
             }
         }
     }
-
+    
     @Published public var offset: CGSize = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
@@ -85,14 +80,29 @@ import os  // Added for logging
     
     @MainActor
     public func generateControls(for nodeID: NodeID) async {
+        print("generateControls started for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Entry timestamp
+        await model.pauseSimulation()  // Sync point
         await model.updateEphemerals(selectedNodeID: nodeID)  // FIXED: Match name from GraphModel+ControlNodes.swift
         Self.logger.debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
+        redrawTrigger += 1  // Explicit if needed
+        
+        // NEW: Reset velocity history to force simulation to run a few steps after resume (ensures TimelineView ticks with new ephemerals)
+        await model.resetVelocityHistory()
+        
+        await model.resumeSimulation()
+        print("generateControls completed for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Exit timestamp
     }
     
     @MainActor
     public func clearControls() async {
+        print("clearControls started at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Timestamp clear
         await model.updateEphemerals(selectedNodeID: nil)  // FIXED: Match name
         Self.logger.debug("Cleared controls")
+        print("clearControls completed at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Exit timestamp
+    }
+    
+    public func updateEphemerals(selectedNodeID: NodeID?) async {
+        // (your existing code with prints)
     }
     
     @MainActor
@@ -102,44 +112,53 @@ import os  // Added for logging
     }
     
     public init(model: GraphModel) {
-        self.model = model
-        self.currentGraphName = model.currentGraphName  // Sync on init
-        
-        // Forward model's changes (store directly without assigning the whole chain)
-        model.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                print("Model change forwarded to ViewModel")  // DEBUG: Confirm this prints when ephemerals change
-                self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
-                self?.objectWillChange.send()
+            self.model = model
+            self.currentGraphName = model.currentGraphName  // Sync on init
+            
+            // Forward model's changes (store directly without assigning the whole chain)
+            model.objectWillChange
+                .receive(on: RunLoop.main)  // Use RunLoop.main for immediate execution in the current run loop
+                .sink { [weak self] _ in
+                    print("Model change forwarded to ViewModel")  // DEBUG: Confirm this prints when ephemerals change
+                    self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
+                    self?.objectWillChange.send()
+                }
+                .store(in: &cancellables)
+            
+            pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in  // Ensure main for publishes
+                    await self?.model.pauseSimulation()
+                }
             }
-            .store(in: &cancellables)
-        
-        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.model.pauseSimulation()
+            
+            resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in  // Ensure main for publishes
+                    await self?.resumeSimulationAfterDelay()
+                }
             }
-        }
-        
-        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.resumeSimulationAfterDelay()
+            
+            inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+                NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
             }
+            
+            activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
+            }
+            
+            // NEW: Sync isAnimating to model's simulation state (handles resumption after controls added)
+            model.$isSimulating
+                .receive(on: RunLoop.main)  // Use RunLoop.main for immediate updates
+                .sink { [weak self] isSimulating in
+                    self?.isAnimating = isSimulating
+                    Self.logger.debug("Synced isAnimating to \(isSimulating) from model.isSimulating")
+                }
+                .store(in: &cancellables)
+            
+            // Setup control subscriptions (consolidated to one call)
+            model.setupControlSubscriptions(
+                selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
+            )
         }
-        
-        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-            NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
-        }
-        
-        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
-        }
-        
-        // Setup control subscriptions (consolidated to one call)
-        model.setupControlSubscriptions(
-            selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
-        )
-    }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
         var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes.map { $0.unwrapped })
