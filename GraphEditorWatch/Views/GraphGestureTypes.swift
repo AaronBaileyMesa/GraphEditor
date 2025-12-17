@@ -9,8 +9,9 @@ import SwiftUI
 import GraphEditorShared
 
 enum HitType {
-    case node
-    case edge
+    case node(any NodeProtocol)
+        case edge(GraphEdge)
+        case none
 }
 
 struct NodeDistanceInfo {

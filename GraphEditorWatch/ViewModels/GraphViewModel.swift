@@ -14,16 +14,33 @@ import os  // Added for logging
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
-    @Published public var selectedNodeID: UUID?
-    @Published public var offset: CGPoint = .zero
+    @Published public var selectedNodeID: UUID? {
+        didSet {
+            Task { @MainActor in
+                objectWillChange.send()
+                redrawTrigger += 1  // Force redraw on selection change
+                Self.logger.debug("Selected node changed to \(self.selectedNodeID?.uuidString.prefix(8) ?? "nil") – triggered controls update")
+                // REMOVED: isAnimating sets – now synced via $isSimulating subscription
+            }
+        }
+    }
+    
+    @Published public var offset: CGSize = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
-    
+    @Published public var draggedNodeID: UUID?
+    @Published public var redrawTrigger: Int = 0  // Increments to force view redraws
+    @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
+    @Published public var lastFrameTime: Date? = nil  // For calculating elapsed time per frame
+    @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
+    @Published var isEditMode: Bool = false
+
     private var inactiveObserver: NSObjectProtocol?
     private var activeObserver: NSObjectProtocol?
-        
+    
     private var saveTimer: Timer?
     private var cancellable: AnyCancellable?
+    private var cancellables = Set<AnyCancellable>()  // Not @Published; just private for subscriptions
     
     private static var logger: Logger {
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
@@ -59,41 +76,89 @@ import os  // Added for logging
         case menu
     }
     
-    private var logicalCanvasSize: CGSize {
-        AppConstants.logicalCanvasSize
-    }
-
     @Published public var focusState: AppFocusState = .graph
     
-    public init(model: GraphModel) {
-        self.model = model
-        self.currentGraphName = model.currentGraphName  // Sync on init
-        cancellable = model.objectWillChange
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.objectWillChange.send()
-            }
+    @MainActor
+    public func generateControls(for nodeID: NodeID) async {
+        print("generateControls started for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Entry timestamp
+        await model.pauseSimulation()  // Sync point
+        await model.updateEphemerals(selectedNodeID: nodeID)  // FIXED: Match name from GraphModel+ControlNodes.swift
+        Self.logger.debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
+        redrawTrigger += 1  // Explicit if needed
         
-        pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.model.pauseSimulation()
-            }
-        }
+        // NEW: Reset velocity history to force simulation to run a few steps after resume (ensures TimelineView ticks with new ephemerals)
+        await model.resetVelocityHistory()
         
-        resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in  // Ensure main for publishes
-                await self?.resumeSimulationAfterDelay()
-            }
-        }
-        
-        inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
-            NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
-        }
-
-        activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
-        }
+        await model.resumeSimulation()
+        print("generateControls completed for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Exit timestamp
     }
+    
+    @MainActor
+    public func clearControls() async {
+        print("clearControls started at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Timestamp clear
+        await model.updateEphemerals(selectedNodeID: nil)  // FIXED: Match name
+        Self.logger.debug("Cleared controls")
+        print("clearControls completed at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Exit timestamp
+    }
+    
+    public func updateEphemerals(selectedNodeID: NodeID?) async {
+        // (your existing code with prints)
+    }
+    
+    @MainActor
+    public func repositionEphemerals(for nodeID: NodeID, to position: CGPoint) {
+        model.repositionEphemerals(for: nodeID, to: position)
+        Self.logger.debug("Repositioned ephemerals for node \(nodeID.uuidString.prefix(8)) to (\(position.x), \(position.y))")
+    }
+    
+    public init(model: GraphModel) {
+            self.model = model
+            self.currentGraphName = model.currentGraphName  // Sync on init
+            
+            // Forward model's changes (store directly without assigning the whole chain)
+            model.objectWillChange
+                .receive(on: RunLoop.main)  // Use RunLoop.main for immediate execution in the current run loop
+                .sink { [weak self] _ in
+                    print("Model change forwarded to ViewModel")  // DEBUG: Confirm this prints when ephemerals change
+                    self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
+                    self?.objectWillChange.send()
+                }
+                .store(in: &cancellables)
+            
+            pauseObserver = NotificationCenter.default.addObserver(forName: .graphSimulationPause, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in  // Ensure main for publishes
+                    await self?.model.pauseSimulation()
+                }
+            }
+            
+            resumeObserver = NotificationCenter.default.addObserver(forName: .graphSimulationResume, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in  // Ensure main for publishes
+                    await self?.resumeSimulationAfterDelay()
+                }
+            }
+            
+            inactiveObserver = NotificationCenter.default.addObserver(forName: WKApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+                NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
+            }
+            
+            activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
+            }
+            
+            // NEW: Sync isAnimating to model's simulation state (handles resumption after controls added)
+            model.$isSimulating
+                .receive(on: RunLoop.main)  // Use RunLoop.main for immediate updates
+                .sink { [weak self] isSimulating in
+                    self?.isAnimating = isSimulating
+                    Self.logger.debug("Synced isAnimating to \(isSimulating) from model.isSimulating")
+                }
+                .store(in: &cancellables)
+            
+            // Setup control subscriptions (consolidated to one call)
+            model.setupControlSubscriptions(
+                selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
+            )
+        }
     
     public func calculateZoomRanges(for viewSize: CGSize) -> (min: CGFloat, max: CGFloat) {
         var graphBounds = model.physicsEngine.boundingBox(nodes: model.nodes.map { $0.unwrapped })
@@ -111,13 +176,14 @@ import os  // Added for logging
         
 #if DEBUG
         GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
-        #endif
+#endif
         
         return (minZoom, maxZoom)
     }
     
     public func addNode(at position: CGPoint) async {
-        await model.addNode(at: position)
+        _ = await model.addNode(at: position)
+        Task { await startLayoutAnimation() }  // NEW: Animate layout after add
     }
     
     public func addToggleNode(at position: CGPoint) async {  // NEW: Add this method to fix 'no member 'addToggleNode''
@@ -128,6 +194,7 @@ import os  // Added for logging
     public func addEdge(from fromID: NodeID, to targetID: NodeID, type: EdgeType = .association) async {
         await model.addEdge(from: fromID, target: targetID, type: type)
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Animate layout after add
     }
     
     @MainActor
@@ -140,11 +207,13 @@ import os  // Added for logging
     public func undo() async {
         await model.undo()
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Re-layout after undo/redo
     }
     
     public func redo() async {
         await model.redo()
         await saveAfterDelay()
+        Task { await startLayoutAnimation() }  // NEW: Re-layout after undo/redo
     }
     
     public func deleteSelected() async {
@@ -199,21 +268,34 @@ import os  // Added for logging
         }
     }
     
+    // NEW: Triggers a physics-based layout animation until stable
+    public func startLayoutAnimation() async {
+        model.pushUndo()  // Now accessible (public)
+        isAnimating = true  // Enable TimelineView for smooth redraws
+        await model.runAnimatedSimulation()  // Use new public wrapper
+        isAnimating = false  // Disable when done
+        
+        // Optional: Post-animation polish (uncomment if needed)
+        await model.resetVelocityHistory()  // Clear for next run
+        // model.nodes = model.physicsEngine.centerNodes(nodes: model.nodes)  // Re-center graph
+        objectWillChange.send()  // Force final redraw
+    }
+    
     // Fixed: handleTap with proper scoping, removed invalid SwiftUI Text, added ToggleNode update logic (assumes model.updateNode method; adjust if needed)
     public func handleTap(at modelPos: CGPoint) async {
         await model.pauseSimulation()
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Handling tap at model pos: x=\(modelPos.x), y=\(modelPos.y)")
-        #endif
+#endif
         
         // Efficient hit test with queryNearby
         let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)  // Dynamic: Smaller radius at higher zoom for precision; test and adjust
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes)
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Nearby nodes found: \(nearbyNodes.count)")
-        #endif
+#endif
         
         // Sort by distance to get closest (if multiple)
         let sortedNearby = nearbyNodes.sorted {
@@ -224,9 +306,9 @@ import os  // Added for logging
             selectedNodeID = (tappedNode.id == selectedNodeID) ? nil : tappedNode.id
             selectedEdgeID = nil
             
-            #if DEBUG
+#if DEBUG
             GraphViewModel.logger.debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
-            #endif
+#endif
             
             model.objectWillChange.send()  // Trigger UI refresh
         } else {
@@ -234,9 +316,9 @@ import os  // Added for logging
             selectedNodeID = nil
             selectedEdgeID = nil
             
-            #if DEBUG
+#if DEBUG
             GraphViewModel.logger.debug("Tap missed; cleared selections")
-            #endif
+#endif
         }
         
         focusState = selectedNodeID.map { .node($0) } ?? .graph
@@ -244,56 +326,77 @@ import os  // Added for logging
         await resumeSimulationAfterDelay()
     }
     
-    public func setSelectedNode(_ id: UUID?) {
+    @MainActor
+    func handleControlTap(control: ControlNode) async {
+        let action = control.kind.defaultAction()
+        do {
+            await action(self, control.ownerID!)  // Assumes ownerID is non-optional; use ?? if needed
+            Self.logger.debug("Handled tap on control \(control.kind.rawValue) for owner \(control.ownerID!.uuidString.prefix(8))")
+        } catch {
+            Self.logger.error("Control tap failed for \(control.kind.rawValue): \(error.localizedDescription)")
+            // Optional: Show user feedback, e.g., haptic error via WKInterfaceDevice.current().play(.failure)
+        }
+    }
+    
+    @MainActor
+    public func setSelectedNode(_ id: NodeID?) {
         selectedNodeID = id
+        selectedEdgeID = nil                                 // clear any edge selection
         focusState = id.map { .node($0) } ?? .graph
+        
+        // This is the only new line we need
+        Task { @MainActor in
+            model.updateControlNodes(for: id)
+        }
+        
+#if os(watchOS)
+        WKInterfaceDevice.current().play(.click)
+#endif
+        
         objectWillChange.send()
     }
-
+    
     public func setSelectedEdge(_ id: UUID?) {
         selectedEdgeID = id
         focusState = id.map { .edge($0) } ?? .graph
         objectWillChange.send()
     }
     
-    // MARK: - Zoom to Fit & Centering (now uses logical canvas)
-
-    /// Updates zoom to fit all visible nodes with padding
+    // MARK: - Modern Zoom-to-Fit (uses real screen size)
     @MainActor
-    public func updateZoomToFit(paddingFactor: CGFloat = AppConstants.zoomPaddingFactor) {
-        let visibleNodes = model.visibleNodes
-        guard !visibleNodes.isEmpty else { return }
+    public func updateZoomToFit(
+        viewSize: CGSize,
+        paddingFactor: CGFloat = AppConstants.zoomPaddingFactor
+    ) {
+        guard !model.visibleNodes.isEmpty else {
+            zoomScale = 1.0
+            offset = .zero
+            return
+        }
         
-        let bounds = boundingBox(nodes: visibleNodes).insetBy(dx: -20, dy: -20) // small extra margin
+        // Pass the actual node objects — physicsEngine.boundingBox expects [any NodeProtocol]
+        // model.visibleNodes is already [AnyNode], and AnyNode conforms to NodeProtocol
+        let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+            .insetBy(dx: -30, dy: -30)  // breathing room
         
         guard bounds.width > 0, bounds.height > 0 else { return }
         
-        // Critical: use logical canvas size here
-        let scaleX = logicalCanvasSize.width  / bounds.width
-        let scaleY = logicalCanvasSize.height / bounds.height
-        let newZoom = min(scaleX, scaleY) * paddingFactor
+        let scaleX = viewSize.width  / bounds.width
+        let scaleY = viewSize.height / bounds.height
+        let targetZoom = min(scaleX, scaleY) * paddingFactor
         
-        // Clamp to reasonable bounds
-        zoomScale = max(0.2, min(5.0, newZoom))
+        zoomScale = targetZoom.clamped(to: 0.2...5.0)
         
-        // Re-center after zoom change
-        centerGraph()
+        let centroid = model.centroid ?? .zero
+        offset = CGSize(
+            width: viewSize.width  / 2 - centroid.x * zoomScale,
+            height: viewSize.height / 2 - centroid.y * zoomScale
+        )
     }
     
     /// Centers and fits the graph to the view — intended for initial load or explicit user action only
     @MainActor
-    public func resetViewToFitGraph(viewSize: CGSize) {
-        guard viewSize.width > 0 && viewSize.height > 0 else {
-            Self.logger.warning("resetViewToFitGraph called with invalid size: \(String(describing: viewSize))")
-            return
-        }
-        
-        let (minZoom, _) = calculateZoomRanges(for: viewSize)
-        zoomScale = minZoom
-        offset = .zero
-        objectWillChange.send()
-    }
-    
+    // MARK: - Viewport Fitting (Correct & Clean)
     deinit {
         if let pause = pauseObserver { NotificationCenter.default.removeObserver(pause) }
         if let resume = resumeObserver { NotificationCenter.default.removeObserver(resume) }
@@ -325,39 +428,38 @@ extension GraphViewModel {
         objectWillChange.send()
     }
     
-    /// Loads a specific graph by name, switches to it, and loads its view state.
     @MainActor
     public func loadGraph(name: String) async throws {
         // Save current view state before switching
-        try saveViewState()
-        
-        await model.loadGraph(name: name)
-        currentGraphName = model.currentGraphName  // Sync
-        
+        try await saveViewState()  // FIXED: Added 'await' assuming it's async; if not, remove 'await'
+        try await model.switchToGraph(named: name)  // FIXED: Use switchToGraph(named:) which handles setting name and loading
+        currentGraphName = model.currentGraphName  // Sync (unchanged)
         // Load view state for the new graph
-        if let viewState = try model.storage.loadViewState(for: currentGraphName) {
+        if let viewState = try? model.storage.loadViewState(for: currentGraphName) {  // FIXED: Used try? to handle sync throws safely
             offset = viewState.offset
             zoomScale = viewState.zoomScale
             selectedNodeID = viewState.selectedNodeID
             selectedEdgeID = viewState.selectedEdgeID
         } else {
-            // Default if no view state
+            // No saved view state → reset to perfect fit once view appears
             offset = .zero
             zoomScale = 1.0
-            resetViewToFitGraph()
+            // Do NOT call resetViewToFitGraph here — we don't have viewSize yet!
+            // Instead, ContentView.onAppear will call it with real geo.size
+            // So just reset to defaults:
             selectedNodeID = nil
             selectedEdgeID = nil
         }
         focusState = .graph
-        
         await resumeSimulation()
         objectWillChange.send()
+        Task { await startLayoutAnimation() }  // NEW: Animate initial layout on load
     }
     
     /// Deletes a graph by name.
     @MainActor
     public func deleteGraph(name: String) async throws {
-        try await model.deleteGraph(name: name)
+        try await model.deleteGraph(named: name)
     }
     
     /// Lists all graph names.
@@ -365,19 +467,19 @@ extension GraphViewModel {
     public func listGraphNames() async throws -> [String] {
         try await model.listGraphNames()
     }
-}
-
-extension GraphViewModel {
-    // MARK: - View State Persistence
-    
     /// Saves current view state for the current graph.
     public func saveViewState() throws {
-        let viewState = ViewState(offset: offset, zoomScale: zoomScale, selectedNodeID: selectedNodeID, selectedEdgeID: selectedEdgeID)
+        let viewState = ViewState(
+            offset: offset,
+            zoomScale: zoomScale,
+            selectedNodeID: selectedNodeID,
+            selectedEdgeID: selectedEdgeID
+        )
         try model.storage.saveViewState(viewState, for: currentGraphName)
         
-        #if DEBUG
+#if DEBUG
         GraphViewModel.logger.debug("Saved view state for '\(self.currentGraphName)'")
-        #endif
+#endif
     }
 }
 
@@ -393,9 +495,9 @@ extension GraphViewModel {
                     try await self?.model.saveGraph()
                     try self?.saveViewState()
                 } catch {
-                    #if DEBUG
+#if DEBUG
                     GraphViewModel.logger.error("Save failed: \(error.localizedDescription)")
-                    #endif
+#endif
                 }
             }
         }
@@ -403,66 +505,72 @@ extension GraphViewModel {
 }
 
 extension GraphViewModel {
-    // MARK: - Logical Canvas Zoom & Centering (final consistent version)
-    
-    /// Centers the visible graph perfectly in the logical square canvas
     @MainActor
-        public func centerGraph() {
-            guard !model.visibleNodes.isEmpty else {
-                offset = .zero
-                return
-            }
-        
-        let centroid = model.centroid ?? .zero
-        
-        // Use logical canvas — this is now the single source of truth
-        let canvas = logicalCanvasSize
-        offset = CGPoint(
-            x: canvas.width  / 2 - centroid.x * zoomScale,
-            y: canvas.height / 2 - centroid.y * zoomScale
-        )
-    }
-    
-    /// Zooms to fit all visible nodes with consistent padding
-    @MainActor
-    public func resetViewToFitGraph(paddingFactor: CGFloat = 0.8) {
-        let visibleNodes = model.visibleNodes
-        guard !visibleNodes.isEmpty else {
+    public func resetViewToFitGraph(viewSize: CGSize, paddingFactor: CGFloat = 0.85) {
+        guard !model.visibleNodes.isEmpty else {
             zoomScale = 1.0
             offset = .zero
             return
         }
         
-        // Compute graph bounds with a little breathing room
-        let bounds = boundingBox(nodes: visibleNodes).insetBy(dx: -30, dy: -30)
+        let bounds = model.physicsEngine.boundingBox(nodes: model.visibleNodes)
+            .insetBy(dx: -40, dy: -40)
+        
         guard bounds.width > 0, bounds.height > 0 else { return }
         
-        let canvas = logicalCanvasSize
-        
-        let scaleX = canvas.width  / bounds.width
-        let scaleY = canvas.height / bounds.height
+        let scaleX = viewSize.width  / bounds.width
+        let scaleY = viewSize.height / bounds.height
         let newZoom = min(scaleX, scaleY) * paddingFactor
         
         zoomScale = newZoom.clamped(to: 0.2...5.0)
-        centerGraph()  // Re-center after zoom change
     }
     
-    /// Helper: compute axis-aligned bounding box of nodes
-    private func boundingBox(nodes: [any NodeProtocol]) -> CGRect {
-        guard let first = nodes.first else { return .zero }
-        
-        var minX = first.position.x - first.radius
-        var minY = first.position.y - first.radius
-        var maxX = first.position.x + first.radius
-        var maxY = first.position.y + first.radius
-        
-        for node in nodes.dropFirst() {
-            minX = min(minX, node.position.x - node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
+    @MainActor
+    func startAddingEdge(from nodeID: NodeID) {
+        self.draggedNodeID = nodeID  // Or set dragStartNode
+        self.pendingEdgeType = .hierarchy  // From existing code
+        self.isAddingEdge = true  // Enable gesture mode (from GraphGesturesModifier)
+        GraphViewModel.logger.debug("Entered add edge mode from node \(nodeID.uuidString.prefix(8))")
+        // Optional: Haptic feedback – WKInterfaceDevice.current().play(.start)
+    }
+}
+
+extension ControlKind {
+    // Added: small logger specific to ControlKind so the extension can log without referencing GraphViewModel
+    private static var logger: Logger { Logger(subsystem: "io.handcart.GraphEditor", category: "controlkind") }
+
+    /// Returns a default action closure for this kind (watch-specific).
+    /// - Returns: A closure that performs the action using GraphViewModel and owner NodeID.
+    public func defaultAction() -> @MainActor (GraphViewModel, NodeID) async -> Void {  // FIXED: Added @MainActor for isolation
+        switch self {
+        case .addChild:
+            return { viewModel, nodeID in
+                await viewModel.model.addPlainChild(to: nodeID)  // Call existing model method (ensure it's public)
+            }
+        case .edit:
+            return { viewModel, nodeID in
+                viewModel.isEditMode.toggle()
+                if viewModel.isEditMode {
+                    await viewModel.generateControls(for: nodeID)  // Show extras
+                    await viewModel.model.pauseSimulation()  // Or node-specific pause
+                    viewModel.model.editingNodeID = nodeID  // Open editor sheet on enter (merged old action)
+                } else {
+                    await viewModel.clearControls()
+                    await viewModel.model.resumeSimulation()
+                    try! await viewModel.model.saveGraph()  // Auto-save on exit
+                }
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Toggled edit mode for node \(nodeID.uuidString.prefix(8)): \(viewModel.isEditMode)")
+            }
+        case .addEdge:
+            return { viewModel, nodeID in
+                if viewModel.isEditMode {
+                    viewModel.startAddingEdge(from: nodeID)  // Proceed only in edit mode
+                } else {
+                    Self.logger.warning("Add edge attempted outside edit mode for node \(nodeID.uuidString.prefix(8))")
+                    // Optional: viewModel.isEditMode = true; await viewModel.generateControls(for: nodeID)  // Auto-enter mode if desired
+                }
+            }
         }
-        
-        return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
     }
 }

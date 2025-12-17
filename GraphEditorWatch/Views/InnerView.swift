@@ -11,7 +11,7 @@ import SwiftUI
 import GraphEditorShared
 
 struct InnerView: View {
-    let config: InnerViewConfig  // This now references the one from GraphUtilities.swift
+    let config: InnerViewConfig
     
     var body: some View {
         let draggedNodeBinding = Binding<(any NodeProtocol)?>(
@@ -22,30 +22,34 @@ struct InnerView: View {
             get: { config.potentialEdgeTarget.wrappedValue.node },
             set: { config.potentialEdgeTarget.wrappedValue = NodeWrapper(node: $0) }
         )
+        // ADD THIS: Custom binding for dragStartNode (mirrors the above)
+        let dragStartNodeBinding = Binding<(any NodeProtocol)?>(
+            get: { config.dragStartNode.wrappedValue.node },
+            set: { config.dragStartNode.wrappedValue = NodeWrapper(node: $0) }
+        )
         
         let canvasView = GraphCanvasView(
             viewModel: config.viewModel,
-            zoomScale: config.zoomScale,
-            offset: config.offset,
             draggedNode: draggedNodeBinding,
             dragOffset: config.dragOffset,
             potentialEdgeTarget: potentialEdgeTargetBinding,
             selectedNodeID: config.selectedNodeID,
-            viewSize: config.geo.size,
+            selectedEdgeID: config.selectedEdgeID,
+            viewSize: config.viewSize,
             panStartOffset: config.panStartOffset,
             showMenu: config.showMenu,
-            minZoom: config.minZoom,
-            maxZoom: config.maxZoom,
-            onUpdateZoomRanges: { config.updateZoomRangesHandler(config.geo.size) },
-            selectedEdgeID: config.selectedEdgeID,
-            showOverlays: config.showOverlays,
+            onUpdateZoomRanges: { _, _ in config.updateZoomRangesHandler(config.geo.size) },
             isAddingEdge: config.isAddingEdge,
             isSimulating: config.isSimulating,
-            saturation: config.saturation  // NEW: Pass the binding here
+            saturation: config.saturation,
+            currentDragLocation: config.currentDragLocation,
+            dragStartNode: dragStartNodeBinding  // Use the custom binding
         )
-            .accessibilityIdentifier("GraphCanvas")
-            .focused(config.canvasFocus.projectedValue)
-            .focusable()
+        .accessibilityIdentifier("GraphCanvas")
+        .focused(config.canvasFocus.projectedValue)
+        .focusable()
+        
         canvasView
     }
 }
+

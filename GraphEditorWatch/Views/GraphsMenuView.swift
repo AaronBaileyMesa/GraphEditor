@@ -60,8 +60,13 @@ struct GraphsMenuView: View {
                     WKInterfaceDevice.current().play(.click)
                     Task {
                         do {
+                            let available = try await viewModel.model.listGraphNames()
+                            if available.contains(newGraphName) {
+                                errorMessage = "Graph '\(newGraphName)' already exists."
+                                return
+                            }
                             try await viewModel.model.createNewGraph(name: newGraphName)
-                            viewModel.currentGraphName = newGraphName
+                            try await viewModel.model.switchToGraph(named: newGraphName)
                             showNewSheet = false
                             onDismiss()
                         } catch {
@@ -114,10 +119,19 @@ struct GraphsMenuView: View {
         MenuButton(
             action: {
                 Task {
-                    await viewModel.model.loadGraph(name: graphName)
-                    viewModel.currentGraphName = graphName
+                    do {
+                        let availableGraphs = try await viewModel.model.listGraphNames()
+                        guard availableGraphs.contains(graphName) else {
+                            errorMessage = "Graph '\(graphName)' does not exist."
+                            return
+                        }
+                        try await viewModel.model.switchToGraph(named: graphName)
+                        viewModel.currentGraphName = graphName
+                        onDismiss()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-                onDismiss()
             },
             label: {
                 Label("Load", systemImage: "folder")
@@ -149,11 +163,15 @@ struct GraphsMenuView: View {
         MenuButton(
             action: {
                 Task {
-                    await viewModel.model.loadGraph(name: name)
-                    viewModel.currentGraphName = name
-                    graphName = name
+                    do {
+                        try await viewModel.model.switchToGraph(named: name)
+                        viewModel.currentGraphName = name
+                        graphName = name
+                        onDismiss()
+                    } catch {
+                        errorMessage = error.localizedDescription
+                    }
                 }
-                onDismiss()
             },
             label: {
                 Label(name, systemImage: "doc")
@@ -168,14 +186,14 @@ struct GraphsMenuView: View {
             action: {
                 Task {
                     do {
-                        try await viewModel.model.deleteGraph(name: graphName)
+                        try await viewModel.model.deleteGraph(named: graphName)
                         graphName = "default"
-                        await viewModel.model.loadGraph(name: "default")
+                        try await viewModel.model.switchToGraph(named: "default")
+                        onDismiss()
                     } catch {
                         errorMessage = error.localizedDescription
                     }
                 }
-                onDismiss()
             },
             label: {
                 Label("Del", systemImage: "trash")

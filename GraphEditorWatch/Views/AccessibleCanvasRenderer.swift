@@ -10,14 +10,22 @@ import SwiftUI
 import GraphEditorShared
 import os
 
+struct EdgeDrawingConfig {
+    let renderContext: RenderContext
+    let graphicsContext: GraphicsContext
+    let saturation: Double
+    let isSelected: Bool
+    let logger: Logger?
+}
+
 struct AccessibleCanvasRenderer {
     
     // MARK: - Desaturation Helper (unchanged)
     static func desaturatedColor(_ color: Color, saturation: Double) -> Color {
         switch color {
-        case .red:   return Color(hue: 0,          saturation: saturation, brightness: 1)
-        case .green: return Color(hue: 120/360.0,  saturation: saturation, brightness: 1)
-        case .blue:  return Color(hue: 240/360.0,  saturation: saturation, brightness: 1)
+        case .red: return Color(hue: 0, saturation: saturation, brightness: 1)
+        case .green: return Color(hue: 120/360.0, saturation: saturation, brightness: 1)
+        case .blue: return Color(hue: 240/360.0, saturation: saturation, brightness: 1)
         case .gray, .white: return color
         default: return color
         }
@@ -54,15 +62,15 @@ struct AccessibleCanvasRenderer {
     
     // MARK: - Single Node
     static func drawSingleNode(
-        renderContext: RenderContext,                // ← now the shared one
-        graphicsContext: GraphicsContext,            // ← passed separately for mutability
+        renderContext: RenderContext,
+        graphicsContext: GraphicsContext,
         node: any NodeProtocol,
         saturation: Double,
         isSelected: Bool,
         logger: Logger? = nil
     ) {
         let screenPos = modelToScreen(node.position, renderContext: renderContext)
-        let scaledRadius = node.radius * renderContext.zoomScale
+        let scaledRadius = node.radius * renderContext.zoomScale  // Assume ControlNode has smaller radius
         let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 1.0
         
         let nodeRect = CGRect(
@@ -74,7 +82,7 @@ struct AccessibleCanvasRenderer {
         
         let nodePath = Circle().path(in: nodeRect)
         
-        var ctx = graphicsContext
+        let ctx = graphicsContext
         var fill = node.fillColor
         if saturation < 1.0 {
             fill = desaturatedColor(fill, saturation: saturation)
@@ -82,84 +90,120 @@ struct AccessibleCanvasRenderer {
         ctx.fill(nodePath, with: .color(fill))
         ctx.stroke(nodePath, with: .color(isSelected ? .white : .gray.opacity(0.5)), lineWidth: borderWidth)
         
-        // Label
-        let labelText = Text("\(node.label)")
-            .font(.system(size: max(8, 10 * renderContext.zoomScale)))
-            .foregroundStyle(.white)
-        ctx.draw(ctx.resolve(labelText), at: screenPos, anchor: .center)
-                
+        // NEW: Handle ControlNode (no label, add icon)
+        if let control = node as? ControlNode {
+            let iconSize = max(8.0, 12.0 * renderContext.zoomScale)
+            let iconRect = CGRect(
+                x: screenPos.x - iconSize / 2,
+                y: screenPos.y - iconSize / 2,
+                width: iconSize,
+                height: iconSize
+            )
+            
+            let icon = Image(systemName: control.kind.systemImage)  // Plain Image (systemName only)
+            
+            ctx.drawLayer { layer in
+                layer.addFilter(.colorMultiply(.white))  // Apply white tint
+                layer.draw(icon, in: iconRect)           // Draw sized in rect
+            }  // No need for removeFilter() – it's scoped to the layer
+            
+            #if DEBUG
+            logger?.debug("Drew control node icon '\(control.kind.systemImage)' at (x: \(screenPos.x, privacy: .public), y: \(screenPos.y, privacy: .public))")
+            #endif
+        } else {
+            // Existing label for regular nodes
+            let labelText = Text("\(node.label)")
+                .font(.system(size: max(8, 12 * renderContext.zoomScale), weight: .bold))
+                .foregroundColor(.white)
+            let labelPos = CGPoint(x: screenPos.x, y: screenPos.y - (node.radius + 12) * renderContext.zoomScale)
+            ctx.draw(labelText, at: labelPos, anchor: .center)
+            
+            // Existing +/- for ToggleNode
+            if let toggleNode = node as? ToggleNode {
+                var chevronContext = ctx
+                drawFloatingChevron(
+                    at: screenPos,
+                    isExpanded: toggleNode.isExpanded,
+                    in: &chevronContext,
+                    zoomScale: renderContext.zoomScale
+                )
+            }
+        }
+        
         #if DEBUG
-        if let logger {
-            logger.debug("Drawing node \(node.label) at screen x=\(screenPos.x), y=\(screenPos.y)")
+        if let logger = logger {
+            logger.debug("Drew node \(node.id.uuidString.prefix(8), privacy: .public) at screen (x: \(screenPos.x, privacy: .public), y: \(screenPos.y, privacy: .public)), model (x: \(node.position.x, privacy: .public), y: \(node.position.y, privacy: .public))")
         }
         #endif
     }
     
     // MARK: - Single Edge Line
     static func drawSingleEdgeLine(
-        renderContext: RenderContext,
-        graphicsContext: GraphicsContext,
+        config: EdgeDrawingConfig,
         edge: GraphEdge,
-        visibleNodes: [any NodeProtocol],
-        saturation: Double,
-        isSelected: Bool,
-        logger: Logger? = nil
+        visibleNodes: [any NodeProtocol]
     ) {
+        let renderContext = config.renderContext
+        let ctx = config.graphicsContext
+        
         guard
             let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
             let toNode = visibleNodes.first(where: { $0.id == edge.target })
         else { return }
         
         let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen   = modelToScreen(toNode.position,   renderContext: renderContext)
+        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
         
-        let dx = toScreen.x - fromScreen.x
-        let dy = toScreen.y - fromScreen.y
-        let length = hypot(dx, dy)
+        let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
+        let length = hypot(direction.dx, direction.dy)
         guard length > 0 else { return }
         
-        let unitDx = dx / length
-        let unitDy = dy / length
+        let unitDx = direction.dx / length
+        let unitDy = direction.dy / length
         
         let fromRadius = fromNode.radius * renderContext.zoomScale
-        let toRadius   = toNode.radius   * renderContext.zoomScale
+        let toRadius = toNode.radius * renderContext.zoomScale
         
         let start = CGPoint(x: fromScreen.x + unitDx * fromRadius,
                             y: fromScreen.y + unitDy * fromRadius)
-        let end   = CGPoint(x: toScreen.x   - unitDx * toRadius,
-                            y: toScreen.y   - unitDy * toRadius)
+        let end   = CGPoint(x: toScreen.x - unitDx * toRadius,
+                            y: toScreen.y - unitDy * toRadius)
         
-        let path = Path { $0.move(to: start); $0.addLine(to: end) }
+        // NEW: Customize for spring edges (dashed, thinner, gray)
+        let isSpring = edge.type == .spring  // Assume .spring in EdgeType
+        let lineWidth: CGFloat = config.isSelected ? 3.0 : (isSpring ? 1.0 : 1.5)
+        let color = desaturatedColor(config.isSelected ? .red : (isSpring ? .gray : .white), saturation: config.saturation)
+        let dash: [CGFloat] = isSpring ? [5, 3] : []  // Dashed for springs
         
-        let color = desaturatedColor(isSelected ? .red : .white, saturation: saturation)
-        let width: CGFloat = isSelected ? 3.0 : 1.0
-        
-        graphicsContext.stroke(path, with: .color(color), lineWidth: width)
+        let path = Path { path in
+            path.move(to: start)
+            path.addLine(to: end)
+        }
+        ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, dash: dash))
         
         #if DEBUG
-        if let logger {
-            logger.debug("Drawing line for edge \(edge.id.uuidString.prefix(8)) from x=\(start.x), y=\(start.y) to x=\(end.x), y=\(end.y)")
+        if let logger = config.logger {
+            logger.debug("Drew edge \(edge.id.uuidString.prefix(8), privacy: .public) from (x: \(start.x, privacy: .public), y: \(start.y, privacy: .public)) to (x: \(end.x, privacy: .public), y: \(end.y, privacy: .public))")
         }
         #endif
     }
     
     // MARK: - Single Arrowhead
     static func drawSingleArrow(
-        renderContext: RenderContext,
-        graphicsContext: GraphicsContext,
+        config: EdgeDrawingConfig,
         edge: GraphEdge,
-        visibleNodes: [any NodeProtocol],
-        saturation: Double,
-        isSelected: Bool,
-        logger: Logger? = nil
+        visibleNodes: [any NodeProtocol]
     ) {
+        let renderContext = config.renderContext
+        let ctx = config.graphicsContext
+        
         guard
             let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
             let toNode = visibleNodes.first(where: { $0.id == edge.target })
         else { return }
         
         let fromScreen = modelToScreen(fromNode.position, renderContext: renderContext)
-        let toScreen   = modelToScreen(toNode.position,   renderContext: renderContext)
+        let toScreen   = modelToScreen(toNode.position, renderContext: renderContext)
         
         let direction = CGVector(dx: toScreen.x - fromScreen.x, dy: toScreen.y - fromScreen.y)
         let length = hypot(direction.dx, direction.dy)
@@ -176,26 +220,25 @@ struct AccessibleCanvasRenderer {
         let arrowLen: CGFloat = 10.0
         let arrowAngle: CGFloat = .pi / 6
         
-        let p1 = CGPoint(x: boundary.x - arrowLen * cos(angle - arrowAngle),
-                         y: boundary.y - arrowLen * sin(angle - arrowAngle))
-        let p2 = CGPoint(x: boundary.x - arrowLen * cos(angle + arrowAngle),
-                         y: boundary.y - arrowLen * sin(angle + arrowAngle))
+        let path1 = CGPoint(x: boundary.x - arrowLen * cos(angle - arrowAngle),
+                            y: boundary.y - arrowLen * sin(angle - arrowAngle))
+        let path2 = CGPoint(x: boundary.x - arrowLen * cos(angle + arrowAngle),
+                            y: boundary.y - arrowLen * sin(angle + arrowAngle))
         
         let path = Path { path in
-            path.move(to: boundary); path.addLine(to: p1)
-            path.move(to: boundary); path.addLine(to: p2)
+            path.move(to: boundary); path.addLine(to: path1)
+            path.move(to: boundary); path.addLine(to: path2)
         }
         
-        let color = desaturatedColor(isSelected ? .red : .white, saturation: saturation)
-        graphicsContext.stroke(path, with: .color(color), lineWidth: 3.0)
+        let color = desaturatedColor(config.isSelected ? .red : .white, saturation: config.saturation)
+        ctx.stroke(path, with: .color(color), lineWidth: 3.0)
         
         #if DEBUG
-        if let logger {
-            logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8)) to boundary x=\(boundary.x), y=\(boundary.y)")
+        if let logger = config.logger {
+            logger.debug("Drawing arrow for edge \(edge.id.uuidString.prefix(8), privacy: .public) to boundary x=\(boundary.x, privacy: .public), y=\(boundary.y, privacy: .public)")
         }
         #endif
     }
-    
     // MARK: - Bulk Helpers (unchanged signatures – just forward)
     static func drawEdges(
         renderContext: RenderContext,
@@ -207,13 +250,17 @@ struct AccessibleCanvasRenderer {
         logger: Logger? = nil
     ) {
         for edge in visibleEdges {
-            drawSingleEdgeLine(renderContext: renderContext,
-                               graphicsContext: graphicsContext,
-                               edge: edge,
-                               visibleNodes: visibleNodes,
-                               saturation: saturation,
-                               isSelected: isSelected,
-                               logger: logger)
+            drawSingleEdgeLine(
+                config: EdgeDrawingConfig(
+                    renderContext: renderContext,
+                    graphicsContext: graphicsContext,
+                    saturation: saturation,
+                    isSelected: isSelected,
+                    logger: logger
+                ),
+                edge: edge,
+                visibleNodes: visibleNodes
+            )
         }
     }
     
@@ -227,13 +274,50 @@ struct AccessibleCanvasRenderer {
         logger: Logger? = nil
     ) {
         for edge in visibleEdges {
-            drawSingleArrow(renderContext: renderContext,
-                            graphicsContext: graphicsContext,
-                            edge: edge,
-                            visibleNodes: visibleNodes,
-                            saturation: saturation,
-                            isSelected: isSelected,
-                            logger: logger)
+            drawSingleArrow(
+                config: EdgeDrawingConfig(
+                    renderContext: renderContext,
+                    graphicsContext: graphicsContext,
+                    saturation: saturation,
+                    isSelected: isSelected,
+                    logger: logger
+                ),
+                edge: edge,
+                visibleNodes: visibleNodes
+            )
         }
     }
+    
+    // MARK: - Bounding Box Overlay (reuses computeBoundingBox)
+    static func drawBoundingBox(
+        nodes: [any NodeProtocol],
+        in context: inout GraphicsContext,
+        renderContext: RenderContext
+    ) {
+        let modelBounds = computeBoundingBox(for: nodes)  // Reuse global shared func (model space)
+
+        guard !modelBounds.isEmpty else { return }
+
+        // Convert model bounds corners to screen space
+        let topLeftModel = CGPoint(x: modelBounds.minX, y: modelBounds.minY)
+        let bottomRightModel = CGPoint(x: modelBounds.maxX, y: modelBounds.maxY)
+        let topLeftScreen = modelToScreen(topLeftModel, renderContext: renderContext)  // Already private static here
+        let bottomRightScreen = modelToScreen(bottomRightModel, renderContext: renderContext)  // Ditto
+
+        let screenRect = CGRect(
+            x: topLeftScreen.x,
+            y: topLeftScreen.y,
+            width: bottomRightScreen.x - topLeftScreen.x,
+            height: bottomRightScreen.y - topLeftScreen.y
+        )
+
+        // Draw dashed overlay (match your BoundingBoxOverlay style)
+        let path = Path(roundedRect: screenRect, cornerRadius: 4)
+        context.stroke(
+            path,
+            with: .color(.yellow.opacity(0.5)),
+            style: StrokeStyle(lineWidth: 2 * renderContext.zoomScale, dash: [5, 5])
+        )
+    }
 }
+

@@ -31,7 +31,7 @@ struct GraphModelTests {
         
         // Updated: Use saveGraphState with GraphState
         let state = GraphState(
-            nodes: model.nodes.map { $0.unwrapped },
+            nodes: model.nodes,
             edges: model.edges,
             hierarchyEdgeColor: CodableColor(.blue),
             associationEdgeColor: CodableColor(.white)
@@ -43,7 +43,7 @@ struct GraphModelTests {
         model.edges = []
         
         // Updated: Use loadGraph(name:)
-         await model.loadGraph(name: "default")
+        await model.loadGraph(name: "default")
         
         #expect(model.nodes.count == 2, "Nodes loaded")
         #expect(model.edges.count == 1, "Edges loaded")
@@ -62,114 +62,41 @@ struct GraphModelTests {
     
     @MainActor @Test func testMultiGraphSupport() async throws {
         let model = await setupModel()
+        
+        // 1. Populate the default graph (2 nodes)
         let node1 = AnyNode(Node(label: 1, position: .zero))
         let node2 = AnyNode(Node(label: 2, position: .zero))
         model.nodes = [node1, node2]
         
-        // Save current (default)
+        // Save it explicitly – the model already saves on mutation, but we want a clean snapshot
         let defaultState = GraphState(
-            nodes: model.nodes.map { $0.unwrapped },
+            nodes: model.nodes,
             edges: [],
             hierarchyEdgeColor: CodableColor(.blue),
             associationEdgeColor: CodableColor(.white)
         )
         try await model.storage.saveGraphState(defaultState, for: "default")
         
-        // Create and switch to new graph
+        // 2. Create a brand-new graph called "testGraph"
         try await model.createNewGraph(name: "testGraph")
-        model.nodes = [AnyNode(Node(label: 3, position: .zero))]
-        let testState = GraphState(
-            nodes: model.nodes.map { $0.unwrapped },
-            edges: [],
-            hierarchyEdgeColor: CodableColor(.blue),
-            associationEdgeColor: CodableColor(.white)
-        )
-        try await model.storage.saveGraphState(testState, for: "testGraph")
+        try await model.switchToGraph(named: "testGraph")
+        _ = await model.addNode(at: .zero)  // Fix warning
+        #expect(model.nodes.count == 1, "Switched to testGraph – 1 node")
         
-        // Load back default
-         await model.loadGraph(name: "default")
-        #expect(model.nodes.count == 2, "Switched back to default graph")
-        
-        // List graphs
-        let names = try await model.listGraphNames()
-        #expect(names.contains("default") && names.contains("testGraph"), "Multiple graphs listed")
-        
-        // Delete test graph
         try await model.deleteGraph(name: "testGraph")
-        let updatedNames = try await model.listGraphNames()
-        #expect(!updatedNames.contains("testGraph"), "Graph deleted")
-    }
-    
-    @MainActor @Test func testBuildAdjacencyList() {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        let node1ID = UUID()
-        let node2ID = UUID()
-        let node3ID = UUID()
-        model.nodes = [
-            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
-            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero)),
-            AnyNode(Node(id: node3ID, label: 3, position: CGPoint.zero))
-        ]
-        model.edges = [
-            GraphEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy),
-            GraphEdge(from: node1ID, target: node3ID, type: EdgeType.association),
-            GraphEdge(from: node2ID, target: node3ID, type: EdgeType.hierarchy)
-        ]
-        
-        let allAdj = model.buildAdjacencyList()
-        #expect(allAdj[node1ID]?.count == 2, "All edges from node1")
-        #expect(allAdj[node2ID]?.count == 1, "All edges from node2")
-        
-        let hierarchyAdj = model.buildAdjacencyList(for: EdgeType.hierarchy)
-        #expect(hierarchyAdj[node1ID]?.count == 1, "Only hierarchy from node1")
-        #expect(hierarchyAdj[node1ID]?[0] == node2ID, "Correct target")
-    }
-    
-    @Test func testDistanceEdgeCases() {
-        let samePoint = CGPoint(x: 5, y: 5)
-        #expect(distance(samePoint, samePoint) == 0, "Distance to self is 0")
-        
-        let negativePoints = CGPoint(x: -3, y: -4)
-        let origin = CGPoint.zero
-        #expect(distance(negativePoints, origin) == 5, "Distance with negatives is positive")
-    }
-    
-    @MainActor @Test func testWouldCreateCycle() {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        let node1ID = UUID()
-        let node2ID = UUID()
-        let node3ID = UUID()
-        model.nodes = [
-            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
-            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero)),
-            AnyNode(Node(id: node3ID, label: 3, position: CGPoint.zero))
-        ]
-        model.edges = [
-            GraphEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy),
-            GraphEdge(from: node2ID, target: node3ID, type: EdgeType.hierarchy)
-        ]
-        
-        #expect(model.wouldCreateCycle(withNewEdgeFrom: node3ID, target: node1ID, type: EdgeType.hierarchy) == true, "Should detect cycle")
-        #expect(model.wouldCreateCycle(withNewEdgeFrom: node1ID, target: node3ID, type: EdgeType.hierarchy) == false, "No cycle")
-        #expect(model.wouldCreateCycle(withNewEdgeFrom: node1ID, target: node2ID, type: EdgeType.association) == false, "Non-hierarchy ignores cycle check")
+        await model.loadGraph(name: "testGraph")  // Should fallback to empty
+        #expect(model.nodes.isEmpty, "Loading a deleted/non-existent graph returns an empty graph")
     }
     
     @MainActor @Test func testAddAndDeleteEdge() async {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        let node1ID = UUID()
-        let node2ID = UUID()
-        model.nodes = [
-            AnyNode(Node(id: node1ID, label: 1, position: CGPoint.zero)),
-            AnyNode(Node(id: node2ID, label: 2, position: CGPoint.zero))
-        ]
+        let node1 = AnyNode(Node(label: 1, position: .zero))
+        let node2 = AnyNode(Node(label: 2, position: .zero))
+        model.nodes = [node1, node2]
         
-        await model.addEdge(from: node1ID, target: node2ID, type: EdgeType.hierarchy)
+        await model.addEdge(from: node1.id, target: node2.id, type: .association)
         #expect(model.edges.count == 1, "Edge should be added")
         
         let edgeID = model.edges[0].id

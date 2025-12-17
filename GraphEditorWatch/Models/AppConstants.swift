@@ -11,7 +11,7 @@ public struct AppConstants {
     // Graph visuals
     static let nodeModelRadius: CGFloat = 10.0
     static let hitScreenRadius: CGFloat = 30.0
-    static let tapThreshold: CGFloat = 10.0
+    static let tapThreshold: CGFloat = 5.0
     static let menuLongPressDuration: Double = 1.3
     
     // Zooming
@@ -21,8 +21,4 @@ public struct AppConstants {
     public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
     public static let crownZoomSteps: Int = 20  // Smooth steps for crown
     
-}
-
-extension AppConstants {
-    static let logicalCanvasSize = CGSize(width: 184, height: 184) // square, fits all current watches
 }

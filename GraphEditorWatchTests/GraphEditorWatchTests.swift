@@ -22,14 +22,29 @@ class MockGraphStorage: GraphStorage {
     
     // Derived single-graph properties for convenience in tests (syncs with default graph)
     var nodes: [any NodeProtocol] {
-        get { graphs[defaultName]?.nodes ?? [] }
+        get { graphs[defaultName]?.nodes ?? [] }  // This returns [AnyNode], which is fine → [any NodeProtocol]
         set {
-            let currentState = graphs[defaultName] ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white))
-            let updatedState = GraphState(nodes: newValue, edges: currentState.edges, hierarchyEdgeColor: currentState.hierarchyEdgeColor, associationEdgeColor: currentState.associationEdgeColor)
+            let currentState = graphs[defaultName]
+                ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white))
+            
+            // Critical: Convert [any NodeProtocol] → [AnyNode]
+            let wrappedNodes: [AnyNode] = newValue.map { node in
+                if let anyNode = node as? AnyNode {
+                    return anyNode  // Reuse if already wrapped
+                } else {
+                    return AnyNode(node)  // Wrap concrete type
+                }
+            }
+            
+            let updatedState = GraphState(
+                nodes: wrappedNodes,
+                edges: currentState.edges,
+                hierarchyEdgeColor: currentState.hierarchyEdgeColor,
+                associationEdgeColor: currentState.associationEdgeColor
+            )
             graphs[defaultName] = updatedState
         }
     }
-    
     var edges: [GraphEdge] {
         get { graphs[defaultName]?.edges ?? [] }
         set {
@@ -122,4 +137,10 @@ class MockGraphStorage: GraphStorage {
     await model.redo()  // Forward to 2 nodes
     #expect(model.nodes.count == 2, "Redo adds node")
     #expect(model.undoStack.count == 2, "Undo stack updated")
+}
+
+private extension MockGraphStorage {
+    func wrapNodes(_ nodes: [any NodeProtocol]) -> [AnyNode] {
+        nodes.map { $0 as? AnyNode ?? AnyNode($0) }
+    }
 }
