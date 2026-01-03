@@ -60,7 +60,7 @@ struct ContentView: View {
                     viewSize: $viewSize,
                     panStartOffset: $panStartOffset,
                     showMenu: $showMenu,
-                    onUpdateZoomRanges: { _,_ in },
+                    onUpdateZoomRanges: { _, _ in },
                     isAddingEdge: $isAddingEdge,
                     isSimulating: $isSimulating,
                     saturation: $saturation,
