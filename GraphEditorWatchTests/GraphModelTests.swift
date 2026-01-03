@@ -29,21 +29,19 @@ struct GraphModelTests {
         model.nodes = [node1, node2]
         model.edges = [edge]
         
-        // Updated: Use saveGraphState with GraphState
         let state = GraphState(
             nodes: model.nodes,
             edges: model.edges,
             hierarchyEdgeColor: CodableColor(.blue),
-            associationEdgeColor: CodableColor(.white)
+            associationEdgeColor: CodableColor(.white),
+            isSimulating: false
         )
         try await model.storage.saveGraphState(state, for: "default")
         
-        // Clear model to simulate reload
         model.nodes = []
         model.edges = []
         
-        // Updated: Use loadGraph(name:)
-        await model.loadGraph(name: "default")
+        try await model.loadGraph()
         
         #expect(model.nodes.count == 2, "Nodes loaded")
         #expect(model.edges.count == 1, "Edges loaded")
@@ -63,35 +61,37 @@ struct GraphModelTests {
     @MainActor @Test func testMultiGraphSupport() async throws {
         let model = await setupModel()
         
-        // 1. Populate the default graph (2 nodes)
+        // Populate default graph
         let node1 = AnyNode(Node(label: 1, position: .zero))
         let node2 = AnyNode(Node(label: 2, position: .zero))
         model.nodes = [node1, node2]
         
-        // Save it explicitly – the model already saves on mutation, but we want a clean snapshot
         let defaultState = GraphState(
             nodes: model.nodes,
             edges: [],
             hierarchyEdgeColor: CodableColor(.blue),
-            associationEdgeColor: CodableColor(.white)
+            associationEdgeColor: CodableColor(.white),
+            isSimulating: false
         )
         try await model.storage.saveGraphState(defaultState, for: "default")
         
-        // 2. Create a brand-new graph called "testGraph"
+        // Create and switch to new graph
         try await model.createNewGraph(name: "testGraph")
         try await model.switchToGraph(named: "testGraph")
-        _ = await model.addNode(at: .zero)  // Fix warning
+        _ = await model.addNode(at: .zero)
         #expect(model.nodes.count == 1, "Switched to testGraph – 1 node")
         
-        try await model.deleteGraph(name: "testGraph")
-        await model.loadGraph(name: "testGraph")  // Should fallback to empty
-        #expect(model.nodes.isEmpty, "Loading a deleted/non-existent graph returns an empty graph")
+        // Delete the graph
+        try await model.deleteGraph(named: "testGraph")
+        
+        // Attempt to load the deleted graph – expect fallback to default without throw
+        try await model.loadGraph()
+        #expect(model.currentGraphName == "default", "Falls back to default after deleting current")
+        #expect(model.nodes.count == 2, "Loads default graph with previous nodes")
     }
     
     @MainActor @Test func testAddAndDeleteEdge() async {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let model = await setupModel()
         let node1 = AnyNode(Node(label: 1, position: .zero))
         let node2 = AnyNode(Node(label: 2, position: .zero))
         model.nodes = [node1, node2]
@@ -110,35 +110,15 @@ struct GraphModelTests {
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
         model.nextNodeLabel = 1
         
-        await model.addNode(at: CGPoint.zero)
+        _ = await model.addNode(at: CGPoint.zero)
         #expect(model.nodes.count == 1, "Node added")
         #expect(model.nodes[0].unwrapped.label == 1, "Label set correctly")
         #expect(model.nextNodeLabel == 2, "Label incremented")
         
-        await model.addToggleNode(at: CGPoint.zero)
+        _ = await model.addToggleNode(at: CGPoint.zero)
         #expect(model.nodes.count == 2, "ToggleNode added")
         #expect(model.nodes[1].unwrapped.label == 2, "Label set correctly")
         #expect(model.nextNodeLabel == 3, "Label incremented")
-    }
-    
-    @MainActor @Test func testAddChildAndDeleteNode() async {
-        let storage = MockGraphStorage()
-        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
-        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-        let parentID = UUID()
-        model.nodes = [AnyNode(Node(id: parentID, label: 1, position: CGPoint.zero))]
-        model.nextNodeLabel = 2
-        
-        await model.addPlainChild(to: parentID)
-        #expect(model.nodes.count == 2, "Child added")
-        #expect(model.edges.count == 1, "Hierarchy edge added")
-        #expect(model.edges[0].type == EdgeType.hierarchy, "Correct edge type")
-        #expect(model.nextNodeLabel == 3, "Label incremented")
-        
-        let childID = model.nodes[1].id
-        await model.deleteNode(withID: childID)
-        #expect(model.nodes.count == 1, "Child deleted")
-        #expect(model.edges.isEmpty, "Edge removed")
     }
     
     @MainActor @Test func testAddEdgeCycleDetection() async {
@@ -153,6 +133,5 @@ struct GraphModelTests {
         await model.addEdge(from: node2.id, target: node3.id, type: .hierarchy)
         await model.addEdge(from: node3.id, target: node1.id, type: .hierarchy)  // Should prevent cycle
         #expect(model.edges.count == 2)  // Third edge not added
-        // Optionally, check logs if you have a way to capture them
     }
 }

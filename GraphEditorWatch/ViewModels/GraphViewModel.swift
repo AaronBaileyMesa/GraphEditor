@@ -329,13 +329,16 @@ import os  // Added for logging
     @MainActor
     func handleControlTap(control: ControlNode) async {
         let action = control.kind.defaultAction()
-        do {
-            await action(self, control.ownerID!)  // Assumes ownerID is non-optional; use ?? if needed
-            Self.logger.debug("Handled tap on control \(control.kind.rawValue) for owner \(control.ownerID!.uuidString.prefix(8))")
-        } catch {
-            Self.logger.error("Control tap failed for \(control.kind.rawValue): \(error.localizedDescription)")
-            // Optional: Show user feedback, e.g., haptic error via WKInterfaceDevice.current().play(.failure)
+        
+        // Safe handling if ownerID were optional (recommended even if currently non-optional)
+        guard let ownerID = control.ownerID else {
+            Self.logger.error("Control node \(control.kind.rawValue) has no ownerID")
+            return
         }
+        
+        await action(self, ownerID)
+        
+        Self.logger.debug("Handled tap on control \(control.kind.rawValue) for owner \(ownerID.uuidString.prefix(8))")
     }
     
     @MainActor
@@ -431,7 +434,7 @@ extension GraphViewModel {
     @MainActor
     public func loadGraph(name: String) async throws {
         // Save current view state before switching
-        try await saveViewState()  // FIXED: Added 'await' assuming it's async; if not, remove 'await'
+        try saveViewState()  // FIXED: Added 'await' assuming it's async; if not, remove 'await'
         try await model.switchToGraph(named: name)  // FIXED: Use switchToGraph(named:) which handles setting name and loading
         currentGraphName = model.currentGraphName  // Sync (unchanged)
         // Load view state for the new graph
@@ -557,7 +560,16 @@ extension ControlKind {
                 } else {
                     await viewModel.clearControls()
                     await viewModel.model.resumeSimulation()
-                    try! await viewModel.model.saveGraph()  // Auto-save on exit
+                    
+                    // Fixed: Proper error handling instead of force-try
+                    do {
+                        try await viewModel.model.saveGraph()
+                        Self.logger.info("Auto-saved graph on edit mode exit")
+                    } catch {
+                        Self.logger.error("Auto-save failed on edit mode exit: \(error.localizedDescription)")
+                        // Optional: You could also notify the user here (e.g., via a haptic or alert),
+                        // but logging is sufficient for a background auto-save.
+                    }
                 }
                 WKInterfaceDevice.current().play(.click)
                 Self.logger.debug("Toggled edit mode for node \(nodeID.uuidString.prefix(8)): \(viewModel.isEditMode)")
