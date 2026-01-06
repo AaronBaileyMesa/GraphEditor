@@ -67,13 +67,17 @@ struct ContentView: View {
                     currentDragLocation: $currentDragLocation,
                         dragStartNode: $dragStartNode
                 )
+                .debugViewHierarchy()
+
             }
+            
             .onAppear {
                 viewSize = geo.size
                 wristSide = WKInterfaceDevice.current().wristLocation
                 canvasFocus = true
                 Task { await viewModel.resumeSimulation() }
                 viewModel.resetViewToFitGraph(viewSize: geo.size)
+                print("ContentView appeared – confirming render")
             }
             .focused($canvasFocus)
             .sheet(item: $viewModel.model.editingNodeID) { id in
