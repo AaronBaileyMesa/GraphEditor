@@ -212,7 +212,7 @@ struct AccessibleCanvas: View {
                 )
             }
         }
-        .id(viewModel.redrawTrigger)  // Apply at top level for full container recreation on trigger changes
+        .id(viewModel.redrawTrigger)  
         .accessibilityIdentifier("graphCanvas")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()

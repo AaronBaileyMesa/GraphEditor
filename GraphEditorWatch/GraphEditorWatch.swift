@@ -32,19 +32,27 @@ struct ContentLoaderView: View {
         } else {
             Text("Loading...")
                 .task {
-                    let screenBounds = WKInterfaceDevice.current().screenBounds.size
-                    let physicsEngine = PhysicsEngine(simulationBounds: screenBounds)
-                    let storage = PersistenceManager()
-                    let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-                    
-                    do {
-                        try await model.loadGraph()  // Handle success path
-                    } catch {
-                        // Handle the error gracefully (e.g., log it, show a fallback UI, or initialize defaults)
-                        print("Failed to load graph: \(error.localizedDescription)")
-                        // Optional: Call your default initialization here if needed
-                        await model.initializeDefaultGraph()  // Assuming you have this method from previous fixes
-                    }
+                    let isUITest = CommandLine.arguments.contains("--uitest-mock-storage")
+                        
+                        let screenBounds = WKInterfaceDevice.current().screenBounds.size
+                        let physicsEngine = PhysicsEngine(simulationBounds: screenBounds)
+                        
+                        // MODIFIED: Conditional storage
+                        let storage: any GraphStorage = isUITest ? MockGraphStorage() : PersistenceManager()
+                        
+                        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+                        
+                        // Existing if-else for load/skip – unchanged
+                        if isUITest {
+                            await model.initializeDefaultGraph()
+                        } else {
+                            do {
+                                try await model.loadGraph()
+                            } catch {
+                                print("Failed to load graph: \(error.localizedDescription)")
+                                await model.initializeDefaultGraph()
+                            }
+                        }
                     
                     model.nodes = model.nodes.map { anyNode in
                         let updated = anyNode.unwrapped.with(position: anyNode.position, velocity: CGPoint.zero)
@@ -60,8 +68,12 @@ struct ContentLoaderView: View {
                         print("Loaded view state for '\(model.currentGraphName)'")
                     }
                     self.viewModel = tempViewModel
-                    await tempViewModel.model.startSimulation()
+                    if !CommandLine.arguments.contains("--uitest-no-simulation") {
+                            await tempViewModel.model.startSimulation()
+                        }
+                    
                 }
         }
     }
 }
+

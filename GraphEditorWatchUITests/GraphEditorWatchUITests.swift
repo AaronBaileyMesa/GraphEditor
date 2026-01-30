@@ -17,11 +17,23 @@ final class GraphEditorWatchUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
+        
+        // NEW: Set arguments BEFORE launch
+        app.launchArguments.append("--uitest-mock-storage")
+        app.launchArguments.append("--uitest-no-simulation")
+        
         app.terminate()
         app.launch()
-        Thread.sleep(forTimeInterval: 2.0)  // Increased for idle
+        
+        Thread.sleep(forTimeInterval: 2.0)  // Reduce to 2s now that mocks should be fast
         
         print("Post-launch hierarchy: \(app.debugDescription)")
+        
+        // Add screenshot here for consistency (copied from LaunchTests)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "Post-launch screenshot"
+        attachment.lifetime = .keepAlways
+        add(attachment)
         
         let canvas = app.otherElements["GraphCanvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")

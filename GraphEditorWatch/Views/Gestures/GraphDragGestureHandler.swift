@@ -38,6 +38,8 @@ struct GraphDragGestureHandler: ViewModifier {
     }
     
     private func handleDragChanged(_ value: DragGesture.Value) {
+        print("Drag changed at time: \(Date().timeIntervalSinceReferenceDate), location: \(value.location), translation: \(value.translation), magnitude: \(hypot(value.translation.width, value.translation.height))")  // NEW: Log for debugging sim issues
+        
         currentDragLocation = value.location
         
         let translation = value.translation
@@ -69,24 +71,38 @@ struct GraphDragGestureHandler: ViewModifier {
                 return
             }
             
-            // Start panning
             panStartOffset = offset
         }
         
-        if let node = draggedNode {
-            let liveModelPos = CoordinateTransformer.screenToModel(value.location, renderContext)
-            let newPos = liveModelPos - dragOffset
+        if let dragged = draggedNode {
+            let screenPos = value.location
+                let newModelPos = CoordinateTransformer.screenToModel(screenPos, renderContext) - dragOffset
+                
+                if let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
+                    viewModel.model.nodes[nodeIndex].position = newModelPos
+                    viewModel.model.objectWillChange.send()  // Trigger redraw
+                    draggedNode = viewModel.model.nodes[nodeIndex]  // Refresh reference
+                }
+                
+                if let ownerID = selectedNodeID {
+                    updateControlNodes(for: ownerID, to: newModelPos)
+                }
             
-            // Update main node
-            if let index = viewModel.model.nodes.firstIndex(where: { $0.id == node.id }) {
-                viewModel.model.nodes[index].position = newPos
+            if isAddingEdge, let start = dragStartNode {
+                if let target = HitTestHelper.closestNode(at: value.location,
+                                                          visibleNodes: viewModel.model.visibleNodes.filter { $0.id != start.id },
+                                                          renderContext: renderContext) {
+                    potentialEdgeTarget = target
+                } else {
+                    potentialEdgeTarget = nil
+                }
             }
-            
-            // Update control nodes
-            updateControlNodes(for: node.id, to: newPos)
-        } else if let start = panStartOffset {
-            offset = CGSize(width: start.width + value.translation.width,
-                            height: start.height + value.translation.height)
+            return
+        }
+        
+        if let start = panStartOffset {
+            offset = CGSize(width: start.width + translation.width / zoomScale,
+                            height: start.height + translation.height / zoomScale)
         }
     }
     
