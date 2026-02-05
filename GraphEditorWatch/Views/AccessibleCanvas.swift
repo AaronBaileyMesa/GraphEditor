@@ -26,7 +26,7 @@ struct AnimatedCanvasContent: View {
     let dragStartNode: (any NodeProtocol)?
     
     var body: some View {
-        let _ = print("AnimatedCanvasContent recomputed at \(contextDate.timeIntervalSinceReferenceDate), visibleNodes count: \(viewModel.model.visibleNodes.count)")  // DEBUG: Confirm fresh recomputes
+        // DEBUG log removed: Too noisy, was firing at 30fps even when idle
         
         Canvas { graphicsContext, _ in
             var gc = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
@@ -130,13 +130,17 @@ struct AnimatedCanvasContent: View {
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
     private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext) {
-        // Your existing implementation here (e.g., drawing draggedNode, potential edge, etc.)
-        // Example placeholder:
-        if let dragged = draggedNode {
+        // FIXED: Only draw drag preview if the node is actually being dragged with an offset
+        // This prevents duplicate rendering when a node is selected but not dragged
+        if let dragged = draggedNode, dragOffset != .zero {
+            // Create a temporary node at the dragged position for rendering
+            var draggedCopy = dragged
+            draggedCopy.position = dragged.position + dragOffset
+            
             AccessibleCanvasRenderer.drawSingleNode(
                 renderContext: renderContext,
                 graphicsContext: context,
-                node: dragged,
+                node: draggedCopy,
                 saturation: saturation,
                 isSelected: true
             )
@@ -165,10 +169,11 @@ struct AccessibleCanvas: View {
     static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "accessiblecanvas")
     
     var body: some View {
-        let bounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.visibleNodes)
-            .insetBy(dx: -40, dy: -40)
-        let minZoom = min(viewSize.width / bounds.width, viewSize.height / bounds.height).clamped(to: 0.2...1.0)
-        let maxZoom = max(1.0, minZoom * 8.0).clamped(to: 1.0...5.0)
+        // REMOVED: Don't calculate bounds in body - causes constant recomputation
+        // let bounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.visibleNodes)
+        //     .insetBy(dx: -40, dy: -40)
+        // let minZoom = min(viewSize.width / bounds.width, viewSize.height / bounds.height).clamped(to: 0.2...1.0)
+        // let maxZoom = max(1.0, minZoom * 8.0).clamped(to: 1.0...5.0)
         
         Group {
             if viewModel.model.isSimulating {
@@ -217,8 +222,9 @@ struct AccessibleCanvas: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .background(Color.black)
-        .onChange(of: bounds) { _ in
-            onUpdateZoomRanges(minZoom, maxZoom)
-        }
+        // REMOVED: This was causing a feedback loop
+        // .onChange(of: bounds) { _ in
+        //     onUpdateZoomRanges(minZoom, maxZoom)
+        // }
     }
 }

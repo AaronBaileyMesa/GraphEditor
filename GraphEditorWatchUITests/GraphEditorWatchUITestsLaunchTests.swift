@@ -13,46 +13,55 @@ final class GraphEditorWatchUITestsLaunchTests: XCTestCase {
         true
     }
 
-    override func setUpWithError() throws {
-        continueAfterFailure = false
+    @MainActor
+    func testLaunch() {
         let app = XCUIApplication()
+        app.configureForUITesting()
+        app.launchAndWait()
         
-        // NEW: Add arguments BEFORE launch for consistency
-        app.launchArguments.append("--uitest-mock-storage")
-        app.launchArguments.append("--uitest-no-simulation")
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
         
-        app.terminate()
-        app.launch()
-        
-        Thread.sleep(forTimeInterval: 2.0)  // Reduce from 5s
-        
-        print("Post-launch hierarchy: \(app.debugDescription)")
-
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Post-launch screenshot"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 20), "Graph canvas should appear on launch")  // Keep 20s for now
+        app.takeScreenshot(named: "Launch Screen", testCase: self)
+        XCTAssertTrue(canvas.exists, "Canvas should exist after launch")
     }
     
-    @MainActor
-    func testLaunch() throws {
+    func testLaunchWithEmptyGraph() {
         let app = XCUIApplication()
+        app.configureForUITesting(skipLoading: true)
+        app.launchAndWait()
         
-        // NEW: Set arguments BEFORE launch
-        app.launchArguments.append("--uitest-mock-storage")
-        app.launchArguments.append("--uitest-no-simulation")
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        XCTAssertTrue(canvas.exists, "Canvas should exist with empty graph")
+    }
+    
+    func testLaunchWithMockStorage() {
+        let app = XCUIApplication()
+        app.configureForUITesting(withMockStorage: true)
+        app.launchAndWait()
         
-        app.launch()
-
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        XCTAssertTrue(canvas.exists, "Canvas should exist with mock storage")
+    }
+    
+    func testLaunchWithoutSimulation() {
+        let app = XCUIApplication()
+        app.configureForUITesting(disableSimulation: true)
+        app.launchAndWait()
+        
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        XCTAssertTrue(canvas.exists, "Canvas should exist without simulation")
+    }
+    
+    func testLaunchPerformance() {
+        measure(metrics: [XCTApplicationLaunchMetric()]) {
+            let app = XCUIApplication()
+            app.configureForUITesting()
+            app.launch()
+            app.terminate()
+        }
     }
 }

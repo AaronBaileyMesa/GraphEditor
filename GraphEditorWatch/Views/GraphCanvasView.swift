@@ -40,7 +40,9 @@ struct GraphCanvasView: View {
     }
     
     var body: some View {
-        let innerCanvas = AccessibleCanvas(  // NEW: Assign to let – breaks out the complex init
+        // FIXED: Don't wrap in FocusableView - it interferes with gesture recognition
+        // Apply gestures and focus modifiers directly to the canvas
+        AccessibleCanvas(
             viewModel: viewModel,
             zoomScale: viewModel.zoomScale,
             offset: viewModel.offset,
@@ -48,16 +50,16 @@ struct GraphCanvasView: View {
             dragOffset: dragOffset,
             potentialEdgeTarget: potentialEdgeTarget,
             selectedNodeID: selectedNodeID,
-            selectedEdgeID: selectedEdgeID,  // Reordered to precede viewSize
+            selectedEdgeID: selectedEdgeID,
             viewSize: viewSize,
             showOverlays: false,
             saturation: saturation,
             currentDragLocation: currentDragLocation,
             isAddingEdge: isAddingEdge,
             dragStartNode: dragStartNode,
-            onUpdateZoomRanges: onUpdateZoomRanges  // Added with matching type
+            onUpdateZoomRanges: onUpdateZoomRanges
         )
-        .modifier(GraphGesturesModifier(  // Still chained here, but now on a smaller expression
+        .modifier(GraphGesturesModifier(
             viewModel: viewModel,
             renderContext: renderContext,
             zoomScale: $viewModel.zoomScale,
@@ -72,7 +74,7 @@ struct GraphCanvasView: View {
             showMenu: $showMenu,
             maxZoom: AppConstants.defaultMaxZoom,
             crownPosition: $crownPosition,
-            onUpdateZoomRanges: {  // Wrapper for () -> Void if needed; assumes modifier expects () -> Void
+            onUpdateZoomRanges: {
                 let (min, max) = viewModel.calculateZoomRanges(for: viewSize)
                 onUpdateZoomRanges(min, max)
             },
@@ -82,10 +84,6 @@ struct GraphCanvasView: View {
             currentDragLocation: $currentDragLocation,
             dragStartNode: $dragStartNode
         ))
-        
-        FocusableView {
-            innerCanvas  // Use the let here
-        }
         .focusable(true)
         .digitalCrownRotation(
             $crownPosition,

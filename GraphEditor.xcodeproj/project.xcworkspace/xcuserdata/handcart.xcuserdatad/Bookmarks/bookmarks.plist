@@ -98,13 +98,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>79</string>
+					<string>83</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>79</string>
+					<string>83</string>
 					<key>Timestamp</key>
-					<string>791428018.245528</string>
+					<string>791432734.78611</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -122,11 +122,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>}
+				<string>                    print("[ContentLoaderView] GraphModel created")
 
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>                    if isUITest &amp;&amp; skipLoading {
+                        print("[ContentLoaderView] Taking fast path (skip loading)")
+                        await MainActor.run {
+</string>
 			</dict>
 			<key>title</key>
 			<string>Missing argument for parameter 'viewModel' in call</string>

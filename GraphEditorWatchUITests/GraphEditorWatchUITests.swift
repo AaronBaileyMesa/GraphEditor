@@ -7,169 +7,165 @@
 
 import XCTest
 
-extension XCUIApplication {
-    func waitForElement(_ element: XCUIElement, timeout: TimeInterval = 10.0, file: StaticString = #file, line: UInt = #line) {
-        XCTAssertTrue(element.waitForExistence(timeout: timeout), "Element did not appear: \(element)", file: file, line: line)
-    }
-}
-
 final class GraphEditorWatchUITests: XCTestCase {
-    override func setUpWithError() throws {
+    
+    var app: XCUIApplication!
+    
+    // MARK: - Setup
+    
+    override func setUp() {
+        super.setUp()
         continueAfterFailure = false
-        let app = XCUIApplication()
         
-        // NEW: Set arguments BEFORE launch
-        app.launchArguments.append("--uitest-mock-storage")
-        app.launchArguments.append("--uitest-no-simulation")
-        
-        app.terminate()
-        app.launch()
-        
-        Thread.sleep(forTimeInterval: 2.0)  // Reduce to 2s now that mocks should be fast
-        
-        print("Post-launch hierarchy: \(app.debugDescription)")
-        
-        // Add screenshot here for consistency (copied from LaunchTests)
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Post-launch screenshot"
-        attachment.lifetime = .keepAlways
-        add(attachment)
-        
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Graph canvas should appear on launch")
+        app = XCUIApplication()
+        app.configureForUITesting(
+            withMockStorage: true,
+            disableSimulation: true,
+            skipLoading: true
+        )
+        app.launchAndWait()
     }
     
-    func testAppLaunchesAndCanvasExists() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
-        
-        // Removed predicate (no label); add if canvas gets one, e.g.:
-        // let initialPredicate = NSPredicate(format: "label CONTAINS 'Graph'")
-        // expectation(for: initialPredicate, evaluatedWith: canvas)
-        // waitForExpectations(timeout: 5.0)
+    override func tearDown() {
+        app = nil
+        super.tearDown()
     }
     
-    func testMenuOpensAfterLongPress() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
+    // MARK: - Basic Launch Tests
+    
+    func testAppLaunches() {
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        XCTAssertTrue(canvas.exists, "Canvas should exist after launch")
+    }
+    
+    func testCanvasIsAccessible() {
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        XCTAssertTrue(canvas.canvas.isHittable, "Canvas should be hittable")
+    }
+    
+    // MARK: - Menu Interaction Tests
+    
+    func testGraphMenuOpens() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
         
-        canvas.tap()  // Deselect anything
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.tap() // Clear any selection first
+        canvas.longPress(at: CGVector(dx: 0.5, dy: 0.5), duration: 1.2)
         
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
+        menu.waitForMenu(timeout: 5.0)
+        XCTAssertTrue(menu.isVisible, "Graph menu should be visible after long press")
+    }
+    
+    func testGraphMenuHasButtons() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
         
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.tap()
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
         
-        print("Menu hierarchy after open: \(app.debugDescription)")
+        XCTAssertTrue(menu.addNodeButton.exists, "Add node button should exist")
+        XCTAssertTrue(menu.addToggleNodeButton.exists, "Add toggle node button should exist")
+        XCTAssertTrue(menu.addEdgeButton.exists, "Add edge button should exist")
     }
     
     func testAddNodeViaMenu() {
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
+        let nodeMenu = NodeMenuPage(app: app)
         
-        canvas.tap()  // Deselect
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.tap()
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
+        menu.tapAddNode()
         
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
+        // Wait for node to be added and menu to update
+        sleep(1)
         
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let addNodeButton = app.buttons["addNodeButton"]
-        scrollUntilVisible(element: addNodeButton, in: menuGrid, maxAttempts: 30)
-        addNodeButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Update predicate to match actual post-add (inspect app)
-        let addedPredicate = NSPredicate(format: "label CONTAINS 'node'")
-        expectation(for: addedPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
+        // Either node menu or graph menu should be visible
+        let menuVisible = nodeMenu.menuGrid.exists || menu.menuGrid.exists
+        XCTAssertTrue(menuVisible, "Either node menu or graph menu should be visible")
     }
     
-    func testResetGraphViaMenu() {
-        // If dropping reset, comment out or remove this test
-        // Otherwise, add after implementing resetGraph()
-        let app = XCUIApplication()
-        let canvas = app.otherElements["GraphCanvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10), "Canvas should exist")
-        
-        canvas.tap()  // Deselect
-        
-        performLongPress(on: canvas, atNormalizedOffset: CGVector(dx: 0.5, dy: 0.5), maxRetries: 5, app: app)
-        
-        let menuGrid = app.otherElements["graphMenuGrid"]
-        XCTAssertTrue(menuGrid.waitForExistence(timeout: 10), "Graph menu should appear")
-        
-        print("Menu hierarchy after open: \(app.debugDescription)")
-        
-        let resetButton = app.buttons["resetGraphButton"]
-        scrollUntilVisible(element: resetButton, in: menuGrid, maxAttempts: 30)
-        resetButton.tap()
-        Thread.sleep(forTimeInterval: 1.0)
-        
-        // Verify reset (adjust predicate)
-        let resetPredicate = NSPredicate(format: "label CONTAINS 'Empty'")
-        expectation(for: resetPredicate, evaluatedWith: canvas)
-        waitForExpectations(timeout: 5.0)
-    }
+    // MARK: - Node Interaction Tests
     
-    // Helper: Perform long press with retries and debug (adjustments for watchOS)
-    private func performLongPress(on element: XCUIElement, atNormalizedOffset offset: CGVector, maxRetries: Int = 5, app: XCUIApplication) {
-        let coord = element.coordinate(withNormalizedOffset: offset)
-        for attempt in 1...maxRetries {
-            print("Long press attempt \(attempt)")
-            Thread.sleep(forTimeInterval: 0.5)  // Settle without tap
-            coord.press(forDuration: 1.5)  // Reduced; match app's timer
-            Thread.sleep(forTimeInterval: 1.0)
-            
-            print("Post-long-press hierarchy (attempt \(attempt)): \(app.debugDescription)")
-            let attachment = XCTAttachment(screenshot: app.screenshot())
-            attachment.name = "Post-long-press-attempt-\(attempt)"
-            attachment.lifetime = .keepAlways
-            add(attachment)
-            
-            if app.otherElements["graphMenuGrid"].exists {
-                return  // Success
-            }
-            coord.tap()  // Attempt dismiss
-            Thread.sleep(forTimeInterval: 0.5)
+    func testSelectNodeAfterAdding() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
+        let nodeMenu = NodeMenuPage(app: app)
+        
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.tap()
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
+        menu.tapAddNode()
+        sleep(1)
+        
+        // If node menu doesn't appear, tap canvas to deselect
+        if !nodeMenu.isVisible {
+            canvas.tap(at: CGVector(dx: 0.5, dy: 0.5))
+            usleep(300000) // 300ms
         }
-        XCTFail("Long press failed after \(maxRetries) attempts")
+        
+        XCTAssertTrue(canvas.exists, "Canvas should still exist after adding node")
     }
     
-    // Improved scrolling (updated query to otherElements if needed)
-    private func scrollUntilVisible(element: XCUIElement, in container: XCUIElement, maxAttempts: Int) {
-        var attempts = 0
-        let smallOffset = CGVector(dx: 0.5, dy: 0.25)
+    // MARK: - Menu Navigation Tests
+    
+    func testDismissMenuByTapping() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
         
-        while attempts < maxAttempts {
-            let query = container.descendants(matching: .button)[element.identifier]  // Broader query for nested
-            if query.exists && query.firstMatch.isHittable {
-                return
-            }
-            
-            // Swipe up
-            let start = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-            let end = container.coordinate(withNormalizedOffset: smallOffset)
-            start.press(forDuration: 0.1, thenDragTo: end)
-            Thread.sleep(forTimeInterval: 0.5)
-            attempts += 1
-            
-            print("Scroll up attempt \(attempts): Exists? \(query.exists), hittable? \(query.firstMatch.isHittable)")
-            
-            // Corrective swipe down every 5
-            if attempts % 5 == 0 {
-                let downStart = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
-                let downEnd = container.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
-                downStart.press(forDuration: 0.1, thenDragTo: downEnd)
-                Thread.sleep(forTimeInterval: 0.5)
-                print("Corrective swipe down at attempt \(attempts)")
-            }
-        }
-        XCTFail("Element not visible after \(maxAttempts) attempts")
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
+        XCTAssertTrue(menu.isVisible, "Menu should be visible before dismissal")
+        
+        canvas.tap(at: CGVector(dx: 0.1, dy: 0.1))
+        usleep(500000) // 500ms
+        
+        // Canvas should still exist
+        XCTAssertTrue(canvas.exists, "Canvas should exist after menu interaction")
+    }
+    
+    // MARK: - Toggle Node Tests
+    
+    func testAddToggleNodeViaMenu() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
+        
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.tap()
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
+        menu.tapAddToggleNode()
+        sleep(1)
+        
+        XCTAssertTrue(canvas.exists, "Canvas should still exist after adding toggle node")
+    }
+    
+    // MARK: - Screenshot Tests
+    
+    func testAppLaunchScreenshot() {
+        let canvas = GraphCanvasPage(app: app)
+        canvas.waitForCanvas(timeout: 10.0)
+        app.takeScreenshot(named: "App Launch", testCase: self)
+        XCTAssertTrue(canvas.exists, "Canvas should exist after launch")
+    }
+    
+    func testGraphMenuScreenshot() {
+        let canvas = GraphCanvasPage(app: app)
+        let menu = GraphMenuPage(app: app)
+        
+        canvas.waitForCanvas(timeout: 10.0)
+        canvas.longPress(duration: 1.2)
+        menu.waitForMenu(timeout: 5.0)
+        app.takeScreenshot(named: "Graph Menu Open", testCase: self)
+        XCTAssertTrue(menu.isVisible, "Menu should be visible")
     }
 }

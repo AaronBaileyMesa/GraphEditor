@@ -63,6 +63,7 @@ import os  // Added for logging
     private var resumeObserver: NSObjectProtocol?
     
     private var resumeTimer: Timer?
+    private var hasInitiallyLaunched = false  // Track if app has completed initial launch
     
     @MainActor
     public var effectiveCentroid: CGPoint {
@@ -141,7 +142,14 @@ import os  // Added for logging
                 NotificationCenter.default.post(name: .graphSimulationPause, object: nil)  // Trigger existing pause logic
             }
             
-            activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+            activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                // FIXED: Don't auto-resume on initial launch - only when returning from background
+                guard let self = self, self.hasInitiallyLaunched else { 
+                    Task { @MainActor in
+                        self?.hasInitiallyLaunched = true
+                    }
+                    return 
+                }
                 NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
             }
             
@@ -174,9 +182,7 @@ import os  // Added for logging
         let minZoom = max(calculatedMin, 0.5)
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
         
-#if DEBUG
-        GraphViewModel.logger.debug("Calculated zoom ranges: min=\(minZoom), max=\(maxZoom), based on bounds x=\(graphBounds.origin.x), y=\(graphBounds.origin.y), width=\(graphBounds.width), height=\(graphBounds.height)")
-#endif
+        // DEBUG log removed: Too noisy, was firing at 30fps causing log spam
         
         return (minZoom, maxZoom)
     }

@@ -24,17 +24,20 @@ struct DebugHierarchyModifier: ViewModifier {
     init(prefix: String, maxDepth: Int) {
             self.prefix = prefix
             self.maxDepth = maxDepth
-            print("Debug modifier initialized")  // Simplified for clarity
-            Self.logger.debug("DebugHierarchyModifier initialized with prefix: \(prefix)")
+            // DISABLED: This was causing massive performance issues, reinitializing on every view update
+            // print("Debug modifier initialized")  // Simplified for clarity
+            // Self.logger.debug("DebugHierarchyModifier initialized with prefix: \(prefix)")
         }
         
         func body(content: Content) -> some View {
-            print("Entering modifier body – starting hierarchy collection")  // NEW: Confirm entry
-            Self.logger.debug("Debug modifier body applied")
-            var hierarchyLines: [String] = []
-            logHierarchy(of: content, prefix: prefix, depth: 0, lines: &hierarchyLines)
-            exportToFile(lines: hierarchyLines)
-            print("Exiting modifier body – export attempted")  // NEW: Confirm completion
+            // DISABLED: This was causing massive performance issues and view recomputation spam
+            // Enable only when actively debugging view hierarchy issues
+            // print("Entering modifier body – starting hierarchy collection")  // NEW: Confirm entry
+            // Self.logger.debug("Debug modifier body applied")
+            // var hierarchyLines: [String] = []
+            // logHierarchy(of: content, prefix: prefix, depth: 0, lines: &hierarchyLines)
+            // exportToFile(lines: hierarchyLines)
+            // print("Exiting modifier body – export attempted")  // NEW: Confirm completion
             return content
         }
     
