@@ -37,7 +37,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var longPressTimer: Timer?
     @State private var pressProgress: Double = 0.0
     
-    private let dragStartThreshold: CGFloat = 8.0  // Increased from 5.0 for better tap detection
+    private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
     // Rationale: Central gesture coordinator handling tap/drag/pan disambiguation with complex state machine
