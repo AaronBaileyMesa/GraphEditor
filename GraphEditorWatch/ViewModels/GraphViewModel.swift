@@ -132,7 +132,6 @@ import os  // Added for logging
             model.objectWillChange
                 .receive(on: RunLoop.main)  // Use RunLoop.main for immediate execution in the current run loop
                 .sink { [weak self] _ in
-                    print("Model change forwarded to ViewModel")  // DEBUG: Confirm this prints when ephemerals change
                     self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
                     self?.objectWillChange.send()
                 }

@@ -253,9 +253,7 @@ struct ControlNodesOverlayWrapper: View {
     let viewSize: CGSize
     
     var body: some View {
-        print("ControlNodesOverlayWrapper rendering: \(viewModel.model.ephemeralControlNodes.count) nodes, redrawTrigger=\(viewModel.redrawTrigger)")
-        
-        return ControlNodesOverlay(
+        ControlNodesOverlay(
             controlNodes: viewModel.model.ephemeralControlNodes,
             controlEdges: viewModel.model.ephemeralControlEdges,
             visibleNodes: viewModel.model.visibleNodes,
@@ -280,9 +278,7 @@ struct ControlNodesOverlay: View {
     let redrawTrigger: Int
     
     var body: some View {
-        print("ControlNodesOverlay rendering: \(controlNodes.count) nodes, redrawTrigger=\(redrawTrigger)")
-        
-        return ZStack {
+        ZStack {
             // Draw control edges first (behind the control nodes)
             ForEach(controlEdges, id: \.id) { edge in
                 if let fromNode = visibleNodes.first(where: { $0.id == edge.from }),

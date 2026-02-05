@@ -98,13 +98,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>83</string>
+					<string>69</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>83</string>
+					<string>69</string>
 					<key>Timestamp</key>
-					<string>791432734.78611</string>
+					<string>792009326.8334219</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -122,13 +122,13 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>                    print("[ContentLoaderView] GraphModel created")
-
+				<string>                    if isUITest &amp;&amp; skipLoading {
+                        await MainActor.run {
 </string>
 				<key>trailing</key>
-				<string>                    if isUITest &amp;&amp; skipLoading {
-                        print("[ContentLoaderView] Taking fast path (skip loading)")
-                        await MainActor.run {
+				<string>                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } else {
 </string>
 			</dict>
 			<key>title</key>

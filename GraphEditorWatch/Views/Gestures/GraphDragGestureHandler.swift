@@ -40,8 +40,6 @@ struct GraphDragGestureHandler: ViewModifier {
     // Rationale: Cohesive drag state machine handling node movement, edge creation, and panning
     // swiftlint:disable:next function_body_length
     private func handleDragChanged(_ value: DragGesture.Value) {
-        print("Drag changed at time: \(Date().timeIntervalSinceReferenceDate), location: \(value.location), translation: \(value.translation), magnitude: \(hypot(value.translation.width, value.translation.height))")  // NEW: Log for debugging sim issues
-        
         currentDragLocation = value.location
         
         let translation = value.translation
@@ -87,10 +85,7 @@ struct GraphDragGestureHandler: ViewModifier {
                 }
                 
                 if let ownerID = selectedNodeID {
-                    print("🟠 Calling updateControlNodes for \(ownerID.uuidString.prefix(8)), newPos=\(newModelPos)")
                     updateControlNodes(for: ownerID, to: newModelPos)
-                } else {
-                    print("🟠 selectedNodeID is nil, not updating controls")
                 }
             
             if isAddingEdge, let start = dragStartNode {
@@ -169,9 +164,6 @@ struct GraphDragGestureHandler: ViewModifier {
     }
     
     private func updateControlNodes(for ownerID: NodeID, to newOwnerPos: CGPoint) {
-        print("🔴 updateControlNodes called: ownerID=\(ownerID.uuidString.prefix(8)), newOwnerPos=\(newOwnerPos)")
-        print("🔴 Total control nodes: \(viewModel.model.ephemeralControlNodes.count)")
-        
         for iteration in viewModel.model.ephemeralControlNodes.indices {
             let control = viewModel.model.ephemeralControlNodes[iteration]
             guard control.ownerID == ownerID else { continue }
@@ -186,8 +178,6 @@ struct GraphDragGestureHandler: ViewModifier {
             )
             
             let newPos = newOwnerPos + offset
-            print("🔴 Control[\(iteration)] kind=\(control.kind), angle=\(angleInDegrees)°, offset=\(offset), newPos=\(newPos)")
-            
             viewModel.model.ephemeralControlNodes[iteration].position = newPos
         }
     }

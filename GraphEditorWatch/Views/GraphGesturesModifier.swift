@@ -99,7 +99,7 @@ struct GraphGesturesModifier: ViewModifier {
                             // Use the stored relativeAngle from the control node (in degrees)
                             let angleInDegrees = viewModel.model.ephemeralControlNodes[controlIndex].relativeAngle
                             let angleInRadians = angleInDegrees * .pi / 180
-                            let distance: CGFloat = 50.0  // TUNABLE: Fixed distance from owner (match your addControlsForNode)
+                            let distance: CGFloat = 40.0  // Match spacing from GraphModel+ControlNodes
                             let offset = CGPoint(x: cos(angleInRadians) * distance, y: sin(angleInRadians) * distance)
                             viewModel.model.ephemeralControlNodes[controlIndex].position = newOwnerPos + offset
                         }

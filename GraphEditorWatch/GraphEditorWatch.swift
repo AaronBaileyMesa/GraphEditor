@@ -25,9 +25,6 @@ struct GraphEditorWatch: App {
                 let viewModel = GraphViewModel(model: model)
                 ContentView(viewModel: viewModel)
                     .debugViewHierarchy()
-                    .onAppear {
-                        print("[GraphEditorWatch] UI Test mode - ContentView appeared directly")
-                    }
             } else {
                 ContentLoaderView(initialViewModel: nil)
             }
@@ -52,40 +49,25 @@ struct ContentLoaderView: View {
                 viewModel: viewModel
             )
             .debugViewHierarchy()
-            .onAppear {
-                print("[ContentLoaderView] ContentView appeared!")
-            }
         } else {
             Text("Loading...")
                 .accessibilityIdentifier("LoadingView")
                 .onAppear {
-                    print("[ContentLoaderView] onAppear called!")
                     Task {
-                    await MainActor.run {
-                        print("[ContentLoaderView] Task started on MainActor")
-                    }
-                    
                     let isUITest = CommandLine.arguments.contains("--uitest-mock-storage")
                     let skipLoading = CommandLine.arguments.contains("--uitest-skip-loading")
-                    print("[ContentLoaderView] isUITest=\(isUITest), skipLoading=\(skipLoading)")
 
                     let screenBounds = WKInterfaceDevice.current().screenBounds.size
-                    print("[ContentLoaderView] Screen bounds: \(screenBounds)")
                     let physicsEngine = PhysicsEngine(simulationBounds: screenBounds)
-                    print("[ContentLoaderView] PhysicsEngine created")
 
                     // MODIFIED: Conditional storage
                     let storage: any GraphStorage = isUITest ? MockGraphStorage() : PersistenceManager()
-                    print("[ContentLoaderView] Storage created: \(type(of: storage))")
 
                     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-                    print("[ContentLoaderView] GraphModel created")
 
                     if isUITest && skipLoading {
-                        print("[ContentLoaderView] Taking fast path (skip loading)")
                         await MainActor.run {
                             self.viewModel = GraphViewModel(model: model)
-                            print("[ContentLoaderView] ViewModel set on MainActor: \(self.viewModel != nil)")
                         }
                     } else {
                         // Existing if-else for load/skip – unchanged, now nested
@@ -95,7 +77,9 @@ struct ContentLoaderView: View {
                             do {
                                 try await model.loadGraph()
                             } catch {
+                                #if DEBUG
                                 print("Failed to load graph: \(error.localizedDescription)")
+                                #endif
                                 await model.initializeDefaultGraph()
                             }
                         }
@@ -111,22 +95,14 @@ struct ContentLoaderView: View {
                             tempViewModel.zoomScale = viewState.zoomScale
                             tempViewModel.selectedNodeID = viewState.selectedNodeID
                             tempViewModel.selectedEdgeID = viewState.selectedEdgeID
-                            print("Loaded view state for '\(model.currentGraphName)'")
                         }
                         await MainActor.run {
                             self.viewModel = tempViewModel
-                            print("[ContentLoaderView] ViewModel set (slow path) on MainActor: \(self.viewModel != nil)")
                         }
                         // FIXED: Start simulation paused to allow gesture recognition to work
                         // The constant 30fps recomputation was blocking tap detection
                         // User can enable simulation from the menu if needed
-                        if !CommandLine.arguments.contains("--uitest-no-simulation") {
-                            // Simulation will auto-start when user interacts, but don't start it immediately
-                            // await tempViewModel.model.startSimulation()
-                            print("[ContentLoaderView] Simulation paused on launch to enable gesture recognition")
-                        }
                     }
-                    print("[ContentLoaderView] Task completed")
                     }
                 }
         }
