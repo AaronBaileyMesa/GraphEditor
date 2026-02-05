@@ -37,6 +37,8 @@ struct GraphDragGestureHandler: ViewModifier {
             )
     }
     
+    // Rationale: Cohesive drag state machine handling node movement, edge creation, and panning
+    // swiftlint:disable:next function_body_length
     private func handleDragChanged(_ value: DragGesture.Value) {
         print("Drag changed at time: \(Date().timeIntervalSinceReferenceDate), location: \(value.location), translation: \(value.translation), magnitude: \(hypot(value.translation.width, value.translation.height))")  // NEW: Log for debugging sim issues
         

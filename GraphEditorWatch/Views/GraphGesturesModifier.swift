@@ -40,6 +40,8 @@ struct GraphGesturesModifier: ViewModifier {
     private let dragStartThreshold: CGFloat = 8.0  // Increased from 5.0 for better tap detection
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
+    // Rationale: Central gesture coordinator handling tap/drag/pan disambiguation with complex state machine
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     func body(content: Content) -> some View {
         // Using minimumDistance: 1 instead of 0 to allow tap gestures to work better
         let dragGesture = DragGesture(minimumDistance: 1, coordinateSpace: .local)
@@ -93,15 +95,13 @@ struct GraphGesturesModifier: ViewModifier {
                         viewModel.model.nodes[nodeIndex].position = newOwnerPos
                         
                         // NEW: Update attached control nodes' positions in real-time
-                        for controlIndex in viewModel.model.ephemeralControlNodes.indices {
-                            if viewModel.model.ephemeralControlNodes[controlIndex].ownerID == dragged.id {
-                                // Use the stored relativeAngle from the control node (in degrees)
-                                let angleInDegrees = viewModel.model.ephemeralControlNodes[controlIndex].relativeAngle
-                                let angleInRadians = angleInDegrees * .pi / 180
-                                let distance: CGFloat = 50.0  // TUNABLE: Fixed distance from owner (match your addControlsForNode)
-                                let offset = CGPoint(x: cos(angleInRadians) * distance, y: sin(angleInRadians) * distance)
-                                viewModel.model.ephemeralControlNodes[controlIndex].position = newOwnerPos + offset
-                            }
+                        for controlIndex in viewModel.model.ephemeralControlNodes.indices where viewModel.model.ephemeralControlNodes[controlIndex].ownerID == dragged.id {
+                            // Use the stored relativeAngle from the control node (in degrees)
+                            let angleInDegrees = viewModel.model.ephemeralControlNodes[controlIndex].relativeAngle
+                            let angleInRadians = angleInDegrees * .pi / 180
+                            let distance: CGFloat = 50.0  // TUNABLE: Fixed distance from owner (match your addControlsForNode)
+                            let offset = CGPoint(x: cos(angleInRadians) * distance, y: sin(angleInRadians) * distance)
+                            viewModel.model.ephemeralControlNodes[controlIndex].position = newOwnerPos + offset
                         }
                         viewModel.model.objectWillChange.send()  // Ensure redraw for non-ToggleNodes
                     }
@@ -137,7 +137,7 @@ struct GraphGesturesModifier: ViewModifier {
             }
         
         // TEMPORARILY DISABLED: Long press is interfering with tap detection
-        // TODO: Re-enable once tap/drag gestures are working reliably
+        // NOTE: Re-enable once tap/drag gestures are working reliably
         /*
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 25.0)
             .updating($isLongPressing) { currentState, gestureState, _ in
@@ -149,16 +149,7 @@ struct GraphGesturesModifier: ViewModifier {
                 }
             }
         */
-        
-        // FIXED: Add explicit tap gesture with higher priority than drag
-        let tapGesture = TapGesture()
-            .onEnded { _ in
-                // Get the tap location from a state variable we'll set in drag onChanged
-                // Since TapGesture doesn't provide location, we need a workaround
-                Self.logger.debug("TapGesture detected - handling tap")
-                // We'll need to track the last touch location
-            }
-        
+
         content
             .highPriorityGesture(
                 // Use SpatialTapGesture on watchOS to get tap location
@@ -217,9 +208,11 @@ struct GraphGesturesModifier: ViewModifier {
         // Treat as tap if movement was small AND we didn't start dragging a node
         if !moved && draggedNode == nil {
             Self.logger.debug("Treating as tap at location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1))")
-            _ = handleTap(at: value.location,
-                          visibleNodes: viewModel.model.visibleNodes,
-                          visibleEdges: viewModel.model.visibleEdges)
+            _ = handleTap(
+                at: value.location,
+                visibleNodes: viewModel.model.visibleNodes,
+                visibleEdges: viewModel.model.visibleEdges
+            )
             resetGestureState()
             return
         }
@@ -273,7 +266,7 @@ struct GraphGesturesModifier: ViewModifier {
             selectedNodeID = newID
             selectedEdgeID = nil
             if let id = newID {
-                Task{
+                Task {
                     await viewModel.generateControls(for: id)  // Now defined – generates immediately
                 }
             } else {

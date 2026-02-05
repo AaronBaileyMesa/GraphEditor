@@ -61,6 +61,8 @@ struct AccessibleCanvasRenderer {
     }
     
     // MARK: - Single Node
+    // Rationale: Cohesive rendering logic for node appearance including selection state, colors, and labels
+    // swiftlint:disable:next function_body_length
     static func drawSingleNode(
         renderContext: RenderContext,
         graphicsContext: GraphicsContext,

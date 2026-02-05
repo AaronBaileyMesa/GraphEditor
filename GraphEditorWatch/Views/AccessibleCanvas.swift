@@ -28,7 +28,7 @@ struct AnimatedCanvasContent: View {
     
     var body: some View {
         Canvas { graphicsContext, _ in
-            var gc = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
+            var context = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
             let allVisibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
             let allVisibleEdges = viewModel.model.visibleEdges
             
@@ -62,7 +62,7 @@ struct AnimatedCanvasContent: View {
             // MARK: - Edges (non-selected)
             AccessibleCanvasRenderer.drawEdges(
                 renderContext: renderContext,
-                graphicsContext: gc,  // Change to gc
+                graphicsContext: context,
                 visibleEdges: nonSelectedEdges,
                 visibleNodes: visibleNodes,
                 saturation: saturation
@@ -71,7 +71,7 @@ struct AnimatedCanvasContent: View {
             // MARK: - Arrows (non-selected)
             AccessibleCanvasRenderer.drawArrows(
                 renderContext: renderContext,
-                graphicsContext: gc,  // Change to gc
+                graphicsContext: context,
                 visibleEdges: nonSelectedEdges,
                 visibleNodes: visibleNodes,
                 saturation: saturation
@@ -81,7 +81,7 @@ struct AnimatedCanvasContent: View {
             for node in nonSelectedNodes {
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
-                    graphicsContext: gc,
+                    graphicsContext: context,
                     node: node,  // Draw using actual model position
                     saturation: saturation,
                     isSelected: false
@@ -93,7 +93,7 @@ struct AnimatedCanvasContent: View {
                 AccessibleCanvasRenderer.drawSingleEdgeLine(
                     config: EdgeDrawingConfig(
                         renderContext: renderContext,
-                        graphicsContext: gc,
+                        graphicsContext: context,
                         saturation: saturation,
                         isSelected: true,
                         logger: AccessibleCanvas.logger
@@ -104,7 +104,7 @@ struct AnimatedCanvasContent: View {
                 AccessibleCanvasRenderer.drawSingleArrow(
                     config: EdgeDrawingConfig(
                         renderContext: renderContext,
-                        graphicsContext: gc,
+                        graphicsContext: context,
                         saturation: saturation,
                         isSelected: true,
                         logger: AccessibleCanvas.logger
@@ -118,7 +118,7 @@ struct AnimatedCanvasContent: View {
             if let node = selectedNode {
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
-                    graphicsContext: gc,
+                    graphicsContext: context,
                     node: node,
                     saturation: saturation,
                     isSelected: true
@@ -129,13 +129,13 @@ struct AnimatedCanvasContent: View {
             if showOverlays {
                 AccessibleCanvasRenderer.drawBoundingBox(
                     nodes: visibleNodes,
-                    in: &gc,  // Change to &gc for inout
+                    in: &context,
                     renderContext: renderContext
                 )
             }
             
             // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
-            drawDragPreview(in: &gc, renderContext: renderContext)
+            drawDragPreview(in: &context, renderContext: renderContext)
         }
         .id(redrawTrigger)  // FIXED: Force Canvas to recreate when redrawTrigger changes
     }
@@ -253,7 +253,7 @@ struct ControlNodesOverlayWrapper: View {
     let viewSize: CGSize
     
     var body: some View {
-        let _ = print("ControlNodesOverlayWrapper rendering: \(viewModel.model.ephemeralControlNodes.count) nodes, redrawTrigger=\(viewModel.redrawTrigger)")
+        print("ControlNodesOverlayWrapper rendering: \(viewModel.model.ephemeralControlNodes.count) nodes, redrawTrigger=\(viewModel.redrawTrigger)")
         
         return ControlNodesOverlay(
             controlNodes: viewModel.model.ephemeralControlNodes,
@@ -280,7 +280,7 @@ struct ControlNodesOverlay: View {
     let redrawTrigger: Int
     
     var body: some View {
-        let _ = print("ControlNodesOverlay rendering: \(controlNodes.count) nodes, redrawTrigger=\(redrawTrigger)")
+        print("ControlNodesOverlay rendering: \(controlNodes.count) nodes, redrawTrigger=\(redrawTrigger)")
         
         return ZStack {
             // Draw control edges first (behind the control nodes)

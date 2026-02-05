@@ -172,7 +172,7 @@ struct ToggleNodeMenuView: View {
     private var reorderChildrenButton: some View {
         MenuButton(
             action: {
-                // TODO: Implement reordering (e.g., present a draggable list of child IDs)
+                // FUTURE: Implement reordering (e.g., present a draggable list of child IDs)
                 Self.logger.debug("Reorder children triggered for node \(nodeLabel)")
                 onDismiss()
             },

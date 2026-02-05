@@ -19,8 +19,8 @@ struct GestureTests {
         let model = await MainActor.run { GraphModel(storage: storage, physicsEngine: physicsEngine) }
         await MainActor.run { model.nodes = [] }
         await MainActor.run { model.edges = [] }
-        await model.addNode(at: CGPoint(x: 0, y: 0))
-        await model.addNode(at: CGPoint(x: 50, y: 50))
+        _ = await model.addNode(at: CGPoint(x: 0, y: 0))
+        _ = await model.addNode(at: CGPoint(x: 50, y: 50))
         await model.stopSimulation()  // Ensure no ongoing simulation
         return model
     }
@@ -32,8 +32,8 @@ struct GestureTests {
         // Ensure at least two nodes exist before indexing
         let currentCount = await model.nodes.count
         if currentCount < 2 {
-            await model.addNode(at: .zero)
-            await model.addNode(at: CGPoint(x: 100, y: 100))
+            _ = await model.addNode(at: .zero)
+            _ = await model.addNode(at: CGPoint(x: 100, y: 100))
             await model.startSimulation()
             await model.stopSimulation()
         }
@@ -115,8 +115,8 @@ struct GestureTests {
         // Ensure at least two nodes exist before indexing
         let currentCount = await model.nodes.count
         if currentCount < 2 {
-            await model.addNode(at: .zero)
-            await model.addNode(at: CGPoint(x: 100, y: 100))
+            _ = await model.addNode(at: .zero)
+            _ = await model.addNode(at: CGPoint(x: 100, y: 100))
             await model.startSimulation()
             await model.stopSimulation()
         }

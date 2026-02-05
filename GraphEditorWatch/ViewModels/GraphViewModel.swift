@@ -1,3 +1,7 @@
+// swiftlint:disable file_length
+// Rationale: This ViewModel serves as the central coordinator for the watch app's graph state,
+// UI bindings, and simulation lifecycle. Splitting it would fragment tightly-coupled state management.
+
 //
 //  GraphViewModel.swift
 //  GraphEditorWatch
@@ -10,6 +14,7 @@ import GraphEditorShared
 import WatchKit  // For WKApplication
 import os  // Added for logging
 
+// swiftlint:disable:next type_body_length
 @MainActor public class GraphViewModel: ObservableObject {
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
@@ -31,7 +36,7 @@ import os  // Added for logging
     @Published public var draggedNodeID: UUID?
     @Published public var redrawTrigger: Int = 0  // Increments to force view redraws
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
-    @Published public var lastFrameTime: Date? = nil  // For calculating elapsed time per frame
+    @Published public var lastFrameTime: Date?  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
     @Published var isEditMode: Bool = false
 
@@ -151,13 +156,13 @@ import os  // Added for logging
             
             activeObserver = NotificationCenter.default.addObserver(forName: WKApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
                 // FIXED: Don't auto-resume on initial launch - only when returning from background
-                guard let self = self, self.hasInitiallyLaunched else { 
-                    Task { @MainActor in
+                Task { @MainActor in
+                    guard let self = self, self.hasInitiallyLaunched else {
                         self?.hasInitiallyLaunched = true
+                        return
                     }
-                    return 
+                    NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
                 }
-                NotificationCenter.default.post(name: .graphSimulationResume, object: nil)  // Trigger existing resume logic
             }
             
             // NEW: Sync isAnimating to model's simulation state (handles resumption after controls added)

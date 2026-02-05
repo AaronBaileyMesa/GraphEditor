@@ -93,7 +93,7 @@ struct GraphCanvasView: View {
             isContinuous: false,
             isHapticFeedbackEnabled: false
         )
-        .onChange(of: crownPosition) { oldValue, newValue in
+        .onChange(of: crownPosition) { _, newValue in
             guard !isUpdatingZoom else { return }
             isUpdatingZoom = true
             defer { isUpdatingZoom = false }

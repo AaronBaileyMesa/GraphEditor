@@ -21,15 +21,7 @@ struct DebugHierarchyModifier: ViewModifier {
     let maxDepth: Int
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "viewhierarchy")
     
-    init(prefix: String, maxDepth: Int) {
-            self.prefix = prefix
-            self.maxDepth = maxDepth
-            // DISABLED: This was causing massive performance issues, reinitializing on every view update
-            // print("Debug modifier initialized")  // Simplified for clarity
-            // Self.logger.debug("DebugHierarchyModifier initialized with prefix: \(prefix)")
-        }
-        
-        func body(content: Content) -> some View {
+    func body(content: Content) -> some View {
             // DISABLED: This was causing massive performance issues and view recomputation spam
             // Enable only when actively debugging view hierarchy issues
             // print("Entering modifier body – starting hierarchy collection")  // NEW: Confirm entry
@@ -42,6 +34,8 @@ struct DebugHierarchyModifier: ViewModifier {
         }
     
     // UPDATED: Add `lines` inout param for collection; append instead of print/log
+    // Rationale: Debug utility with necessary branching for comprehensive view hierarchy traversal
+    // swiftlint:disable:next cyclomatic_complexity
     private func logHierarchy(of view: any View, prefix: String, depth: Int, lines: inout [String]) {
         if depth > maxDepth {
             print("WARNING: Max depth reached: \(depth)")  // Keep
