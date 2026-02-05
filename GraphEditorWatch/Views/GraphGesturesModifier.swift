@@ -33,9 +33,9 @@ struct GraphGesturesModifier: ViewModifier {
     @Binding var saturation: Double
     @Binding var currentDragLocation: CGPoint?  // NEW: Replaces @GestureState dragGestureLocation
     @Binding var dragStartNode: (any NodeProtocol)?  // Change from @State to @Binding (now shared)
-    @GestureState private var isLongPressing: Bool = false
-    @State private var longPressTimer: Timer?
+    @State private var longPressTask: Task<Void, Never>?
     @State private var pressProgress: Double = 0.0
+    @State private var longPressStartLocation: CGPoint?
     
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
@@ -43,13 +43,17 @@ struct GraphGesturesModifier: ViewModifier {
     // Rationale: Central gesture coordinator handling tap/drag/pan disambiguation with complex state machine
     // swiftlint:disable:next function_body_length cyclomatic_complexity
     func body(content: Content) -> some View {
-        // Using minimumDistance: 1 instead of 0 to allow tap gestures to work better
-        let dragGesture = DragGesture(minimumDistance: 1, coordinateSpace: .local)
+        // Using minimumDistance: 0 to detect touch immediately for long press desaturation
+        let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
                 // Log EVERY change to diagnose tap detection issues
                 let isFirstChange = currentDragLocation == nil
                 if isFirstChange {
                     Self.logger.debug("DragGesture FIRST onChanged: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) startLocation=\(value.startLocation.x, format: .fixed(precision: 1)),\(value.startLocation.y, format: .fixed(precision: 1)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
+                    
+                    // Start long press desaturation on first touch
+                    longPressStartLocation = value.startLocation
+                    handleLongPressStart()
                 }
                 currentDragLocation = value.location  // Track for edge preview
                 let translation = value.translation
@@ -63,6 +67,7 @@ struct GraphGesturesModifier: ViewModifier {
                 if draggedNode == nil && magnitude > dragStartThreshold {
                     // Cancel long press immediately when drag threshold is exceeded
                     handleLongPressCancel()
+                    longPressStartLocation = nil
                     
                     let screenPos = value.startLocation
                     let modelPos = CoordinateTransformer.screenToModel(screenPos, renderContext)
@@ -133,22 +138,27 @@ struct GraphGesturesModifier: ViewModifier {
             .onEnded { value in
                 let magnitude = hypot(value.translation.width, value.translation.height)
                 Self.logger.debug("DragGesture onEnded: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(value.translation.width, format: .fixed(precision: 1)),\(value.translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
+                
+                // Clean up long press state if it wasn't converted to a long press
+                if longPressStartLocation != nil {
+                    handleLongPressCancel()
+                    longPressStartLocation = nil
+                }
+                
                 handleDragEnded(value)
             }
         
-        // TEMPORARILY DISABLED: Long press is interfering with tap detection
-        // NOTE: Re-enable once tap/drag gestures are working reliably
-        /*
+        // Long press gesture for menu - completed when duration elapses
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 25.0)
-            .updating($isLongPressing) { currentState, gestureState, _ in
-                gestureState = currentState
-            }
             .onEnded { _ in
                 if draggedNode == nil {
                     handleLongPressEnded()
+                } else {
+                    handleLongPressCancel()
                 }
             }
-        */
+        
+
 
         content
             .highPriorityGesture(
@@ -162,8 +172,8 @@ struct GraphGesturesModifier: ViewModifier {
                                       visibleEdges: viewModel.model.visibleEdges)
                     }
             )
-            .gesture(dragGesture)  // Lower priority for drag
-            // .simultaneousGesture(longPressGesture)  // DISABLED temporarily
+            .gesture(dragGesture)  // Lower priority for drag (includes long press detection)
+            .simultaneousGesture(longPressGesture)  // Re-enabled: Long press for menu
 
     }
     
@@ -172,32 +182,63 @@ struct GraphGesturesModifier: ViewModifier {
         Self.logger.debug("Long press started: Beginning desaturation")
         pressProgress = 0.0
         saturation = 1.0  // Start at full saturation
-        longPressTimer?.invalidate()
-        longPressTimer = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { _ in
-            pressProgress += 0.02 / AppConstants.menuLongPressDuration  // Progress to 1.0 over duration
-            saturation = 1.0 - pressProgress  // Progressive desaturation
-            if pressProgress >= 1.0 {
-                longPressTimer?.invalidate()
-                longPressTimer = nil
+        longPressTask?.cancel()
+        longPressTask = Task { @MainActor in
+            let startTime = Date()
+            let animationDuration = AppConstants.menuLongPressDuration * 0.75  // Animate for 75% of duration (1.0s)
+            let pauseDuration = AppConstants.menuLongPressDuration * 0.25  // Pause for 25% (0.33s)
+            var lastLoggedProgress = 0.0
+            
+            // Phase 1: Animate desaturation (0.0s to 1.0s)
+            while !Task.isCancelled {
+                let elapsed = Date().timeIntervalSince(startTime)
+                
+                if elapsed >= animationDuration {
+                    // Animation complete, stay at 0.0 saturation
+                    saturation = 0.0
+                    pressProgress = 1.0
+                    Self.logger.debug("Desaturation animation complete: saturation=0.00, pausing...")
+                    break
+                }
+                
+                let progress = elapsed / animationDuration
+                pressProgress = progress
+                saturation = 1.0 - progress
+                
+                // Log every 25% progress
+                if progress - lastLoggedProgress >= 0.25 {
+                    Self.logger.debug("Desaturation progress: \(progress, format: .fixed(precision: 2)) saturation: \(saturation, format: .fixed(precision: 2))")
+                    lastLoggedProgress = progress
+                }
+                
+                try? await Task.sleep(nanoseconds: 20_000_000)  // 20ms
             }
+            
+            // Phase 2: Pause at fully desaturated (1.0s to 1.33s)
+            // The LongPressGesture will fire during this pause and show the menu
         }
     }
     
     private func handleLongPressCancel() {
         Self.logger.debug("Long press cancelled: Resetting saturation")
-        longPressTimer?.invalidate()
-        longPressTimer = nil
+        longPressTask?.cancel()
+        longPressTask = nil
         pressProgress = 0.0
         saturation = 1.0  // Reset to full saturation
     }
     
     private func handleLongPressEnded() {
         Self.logger.debug("Long press ended: Showing menu")
-        longPressTimer?.invalidate()
-        longPressTimer = nil
+        longPressTask?.cancel()
+        longPressTask = nil
         showMenu = true  // Trigger menu
-        pressProgress = 0.0
-        saturation = 1.0  // Reset saturation
+        
+        // Keep saturation at final desaturated state briefly before resetting
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)  // 100ms delay
+            pressProgress = 0.0
+            saturation = 1.0  // Reset saturation
+        }
     }
     
     private func handleDragEnded(_ value: DragGesture.Value) {

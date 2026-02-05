@@ -91,7 +91,6 @@ import os
     
     @Published public var focusState: AppFocusState = .graph
     
-
     public init(model: GraphModel) {
             self.model = model
             self.currentGraphName = model.currentGraphName  // Sync on init
@@ -147,12 +146,6 @@ import os
             )
         }
     
-
-    
-
-
-
-    
     /// Centers and fits the graph to the view — intended for initial load or explicit user action only
     @MainActor
     // MARK: - Viewport Fitting (Correct & Clean)
@@ -163,11 +156,6 @@ import os
         if let active = activeObserver { NotificationCenter.default.removeObserver(active) }
     }
 }
-
-
-
-
-
 
 extension ControlKind {
     // Added: small logger specific to ControlKind so the extension can log without referencing GraphViewModel

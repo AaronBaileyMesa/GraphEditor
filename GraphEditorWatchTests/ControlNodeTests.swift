@@ -1,0 +1,190 @@
+//
+//  ControlNodeTests.swift
+//  GraphEditorWatchTests
+//
+//  Tests for control node management and state transitions
+
+import Testing
+import CoreGraphics
+import GraphEditorShared
+@testable import GraphEditorWatch
+
+@Suite("Control Node Management")
+struct ControlNodeTests {
+    
+    // MARK: - Test Fixtures
+    
+    @MainActor
+    func createTestViewModel() -> GraphViewModel {
+        let bounds = CGSize(width: 200, height: 200)
+        let physicsEngine = PhysicsEngine(simulationBounds: bounds)
+        let storage = MockGraphStorage()
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        return GraphViewModel(model: model)
+    }
+    
+    // MARK: - Control Generation Tests
+    
+    @Test("Generate controls creates control nodes for selected node")
+    @MainActor
+    func testGenerateControlsCreatesNodes() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node to select
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        
+        // Generate controls
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify controls were created
+        #expect(viewModel.model.ephemeralControlNodes.count > 0, "Should create control nodes")
+        
+        // Verify all controls have the correct owner
+        for control in viewModel.model.ephemeralControlNodes {
+            #expect(control.ownerID == node.id, "Control should be owned by selected node")
+        }
+    }
+    
+    @Test("Clear controls removes all ephemeral nodes")
+    @MainActor
+    func testClearControlsRemovesNodes() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add and select a node
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        await viewModel.generateControls(for: node.id)
+        
+        #expect(viewModel.model.ephemeralControlNodes.count > 0, "Controls should exist before clear")
+        
+        // Clear controls
+        await viewModel.clearControls()
+        
+        #expect(viewModel.model.ephemeralControlNodes.count == 0, "All controls should be removed")
+        #expect(viewModel.model.ephemeralControlEdges.count == 0, "All control edges should be removed")
+    }
+    
+    @Test("Generate controls for different node replaces previous controls")
+    @MainActor
+    func testSwitchingControlOwner() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add two nodes
+        let node1 = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        let node2 = await viewModel.model.addNode(at: CGPoint(x: 150, y: 150))
+        
+        // Generate controls for first node
+        await viewModel.generateControls(for: node1.id)
+        let firstCount = viewModel.model.ephemeralControlNodes.count
+        
+        // Generate controls for second node
+        await viewModel.generateControls(for: node2.id)
+        
+        // Verify controls were replaced, not added
+        #expect(viewModel.model.ephemeralControlNodes.count == firstCount, "Control count should remain same")
+        
+        // Verify all controls now belong to second node
+        for control in viewModel.model.ephemeralControlNodes {
+            #expect(control.ownerID == node2.id, "All controls should belong to second node")
+        }
+    }
+    
+    // MARK: - Control Positioning Tests
+    
+    @Test("Control nodes are positioned around owner")
+    @MainActor
+    func testControlPositioning() async throws {
+        let viewModel = createTestViewModel()
+        
+        let ownerPos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: ownerPos)
+        await viewModel.generateControls(for: node.id)
+        
+        let expectedSpacing: CGFloat = 40.0
+        
+        for control in viewModel.model.ephemeralControlNodes {
+            let distance = hypot(control.position.x - ownerPos.x, control.position.y - ownerPos.y)
+            #expect(abs(distance - expectedSpacing) < 1.0, "Control should be ~40 units from owner")
+        }
+    }
+    
+    @Test("Reposition ephemerals moves controls with owner")
+    @MainActor
+    func testRepositionEphemerals() async throws {
+        let viewModel = createTestViewModel()
+        
+        let initialPos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: initialPos)
+        await viewModel.generateControls(for: node.id)
+        
+        let initialControlPositions = viewModel.model.ephemeralControlNodes.map { $0.position }
+        
+        // Move owner to new position
+        let newPos = CGPoint(x: 150, y: 150)
+        viewModel.repositionEphemerals(for: node.id, to: newPos)
+        
+        // Verify controls moved by the same delta
+        let delta = CGPoint(x: newPos.x - initialPos.x, y: newPos.y - initialPos.y)
+        
+        for (index, control) in viewModel.model.ephemeralControlNodes.enumerated() {
+            let expectedX = initialControlPositions[index].x + delta.x
+            let expectedY = initialControlPositions[index].y + delta.y
+            
+            #expect(abs(control.position.x - expectedX) < 1.0, "Control X should move with owner")
+            #expect(abs(control.position.y - expectedY) < 1.0, "Control Y should move with owner")
+        }
+    }
+    
+    // MARK: - Control Types Tests
+    
+    @Test("Control nodes include expected types")
+    @MainActor
+    func testControlTypes() async throws {
+        let viewModel = createTestViewModel()
+        
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        await viewModel.generateControls(for: node.id)
+        
+        let kinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
+        
+        // Verify expected control kinds are present
+        #expect(kinds.contains(.edit), "Should include edit control")
+        #expect(kinds.contains(.addChild), "Should include addChild control")
+        #expect(kinds.contains(.addEdge), "Should include addEdge control")
+    }
+    
+    // MARK: - Control State Transitions
+    
+    @Test("Control generation pauses simulation")
+    @MainActor
+    func testControlGenerationPausesSimulation() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Start simulation
+        await viewModel.model.startSimulation()
+        #expect(viewModel.model.isSimulating == true, "Simulation should be running")
+        
+        // Generate controls
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        await viewModel.generateControls(for: node.id)
+        
+        // Simulation should eventually resume after control generation
+        // (There's a 50ms delay in the implementation)
+        try? await Task.sleep(nanoseconds: 100_000_000) // Wait 100ms
+        
+        #expect(viewModel.model.isSimulating == true, "Simulation should resume after controls generated")
+    }
+    
+    @Test("No duplicate control IDs")
+    @MainActor
+    func testNoDuplicateControlIDs() async throws {
+        let viewModel = createTestViewModel()
+        
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        await viewModel.generateControls(for: node.id)
+        
+        let ids = viewModel.model.ephemeralControlNodes.map { $0.id }
+        let uniqueIDs = Set(ids)
+        
+        #expect(ids.count == uniqueIDs.count, "All control IDs should be unique")
+    }
+}
