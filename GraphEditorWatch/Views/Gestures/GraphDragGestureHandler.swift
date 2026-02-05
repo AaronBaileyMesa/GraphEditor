@@ -85,7 +85,10 @@ struct GraphDragGestureHandler: ViewModifier {
                 }
                 
                 if let ownerID = selectedNodeID {
+                    print("🟠 Calling updateControlNodes for \(ownerID.uuidString.prefix(8)), newPos=\(newModelPos)")
                     updateControlNodes(for: ownerID, to: newModelPos)
+                } else {
+                    print("🟠 selectedNodeID is nil, not updating controls")
                 }
             
             if isAddingEdge, let start = dragStartNode {
@@ -164,22 +167,26 @@ struct GraphDragGestureHandler: ViewModifier {
     }
     
     private func updateControlNodes(for ownerID: NodeID, to newOwnerPos: CGPoint) {
+        print("🔴 updateControlNodes called: ownerID=\(ownerID.uuidString.prefix(8)), newOwnerPos=\(newOwnerPos)")
+        print("🔴 Total control nodes: \(viewModel.model.ephemeralControlNodes.count)")
+        
         for iteration in viewModel.model.ephemeralControlNodes.indices {
-            guard viewModel.model.ephemeralControlNodes[iteration].ownerID == ownerID else { continue }
+            let control = viewModel.model.ephemeralControlNodes[iteration]
+            guard control.ownerID == ownerID else { continue }
             
-            let priority = viewModel.model.ephemeralControlNodes[iteration].priority
-            let freeSlots = viewModel.model.getFreeSlots(for: ownerID)
-            guard priority < freeSlots.count else { continue }
-            
-            let angle = freeSlots[priority]
-            let offsetDistance: CGFloat = Constants.App.nodeModelRadius * 3  // Standard spacing: 3× node radius
+            let angleInDegrees = control.relativeAngle
+            let angleInRadians = angleInDegrees * .pi / 180
+            let offsetDistance: CGFloat = 40.0  // Match spacing from control node creation
             
             let offset = CGPoint(
-                x: cos(angle) * offsetDistance,
-                y: sin(angle) * offsetDistance
+                x: cos(angleInRadians) * offsetDistance,
+                y: sin(angleInRadians) * offsetDistance
             )
             
-            viewModel.model.ephemeralControlNodes[iteration].position = newOwnerPos + offset
+            let newPos = newOwnerPos + offset
+            print("🔴 Control[\(iteration)] kind=\(control.kind), angle=\(angleInDegrees)°, offset=\(offset), newPos=\(newPos)")
+            
+            viewModel.model.ephemeralControlNodes[iteration].position = newPos
         }
     }
     

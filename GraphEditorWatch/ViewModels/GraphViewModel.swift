@@ -81,25 +81,32 @@ import os  // Added for logging
     
     @MainActor
     public func generateControls(for nodeID: NodeID) async {
-        print("generateControls started for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Entry timestamp
-        await model.pauseSimulation()  // Sync point
-        await model.updateEphemerals(selectedNodeID: nodeID)  // FIXED: Match name from GraphModel+ControlNodes.swift
+        await model.pauseSimulation()
+        await model.updateEphemerals(selectedNodeID: nodeID)
         Self.logger.debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
-        redrawTrigger += 1  // Explicit if needed
         
-        // NEW: Reset velocity history to force simulation to run a few steps after resume (ensures TimelineView ticks with new ephemerals)
+        // Force immediate redraw via SwiftUI overlay
+        redrawTrigger += 1
+        objectWillChange.send()
+        
+        // Give SwiftUI a moment to render the overlay before resuming simulation
+        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
+        
         await model.resetVelocityHistory()
-        
         await model.resumeSimulation()
-        print("generateControls completed for nodeID: \(nodeID.uuidString.prefix(8)), time: \(Date().timeIntervalSinceReferenceDate)")  // DEBUG: Exit timestamp
     }
     
     @MainActor
     public func clearControls() async {
-        print("clearControls started at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Timestamp clear
-        await model.updateEphemerals(selectedNodeID: nil)  // FIXED: Match name
+        await model.pauseSimulation()
+        await model.updateEphemerals(selectedNodeID: nil)
         Self.logger.debug("Cleared controls")
-        print("clearControls completed at time: \(Date().timeIntervalSinceReferenceDate)")  // NEW: Exit timestamp
+        
+        // Force immediate redraw via SwiftUI overlay
+        redrawTrigger += 1
+        objectWillChange.send()
+        
+        // Keep simulation paused when nothing is selected
     }
     
     public func updateEphemerals(selectedNodeID: NodeID?) async {

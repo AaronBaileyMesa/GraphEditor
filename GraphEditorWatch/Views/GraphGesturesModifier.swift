@@ -95,15 +95,11 @@ struct GraphGesturesModifier: ViewModifier {
                         // NEW: Update attached control nodes' positions in real-time
                         for controlIndex in viewModel.model.ephemeralControlNodes.indices {
                             if viewModel.model.ephemeralControlNodes[controlIndex].ownerID == dragged.id {
-                                // Recalculate relative position (adapt from addControlsForNode logic)
-                                let controlKind = viewModel.model.ephemeralControlNodes[controlIndex].kind
-                                let priority = viewModel.model.ephemeralControlNodes[controlIndex].priority  // Use stored priority
-                                let freeSlots = viewModel.model.getFreeSlots(for: dragged.id)  // Reuse your method
-                                guard priority < freeSlots.count else { continue }
-                                let angle = freeSlots[priority]  // FIXED: Complete the truncated line – assume freeSlots is [CGFloat] angles in radians
-                                
+                                // Use the stored relativeAngle from the control node (in degrees)
+                                let angleInDegrees = viewModel.model.ephemeralControlNodes[controlIndex].relativeAngle
+                                let angleInRadians = angleInDegrees * .pi / 180
                                 let distance: CGFloat = 50.0  // TUNABLE: Fixed distance from owner (match your addControlsForNode)
-                                let offset = CGPoint(x: cos(angle) * distance, y: sin(angle) * distance)
+                                let offset = CGPoint(x: cos(angleInRadians) * distance, y: sin(angleInRadians) * distance)
                                 viewModel.model.ephemeralControlNodes[controlIndex].position = newOwnerPos + offset
                             }
                         }

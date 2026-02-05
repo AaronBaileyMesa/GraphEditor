@@ -24,14 +24,25 @@ struct AnimatedCanvasContent: View {
     let currentDragLocation: CGPoint?
     let isAddingEdge: Bool
     let dragStartNode: (any NodeProtocol)?
+    let redrawTrigger: Int  // FIXED: Pass redrawTrigger to force recomputation
     
     var body: some View {
-        // DEBUG log removed: Too noisy, was firing at 30fps even when idle
-        
         Canvas { graphicsContext, _ in
             var gc = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
-            let visibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
-            let visibleEdges = viewModel.model.visibleEdges
+            let allVisibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
+            let allVisibleEdges = viewModel.model.visibleEdges
+            
+            // Filter out control nodes - they're rendered by SwiftUI overlay for immediate display
+            let visibleNodes = allVisibleNodes.filter { node in
+                !(node is ControlNode)
+            }
+            
+            // Filter out control edges (spring edges to control nodes)
+            let controlNodeIDs = Set(viewModel.model.ephemeralControlNodes.map { $0.id })
+            let visibleEdges = allVisibleEdges.filter { edge in
+                !controlNodeIDs.contains(edge.from) && !controlNodeIDs.contains(edge.target)
+            }
+            
             let effectiveCentroid = viewModel.effectiveCentroid
             
             // ONE source of truth – used by every drawing function and hit-testing
@@ -126,6 +137,7 @@ struct AnimatedCanvasContent: View {
             // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
             drawDragPreview(in: &gc, renderContext: renderContext)
         }
+        .id(redrawTrigger)  // FIXED: Force Canvas to recreate when redrawTrigger changes
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
@@ -169,17 +181,33 @@ struct AccessibleCanvas: View {
     static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "accessiblecanvas")
     
     var body: some View {
-        // REMOVED: Don't calculate bounds in body - causes constant recomputation
-        // let bounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.visibleNodes)
-        //     .insetBy(dx: -40, dy: -40)
-        // let minZoom = min(viewSize.width / bounds.width, viewSize.height / bounds.height).clamped(to: 0.2...1.0)
-        // let maxZoom = max(1.0, minZoom * 8.0).clamped(to: 1.0...5.0)
-        
-        Group {
-            if viewModel.model.isSimulating {
-                TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+        ZStack {
+            // Canvas layer (draws regular nodes and edges)
+            Group {
+                if viewModel.model.isSimulating {
+                    TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+                        AnimatedCanvasContent(
+                            contextDate: context.date,
+                            viewModel: viewModel,
+                            zoomScale: zoomScale,
+                            offset: offset,
+                            draggedNode: draggedNode,
+                            dragOffset: dragOffset,
+                            potentialEdgeTarget: potentialEdgeTarget,
+                            selectedNodeID: selectedNodeID,
+                            viewSize: viewSize,
+                            selectedEdgeID: selectedEdgeID,
+                            showOverlays: showOverlays,
+                            saturation: saturation,
+                            currentDragLocation: currentDragLocation,
+                            isAddingEdge: isAddingEdge,
+                            dragStartNode: dragStartNode,
+                            redrawTrigger: viewModel.redrawTrigger
+                        )
+                    }
+                } else {
                     AnimatedCanvasContent(
-                        contextDate: context.date,
+                        contextDate: Date(),
                         viewModel: viewModel,
                         zoomScale: zoomScale,
                         offset: offset,
@@ -193,38 +221,156 @@ struct AccessibleCanvas: View {
                         saturation: saturation,
                         currentDragLocation: currentDragLocation,
                         isAddingEdge: isAddingEdge,
-                        dragStartNode: dragStartNode
+                        dragStartNode: dragStartNode,
+                        redrawTrigger: viewModel.redrawTrigger
                     )
                 }
-            } else {
-                // Static fallback: Use same content view with fixed date → immediate recomputes on model changes
-                AnimatedCanvasContent(
-                    contextDate: Date(),  // Fixed for logging; could use .now for timestamp accuracy
-                    viewModel: viewModel,
-                    zoomScale: zoomScale,
-                    offset: offset,
-                    draggedNode: draggedNode,
-                    dragOffset: dragOffset,
-                    potentialEdgeTarget: potentialEdgeTarget,
-                    selectedNodeID: selectedNodeID,
-                    viewSize: viewSize,
-                    selectedEdgeID: selectedEdgeID,
-                    showOverlays: showOverlays,
-                    saturation: saturation,
-                    currentDragLocation: currentDragLocation,
-                    isAddingEdge: isAddingEdge,
-                    dragStartNode: dragStartNode
-                )
             }
+            .id(viewModel.redrawTrigger)
+            
+            // SwiftUI overlay for control nodes (immediate rendering)
+            // Use @ObservedObject to ensure immediate updates
+            ControlNodesOverlayWrapper(
+                viewModel: viewModel,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: viewSize
+            )
+            .id("\(zoomScale)-\(offset.width)-\(offset.height)")
         }
-        .id(viewModel.redrawTrigger)  
         .accessibilityIdentifier("graphCanvas")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .background(Color.black)
-        // REMOVED: This was causing a feedback loop
-        // .onChange(of: bounds) { _ in
-        //     onUpdateZoomRanges(minZoom, maxZoom)
-        // }
+    }
+}
+
+// Wrapper that observes ViewModel for immediate updates
+struct ControlNodesOverlayWrapper: View {
+    @ObservedObject var viewModel: GraphViewModel
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
+    
+    var body: some View {
+        let _ = print("ControlNodesOverlayWrapper rendering: \(viewModel.model.ephemeralControlNodes.count) nodes, redrawTrigger=\(viewModel.redrawTrigger)")
+        
+        return ControlNodesOverlay(
+            controlNodes: viewModel.model.ephemeralControlNodes,
+            controlEdges: viewModel.model.ephemeralControlEdges,
+            visibleNodes: viewModel.model.visibleNodes,
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize,
+            redrawTrigger: viewModel.redrawTrigger
+        )
+    }
+}
+
+// NEW: SwiftUI overlay for control nodes to bypass Canvas rendering lag
+struct ControlNodesOverlay: View {
+    let controlNodes: [ControlNode]
+    let controlEdges: [GraphEdge]
+    let visibleNodes: [any NodeProtocol]
+    let effectiveCentroid: CGPoint
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
+    let redrawTrigger: Int
+    
+    var body: some View {
+        let _ = print("ControlNodesOverlay rendering: \(controlNodes.count) nodes, redrawTrigger=\(redrawTrigger)")
+        
+        return ZStack {
+            // Draw control edges first (behind the control nodes)
+            ForEach(controlEdges, id: \.id) { edge in
+                if let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                   let toNode = visibleNodes.first(where: { $0.id == edge.target }) {
+                    let fromScreen = worldToScreen(
+                        worldPos: fromNode.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    let toScreen = worldToScreen(
+                        worldPos: toNode.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    
+                    Path { path in
+                        path.move(to: fromScreen)
+                        path.addLine(to: toScreen)
+                    }
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1.0)
+                    .transition(.opacity)
+                }
+            }
+            
+            // Draw control nodes on top
+            ForEach(controlNodes, id: \.id) { control in
+                let screenPos = worldToScreen(
+                    worldPos: control.position,
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize
+                )
+                
+                ControlNodeView(control: control, zoomScale: zoomScale)
+                    .position(screenPos)
+                    .animation(nil, value: screenPos)
+            }
+        }
+        .transition(.scale.combined(with: .opacity))
+        .id(controlNodes.first?.ownerID?.uuidString ?? "none")
+    }
+    
+    private func worldToScreen(
+        worldPos: CGPoint,
+        effectiveCentroid: CGPoint,
+        zoomScale: CGFloat,
+        offset: CGSize,
+        viewSize: CGSize
+    ) -> CGPoint {
+        let canvasCenterX = viewSize.width / 2
+        let canvasCenterY = viewSize.height / 2
+        
+        let relativeX = (worldPos.x - effectiveCentroid.x) * zoomScale
+        let relativeY = (worldPos.y - effectiveCentroid.y) * zoomScale
+        
+        let screenX = canvasCenterX + relativeX + offset.width
+        let screenY = canvasCenterY + relativeY + offset.height
+        
+        return CGPoint(x: screenX, y: screenY)
+    }
+}
+
+// NEW: SwiftUI view for individual control node
+struct ControlNodeView: View {
+    let control: ControlNode
+    let zoomScale: CGFloat
+    
+    var body: some View {
+        let iconName: String = switch control.kind {
+        case .addChild: "plus.circle.fill"
+        case .addEdge: "arrow.right.circle.fill"
+        case .edit: "pencil"
+        }
+        
+        ZStack {
+            Circle()
+                .fill(control.fillColor.opacity(0.9))
+                .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
+            
+            Image(systemName: iconName)
+                .font(.system(size: 16 * zoomScale, weight: .medium))
+                .foregroundColor(.white)
+        }
+        .opacity(0.9)
     }
 }
