@@ -186,7 +186,7 @@ import os  // Added for logging
         let fitWidth = viewSize.width / paddedWidth
         let fitHeight = viewSize.height / paddedHeight
         let calculatedMin = min(fitWidth, fitHeight)
-        let minZoom = max(calculatedMin, 0.5)
+        let minZoom = max(calculatedMin, 0.1)  // Allow zooming out much further
         let maxZoom = minZoom * Constants.App.maxZoom  // Now higher (e.g., *5)
         
         // DEBUG log removed: Too noisy, was firing at 30fps causing log spam

@@ -310,6 +310,8 @@ struct GraphGesturesModifier: ViewModifier {
     
     private func resetGestureState() {
         let wasDragging = draggedNode != nil
+        let nodeToRegenerate = selectedNodeID  // Capture before clearing
+        
         currentDragLocation = nil
         draggedNode = nil
         dragStartNode = nil
@@ -323,6 +325,12 @@ struct GraphGesturesModifier: ViewModifier {
         if wasDragging {
             Task { await viewModel.model.resumeSimulation() }
             Self.logger.debug("Resumed simulation after drag ended")
+            
+            // Regenerate controls for the selected node if one is still selected
+            if let nodeID = nodeToRegenerate {
+                Task { await viewModel.generateControls(for: nodeID) }
+                Self.logger.debug("Regenerating controls for node \(nodeID.uuidString.prefix(8)) after drag")
+            }
         }
     }
 }

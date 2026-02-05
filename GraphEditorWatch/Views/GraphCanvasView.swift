@@ -101,7 +101,7 @@ struct GraphCanvasView: View {
             let (minZoom, maxZoom) = viewModel.calculateZoomRanges(for: viewSize)
             let normalized = (newValue / Double(AppConstants.crownZoomSteps)).clamped(to: 0...1)
             let targetZoom = minZoom + (maxZoom - minZoom) * CGFloat(normalized)
-            withAnimation(.easeOut(duration: 0.08)) { viewModel.zoomScale = targetZoom }
+            viewModel.zoomScale = targetZoom
         }
         .onChange(of: viewModel.zoomScale) { _, userZoom in
             guard !isUpdatingZoom else { return }

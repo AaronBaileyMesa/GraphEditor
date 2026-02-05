@@ -323,10 +323,11 @@ struct ControlNodesOverlay: View {
                 
                 ControlNodeView(control: control, zoomScale: zoomScale)
                     .position(screenPos)
+                    .transition(.scale.combined(with: .opacity))
                     .animation(nil, value: screenPos)
             }
         }
-        .transition(.scale.combined(with: .opacity))
+        .animation(.easeInOut(duration: 0.2), value: controlNodes.count)
         .id(controlNodes.first?.ownerID?.uuidString ?? "none")
     }
     
