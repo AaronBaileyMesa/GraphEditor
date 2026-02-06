@@ -1,4 +1,4 @@
-//
+
 //  GraphGesturesModifier.swift
 //  GraphEditorWatch
 //
@@ -36,6 +36,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var longPressTask: Task<Void, Never>?
     @State private var pressProgress: Double = 0.0
     @State private var longPressStartLocation: CGPoint?
+    @State private var hasCheckedForNodeThisGesture = false  // Prevents repeated hit tests during pan
     
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
@@ -64,7 +65,10 @@ struct GraphGesturesModifier: ViewModifier {
                     Self.logger.debug("Drag changed: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(translation.width, format: .fixed(precision: 1)),\(translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2))")
                 }
                 
-                if draggedNode == nil && magnitude > dragStartThreshold {
+                if draggedNode == nil && magnitude > dragStartThreshold && !hasCheckedForNodeThisGesture {
+                    // Mark that we've checked for a node - prevents repeated checks during pan
+                    hasCheckedForNodeThisGesture = true
+                    
                     // Cancel long press immediately when drag threshold is exceeded
                     handleLongPressCancel()
                     longPressStartLocation = nil
@@ -79,8 +83,16 @@ struct GraphGesturesModifier: ViewModifier {
                         dragOffset = modelPos - initialModelPos
                         selectedNodeID = hitNode.id
                         viewModel.draggedNodeID = hitNode.id
-                        Task { await viewModel.model.pauseSimulation() }
-                        Self.logger.debug("Started dragging node \(hitNode.id.uuidString.prefix(8)) at model (\(modelPos.x, format: .fixed(precision: 2)), \(modelPos.y, format: .fixed(precision: 2)))")  // FIXED: Proper formatting with OSLogFloatFormatting
+                        viewModel.model.draggedNodeID = hitNode.id  // Sync to model for physics exclusion
+                        
+                        // CRITICAL: Pause simulation BEFORE repositioning to prevent race condition
+                        // Must be synchronous to ensure no physics steps occur during drag
+                        viewModel.model.physicsEngine.isPaused = true
+                        
+                        // Reposition controls immediately to ensure correct distance
+                        viewModel.repositionEphemerals(for: hitNode.id, to: initialModelPos)
+                        
+                        Self.logger.debug("Started dragging node \(hitNode.id.uuidString.prefix(8)) - paused physics")
                     } else if let hitEdge = HitTestHelper.closestEdge(at: screenPos, visibleEdges: viewModel.model.visibleEdges, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
                         selectedEdgeID = hitEdge.id
                         selectedNodeID = nil
@@ -95,19 +107,14 @@ struct GraphGesturesModifier: ViewModifier {
                     let newOwnerPos = liveModelPos - dragOffset  // Corrected: Use - for accurate delta
                     
                     if let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
+                        let oldOwnerPos = viewModel.model.nodes[nodeIndex].position
                         // Existing: Update dragged node's position
-                        Self.logger.debug("Updating dragged node position to model (\(newOwnerPos.x, format: .fixed(precision: 1)), \(newOwnerPos.y, format: .fixed(precision: 1)))")
+                        Self.logger.debug("Drag: oldOwner=(\(oldOwnerPos.x, format: .fixed(precision: 1)),\(oldOwnerPos.y, format: .fixed(precision: 1))) newOwner=(\(newOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y, format: .fixed(precision: 1))) delta=(\(newOwnerPos.x - oldOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y - oldOwnerPos.y, format: .fixed(precision: 1)))")
                         viewModel.model.nodes[nodeIndex].position = newOwnerPos
                         
-                        // NEW: Update attached control nodes' positions in real-time
-                        for controlIndex in viewModel.model.ephemeralControlNodes.indices where viewModel.model.ephemeralControlNodes[controlIndex].ownerID == dragged.id {
-                            // Use the stored relativeAngle from the control node (in degrees)
-                            let angleInDegrees = viewModel.model.ephemeralControlNodes[controlIndex].relativeAngle
-                            let angleInRadians = angleInDegrees * .pi / 180
-                            let distance: CGFloat = 40.0  // Match spacing from GraphModel+ControlNodes
-                            let offset = CGPoint(x: cos(angleInRadians) * distance, y: sin(angleInRadians) * distance)
-                            viewModel.model.ephemeralControlNodes[controlIndex].position = newOwnerPos + offset
-                        }
+                        // Update attached control nodes' positions in real-time
+                        // Maintains exact 40pt offset from owner node
+                        viewModel.repositionEphemerals(for: dragged.id, to: newOwnerPos)
                         viewModel.model.objectWillChange.send()  // Ensure redraw for non-ToggleNodes
                     }
                 }
@@ -157,8 +164,6 @@ struct GraphGesturesModifier: ViewModifier {
                     handleLongPressCancel()
                 }
             }
-        
-
 
         content
             .highPriorityGesture(
@@ -354,17 +359,28 @@ struct GraphGesturesModifier: ViewModifier {
         panStartOffset = nil
         isAddingEdge = false
         viewModel.draggedNodeID = nil
+        viewModel.model.draggedNodeID = nil  // Clear from model too
+        hasCheckedForNodeThisGesture = false  // Reset for next gesture
         
         // Resume simulation if we were dragging
         if wasDragging {
-            Task { await viewModel.model.resumeSimulation() }
-            Self.logger.debug("Resumed simulation after drag ended")
-            
-            // Regenerate controls for the selected node if one is still selected
-            if let nodeID = nodeToRegenerate {
-                Task { await viewModel.generateControls(for: nodeID) }
-                Self.logger.debug("Regenerating controls for node \(nodeID.uuidString.prefix(8)) after drag")
+            // CRITICAL: Zero all velocities before resuming physics
+            // This prevents the physics engine from applying cached forces from before the drag
+            // which would cause all nodes to shift by the centroid delta
+            Self.logger.debug("Zeroing velocities before resuming physics")
+            var stabilizedNodes = viewModel.model.nodes
+            for index in stabilizedNodes.indices {
+                let node = stabilizedNodes[index].unwrapped
+                stabilizedNodes[index] = AnyNode(node.with(position: node.position, velocity: .zero))
             }
+            viewModel.model.nodes = stabilizedNodes
+            
+            // Resume physics immediately (synchronous)
+            viewModel.model.physicsEngine.isPaused = false
+            Self.logger.debug("Resumed physics after drag ended with zeroed velocities")
+            
+            // No need to regenerate controls - they were already repositioned during drag
+            // and are in the correct position relative to the node
         }
     }
 }

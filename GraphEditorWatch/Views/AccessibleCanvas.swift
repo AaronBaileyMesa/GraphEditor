@@ -278,6 +278,8 @@ struct ControlNodesOverlay: View {
     let redrawTrigger: Int
     
     var body: some View {
+        let _ = logControlRendering()
+        
         ZStack {
             // Draw control edges first (behind the control nodes)
             ForEach(controlEdges, id: \.id) { edge in
@@ -325,6 +327,50 @@ struct ControlNodesOverlay: View {
         }
         .animation(.easeInOut(duration: 0.2), value: controlNodes.count)
         .id(controlNodes.first?.ownerID?.uuidString ?? "none")
+    }
+    
+    private func logControlRendering() {
+        #if DEBUG
+        if !controlNodes.isEmpty {
+            AccessibleCanvas.logger.debug("=== Control Rendering ===")
+            AccessibleCanvas.logger.debug("Centroid: (\(effectiveCentroid.x, format: .fixed(precision: 1)), \(effectiveCentroid.y, format: .fixed(precision: 1)))")
+            AccessibleCanvas.logger.debug("ZoomScale: \(zoomScale, format: .fixed(precision: 2))")
+            AccessibleCanvas.logger.debug("Offset: (\(offset.width, format: .fixed(precision: 1)), \(offset.height, format: .fixed(precision: 1)))")
+            
+            // Find owner node to calculate actual distances
+            if let ownerID = controlNodes.first?.ownerID,
+               let owner = visibleNodes.first(where: { $0.id == ownerID }) {
+                AccessibleCanvas.logger.debug("Owner position: (\(owner.position.x, format: .fixed(precision: 1)), \(owner.position.y, format: .fixed(precision: 1)))")
+                
+                for control in controlNodes {
+                    let modelDx = control.position.x - owner.position.x
+                    let modelDy = control.position.y - owner.position.y
+                    let modelDistance = hypot(modelDx, modelDy)
+                    
+                    let screenPos = worldToScreen(
+                        worldPos: control.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    let ownerScreenPos = worldToScreen(
+                        worldPos: owner.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    
+                    let screenDx = screenPos.x - ownerScreenPos.x
+                    let screenDy = screenPos.y - ownerScreenPos.y
+                    let screenDistance = hypot(screenDx, screenDy)
+                    
+                    AccessibleCanvas.logger.debug("Control \(control.kind.rawValue): model=(\(control.position.x, format: .fixed(precision: 1)), \(control.position.y, format: .fixed(precision: 1))) dist=\(modelDistance, format: .fixed(precision: 1))pt → screen=(\(screenPos.x, format: .fixed(precision: 1)), \(screenPos.y, format: .fixed(precision: 1))) dist=\(screenDistance, format: .fixed(precision: 1))px")
+                }
+            }
+        }
+        #endif
     }
     
     private func worldToScreen(

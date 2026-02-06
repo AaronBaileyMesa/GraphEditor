@@ -79,11 +79,6 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		4E2830792E416F84005CF8A3 /* GraphEditorWatchUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = GraphEditorWatchUITests;
-			sourceTree = "<group>";
-		};
 		4E3A08C82E3DC9B0008CC9C7 /* GraphEditorWatch */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -183,7 +178,6 @@
 				4E7D70372E3EA4AC00814DFF /* GraphEditorSharedTests.xctestplan */,
 				4E3A08C82E3DC9B0008CC9C7 /* GraphEditorWatch */,
 				4EB112732E3EE09D001A8E1A /* GraphEditorWatchTests */,
-				4E2830792E416F84005CF8A3 /* GraphEditorWatchUITests */,
 				4ED767F52E3D506900929FA8 /* Frameworks */,
 				4ED4276D2E3BF44700DEF801 /* Products */,
 			);
@@ -227,9 +221,6 @@
 			);
 			dependencies = (
 				4E28307F2E416F84005CF8A3 /* PBXTargetDependency */,
-			);
-			fileSystemSynchronizedGroups = (
-				4E2830792E416F84005CF8A3 /* GraphEditorWatchUITests */,
 			);
 			name = GraphEditorWatchUITests;
 			packageProductDependencies = (

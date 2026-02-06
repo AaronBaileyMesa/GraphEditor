@@ -44,7 +44,6 @@ import os
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
     @Published public var lastFrameTime: Date?  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
-    @Published var isEditMode: Bool = false
     
     // MARK: Private Properties
     
@@ -171,36 +170,16 @@ extension ControlKind {
             }
         case .edit:
             return { viewModel, nodeID in
-                viewModel.isEditMode.toggle()
-                if viewModel.isEditMode {
-                    await viewModel.generateControls(for: nodeID)  // Show extras
-                    await viewModel.model.pauseSimulation()  // Or node-specific pause
-                    viewModel.model.editingNodeID = nodeID  // Open editor sheet on enter (merged old action)
-                } else {
-                    await viewModel.clearControls()
-                    await viewModel.model.resumeSimulation()
-                    
-                    // Fixed: Proper error handling instead of force-try
-                    do {
-                        try await viewModel.model.saveGraph()
-                        Self.logger.info("Auto-saved graph on edit mode exit")
-                    } catch {
-                        Self.logger.error("Auto-save failed on edit mode exit: \(error.localizedDescription)")
-                        // Optional: You could also notify the user here (e.g., via a haptic or alert),
-                        // but logging is sufficient for a background auto-save.
-                    }
-                }
+                // Simply open the edit content sheet
+                viewModel.model.editingNodeID = nodeID
                 WKInterfaceDevice.current().play(.click)
-                Self.logger.debug("Toggled edit mode for node \(nodeID.uuidString.prefix(8)): \(viewModel.isEditMode)")
+                Self.logger.debug("Opened edit sheet for node \(nodeID.uuidString.prefix(8))")
             }
         case .addEdge:
             return { viewModel, nodeID in
-                if viewModel.isEditMode {
-                    viewModel.startAddingEdge(from: nodeID)  // Proceed only in edit mode
-                } else {
-                    Self.logger.warning("Add edge attempted outside edit mode for node \(nodeID.uuidString.prefix(8))")
-                    // Optional: viewModel.isEditMode = true; await viewModel.generateControls(for: nodeID)  // Auto-enter mode if desired
-                }
+                // Start adding edge mode directly
+                viewModel.startAddingEdge(from: nodeID)
+                Self.logger.debug("Started adding edge from node \(nodeID.uuidString.prefix(8))")
             }
         }
     }

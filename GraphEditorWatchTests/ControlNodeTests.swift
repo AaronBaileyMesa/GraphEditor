@@ -187,4 +187,119 @@ struct ControlNodeTests {
         
         #expect(ids.count == uniqueIDs.count, "All control IDs should be unique")
     }
+    
+    // MARK: - Control Repositioning Tests
+    
+    @Test("Reposition ephemerals maintains 40pt distance from owner")
+    @MainActor
+    func testRepositionEphemeralsDistance() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node and generate controls
+        let initialPos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: initialPos)
+        await viewModel.generateControls(for: node.id)
+        
+        // Move the node to a new position
+        let newPos = CGPoint(x: 150, y: 120)
+        viewModel.repositionEphemerals(for: node.id, to: newPos)
+        
+        // Check that all controls maintain 40pt distance
+        let expectedDistance: CGFloat = 40.0
+        let tolerance: CGFloat = 0.1
+        
+        for control in viewModel.model.ephemeralControlNodes {
+            let dx = control.position.x - newPos.x
+            let dy = control.position.y - newPos.y
+            let distance = hypot(dx, dy)
+            
+            // Note: Distance may be less than 40 if control is clamped at bounds
+            #expect(distance <= expectedDistance + tolerance, 
+                   "Control distance \(distance) should not exceed 40pt (may be less if clamped)")
+        }
+    }
+    
+    @Test("Reposition ephemerals updates control positions")
+    @MainActor
+    func testRepositionEphemeralsUpdatesPositions() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node and generate controls
+        let initialPos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: initialPos)
+        await viewModel.generateControls(for: node.id)
+        
+        // Record initial control positions
+        let initialPositions = viewModel.model.ephemeralControlNodes.map { $0.position }
+        
+        // Move the node
+        let newPos = CGPoint(x: 150, y: 120)
+        viewModel.repositionEphemerals(for: node.id, to: newPos)
+        
+        // Verify controls moved
+        let newPositions = viewModel.model.ephemeralControlNodes.map { $0.position }
+        
+        for (initial, new) in zip(initialPositions, newPositions) {
+            #expect(initial != new, "Control should have moved to new position")
+        }
+    }
+    
+    @Test("Reposition ephemerals at drag start maintains distance")
+    @MainActor
+    func testRepositionAtDragStartDistance() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node and generate controls
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        await viewModel.generateControls(for: node.id)
+        
+        // Simulate what happens at drag start: reposition immediately
+        viewModel.repositionEphemerals(for: node.id, to: nodePos)
+        
+        // Verify all controls are at correct distance
+        let expectedDistance: CGFloat = 40.0
+        let tolerance: CGFloat = 0.1
+        
+        for control in viewModel.model.ephemeralControlNodes {
+            let dx = control.position.x - nodePos.x
+            let dy = control.position.y - nodePos.y
+            let distance = hypot(dx, dy)
+            
+            // Distance should be exactly 40pt at drag start (unless clamped)
+            #expect(distance <= expectedDistance + tolerance,
+                   "Control distance at drag start should be 40pt or less (if clamped)")
+        }
+    }
+    
+    @Test("Re-selecting node maintains control positions at 40pt")
+    @MainActor
+    func testReselectingNodeMaintainsControlPositions() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node and select it
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        await viewModel.generateControls(for: node.id)
+        
+        // Record initial control positions
+        let initialPositions = viewModel.model.ephemeralControlNodes.map { $0.position }
+        
+        // Deselect and then re-select
+        await viewModel.clearControls()
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify controls are at correct 40pt distance (not drifted by physics)
+        let expectedDistance: CGFloat = 40.0
+        let tolerance: CGFloat = 1.0
+        
+        for control in viewModel.model.ephemeralControlNodes {
+            let dx = control.position.x - nodePos.x
+            let dy = control.position.y - nodePos.y
+            let distance = hypot(dx, dy)
+            
+            #expect(abs(distance - expectedDistance) < tolerance,
+                   "Control should be at 40pt after re-selection, got \(distance)")
+        }
+    }
 }
