@@ -181,6 +181,29 @@ extension ControlKind {
                 viewModel.startAddingEdge(from: nodeID)
                 Self.logger.debug("Started adding edge from node \(nodeID.uuidString.prefix(8))")
             }
+        case .delete:
+            return { viewModel, nodeID in
+                // Delete the node
+                await viewModel.deleteNode(withID: nodeID)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Deleted node \(nodeID.uuidString.prefix(8))")
+            }
+        case .duplicate:
+            return { viewModel, nodeID in
+                // Duplicate the node
+                if let newID = await viewModel.model.duplicateNode(withID: nodeID) {
+                    viewModel.selectedNodeID = newID  // Select the duplicate
+                    WKInterfaceDevice.current().play(.click)
+                    Self.logger.debug("Duplicated node \(nodeID.uuidString.prefix(8)) to \(newID.uuidString.prefix(8))")
+                }
+            }
+        case .addToggleChild:
+            return { viewModel, nodeID in
+                // Add a toggle node child
+                await viewModel.model.addToggleChild(to: nodeID)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Added toggle child to node \(nodeID.uuidString.prefix(8))")
+            }
         }
     }
 }

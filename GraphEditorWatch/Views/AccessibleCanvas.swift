@@ -403,6 +403,9 @@ struct ControlNodeView: View {
         case .addChild: "plus.circle.fill"
         case .addEdge: "arrow.right.circle.fill"
         case .edit: "pencil"
+        case .delete: "trash.fill"
+        case .duplicate: "doc.on.doc.fill"
+        case .addToggleChild: "checklist"
         }
         
         ZStack {
