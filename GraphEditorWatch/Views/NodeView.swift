@@ -48,7 +48,6 @@ struct NodeView: View {
                     .offset(y: -(node.radius + 10) * zoomScale)  // Position above
             }
         }
-        .focusable()  // For Digital Crown on watchOS
         .accessibilityLabel(
             (node as? ControlNode)?.kind.rawValue ?? "Node \(node.label)"
         )

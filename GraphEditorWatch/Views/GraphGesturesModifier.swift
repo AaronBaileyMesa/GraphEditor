@@ -306,6 +306,25 @@ struct GraphGesturesModifier: ViewModifier {
                 return true
             }
             
+            // Check if we're in edge-adding mode
+            if isAddingEdge,
+               let sourceID = viewModel.draggedNodeID,
+               node.id != sourceID,
+               !viewModel.model.edges.contains(where: { ($0.from == sourceID && $0.target == node.id) ||
+                   ($0.from == node.id && $0.target == sourceID) }) {
+                // Create edge from source to tapped node
+                let type = viewModel.pendingEdgeType
+                Task { 
+                    await viewModel.addEdge(from: sourceID, to: node.id, type: type)
+                    Self.logger.debug("Created edge via tap: \(type.rawValue) from \(sourceID.uuidString.prefix(8)) → \(node.id.uuidString.prefix(8))")
+                }
+                // Exit edge creation mode
+                isAddingEdge = false
+                viewModel.draggedNodeID = nil
+                WKInterfaceDevice.current().play(.click)
+                return true
+            }
+            
             // Regular node tap - toggle selection
             let newID = selectedNodeID == node.id ? nil : node.id
             Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
@@ -330,6 +349,13 @@ struct GraphGesturesModifier: ViewModifier {
             WKInterfaceDevice.current().play(.click)
             return true
         }
+        // Cancel edge creation mode if active
+        if isAddingEdge {
+            isAddingEdge = false
+            viewModel.draggedNodeID = nil
+            Self.logger.debug("Cancelled edge creation - tapped on background")
+        }
+        
         selectedNodeID = nil
         selectedEdgeID = nil
         Task { await viewModel.clearControls() } // Clears on background tap

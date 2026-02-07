@@ -78,7 +78,7 @@ struct GraphCanvasView: View {
                 let (min, max) = viewModel.calculateZoomRanges(for: viewSize)
                 onUpdateZoomRanges(min, max)
             },
-            isAddingEdge: $isAddingEdge,
+            isAddingEdge: $viewModel.isAddingEdge,
             isSimulating: $isSimulating,
             saturation: $saturation,
             currentDragLocation: $currentDragLocation,

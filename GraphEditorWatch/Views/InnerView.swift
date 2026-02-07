@@ -47,7 +47,6 @@ struct InnerView: View {
         )
         .accessibilityIdentifier("GraphCanvas")
         .focused(config.canvasFocus.projectedValue)
-        .focusable()
         
         canvasView
     }

@@ -27,7 +27,6 @@ struct ContentView: View {
     @FocusState private var canvasFocus: Bool
     @State private var wristSide: WKInterfaceDeviceWristLocation = .left
     @State private var showEditSheet: Bool = false
-    @State private var isAddingEdge: Bool = false
     @State private var viewSize: CGSize = .zero
     @State private var isSimulating: Bool = false
     @State private var saturation: Double = 1.0
@@ -61,7 +60,7 @@ struct ContentView: View {
                     panStartOffset: $panStartOffset,
                     showMenu: $showMenu,
                     onUpdateZoomRanges: { _, _ in },
-                    isAddingEdge: $isAddingEdge,
+                    isAddingEdge: $viewModel.isAddingEdge,
                     isSimulating: $isSimulating,
                     saturation: $saturation,
                     currentDragLocation: $currentDragLocation,

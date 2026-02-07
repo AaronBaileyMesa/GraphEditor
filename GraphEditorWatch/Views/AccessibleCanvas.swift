@@ -135,13 +135,13 @@ struct AnimatedCanvasContent: View {
             }
             
             // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
-            drawDragPreview(in: &context, renderContext: renderContext)
+            drawDragPreview(in: &context, renderContext: renderContext, visibleNodes: visibleNodes)
         }
         .id(redrawTrigger)  // FIXED: Force Canvas to recreate when redrawTrigger changes
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
-    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext) {
+    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext, visibleNodes: [any NodeProtocol]) {
         // FIXED: Only draw drag preview if the node is actually being dragged with an offset
         // This prevents duplicate rendering when a node is selected but not dragged
         if let dragged = draggedNode, dragOffset != .zero {
@@ -157,7 +157,36 @@ struct AnimatedCanvasContent: View {
                 isSelected: true
             )
         }
-        // Add logic for currentDragLocation, isAddingEdge, etc., as in your original code
+        
+        // Draw edge preview line when adding an edge
+        if isAddingEdge,
+           let dragLoc = currentDragLocation {
+            // Find the source node from viewModel.draggedNodeID (set when addEdge was tapped)
+            let sourceNode = visibleNodes.first { $0.id == viewModel.draggedNodeID } ?? dragStartNode ?? draggedNode
+            
+            guard let source = sourceNode else { return }
+            let sourceScreen = CoordinateTransformer.modelToScreen(source.position, in: renderContext)
+            
+            // Draw line from source to current drag location
+            var path = Path()
+            path.move(to: sourceScreen)
+            path.addLine(to: dragLoc)
+            
+            context.stroke(
+                path,
+                with: .color(.yellow.opacity(0.6)),
+                lineWidth: 2.0
+            )
+            
+            // Draw a small circle at the drag location
+            let circlePath = Path(ellipseIn: CGRect(
+                x: dragLoc.x - 4,
+                y: dragLoc.y - 4,
+                width: 8,
+                height: 8
+            ))
+            context.fill(circlePath, with: .color(.yellow.opacity(0.8)))
+        }
     }
 }
 
@@ -278,8 +307,6 @@ struct ControlNodesOverlay: View {
     let redrawTrigger: Int
     
     var body: some View {
-        let _ = logControlRendering()
-        
         ZStack {
             // Draw control edges first (behind the control nodes)
             ForEach(controlEdges, id: \.id) { edge in
