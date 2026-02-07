@@ -93,6 +93,9 @@ import os
     
     @Published public var focusState: AppFocusState = .graph
     
+    // swiftlint:disable:next function_body_length
+    // Rationale: Initialization requires setting up multiple publishers, observers, and subscriptions.
+    // Splitting would scatter initialization logic and harm cohesion.
     public init(model: GraphModel) {
             self.model = model
             self.currentGraphName = model.currentGraphName  // Sync on init

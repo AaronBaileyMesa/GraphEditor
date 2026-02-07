@@ -10,6 +10,10 @@ import WatchKit
 import GraphEditorShared
 import os
 
+// swiftlint:disable type_body_length file_length
+// Rationale: Gesture coordination requires all gesture states and handlers in one cohesive type.
+// Splitting would harm readability and maintainability of gesture interaction logic.
+
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     let renderContext: RenderContext

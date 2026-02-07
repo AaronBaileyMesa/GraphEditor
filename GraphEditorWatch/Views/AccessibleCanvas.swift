@@ -7,6 +7,10 @@ import SwiftUI
 import GraphEditorShared
 import os
 
+// swiftlint:disable file_length
+// Rationale: Complex canvas rendering with accessibility support requires extensive view logic.
+// This file handles TimelineView scheduling, coordinate transformation, and accessible rendering.
+
 // NEW: Subview for Canvas content to force updates by depending on context.date
 struct AnimatedCanvasContent: View {
     let contextDate: Date  // Changes every tick (animated) or fixed (static), for logging and .id if needed
