@@ -34,8 +34,6 @@ struct DebugHierarchyModifier: ViewModifier {
         }
     
     // UPDATED: Add `lines` inout param for collection; append instead of print/log
-    // Rationale: Debug utility with necessary branching for comprehensive view hierarchy traversal
-    // swiftlint:disable:next cyclomatic_complexity
     private func logHierarchy(of view: any View, prefix: String, depth: Int, lines: inout [String]) {
         if depth > maxDepth {
             print("WARNING: Max depth reached: \(depth)")  // Keep

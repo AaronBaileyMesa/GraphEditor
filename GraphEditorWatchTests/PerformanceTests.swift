@@ -27,8 +27,8 @@ struct PerformanceTests {
         let viewModel = createTestViewModel()
         let nodeCount = 100
         
-        // Pause simulation during bulk operations to prevent physics interference
-        await viewModel.model.stopSimulation()
+        // Use bulk operation mode to prevent physics interference
+        await viewModel.model.beginBulkOperation()
         
         let startTime = Date()
         
@@ -39,12 +39,14 @@ struct PerformanceTests {
         }
         
         let duration = Date().timeIntervalSince(startTime)
+        
+        await viewModel.model.endBulkOperation()
+        
         let avgTimePerNode = duration / Double(nodeCount)
         let actualCount = viewModel.model.nodes.count
         
-        // Allow for small loss due to physics simulation effects (nodes pushed out of bounds)
-        let minExpected = Int(Double(nodeCount) * 0.75) // 75% success rate
-        #expect(actualCount >= minExpected, "Should have created at least \(minExpected) nodes, got \(actualCount)")
+        // With bulk operation mode, we should get all nodes
+        #expect(actualCount == nodeCount, "Should have created all \(nodeCount) nodes, got \(actualCount)")
         
         // Log performance metrics for visibility
         print("✓ Added \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
@@ -59,8 +61,8 @@ struct PerformanceTests {
         let viewModel = createTestViewModel()
         let nodeCount = 100
         
-        // Pause simulation to prevent physics interference
-        await viewModel.model.stopSimulation()
+        // Use bulk operation mode
+        await viewModel.model.beginBulkOperation()
         
         // Setup: Add nodes
         var nodeIDs: [UUID] = []
@@ -77,11 +79,14 @@ struct PerformanceTests {
         }
         
         let duration = Date().timeIntervalSince(startTime)
+        
+        await viewModel.model.endBulkOperation()
+        
         let avgTimePerNode = duration / Double(nodeCount)
         let remainingNodes = viewModel.model.nodes.count
         
-        // Allow for some nodes to remain due to physics simulation creating duplicates at boundaries
-        #expect(remainingNodes <= 35, "Should have deleted most nodes, \(remainingNodes) remaining")
+        // With bulk operation mode, all nodes should be deleted
+        #expect(remainingNodes == 0, "Should have deleted all nodes, \(remainingNodes) remaining")
         
         print("✓ Deleted \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
         print("  Average: \(String(format: "%.4f", avgTimePerNode * 1000))ms per node")
@@ -412,52 +417,51 @@ struct PerformanceTests {
     func testUndoRedoPerformance() async {
         let viewModel = createTestViewModel()
         
-        // NOTE: This test measures undo/redo performance, not correctness
-        // The undo system has known limitations with rapid operations and physics simulation
-        
-        // Pause simulation to prevent physics interference
-        await viewModel.model.stopSimulation()
-        
-        // Clear undo stack to ensure clean slate
+        // Clear undo stack
         viewModel.model.undoStack.removeAll()
         viewModel.model.redoStack.removeAll()
         
-        let operationCount = 10
+        let operationCount = 20  // Can handle more with increased maxUndo (30)
         
-        // Perform operations
+        // Perform operations WITHOUT bulk mode to ensure each operation is independent
+        // Each addNode() will pushUndo() before adding
         for i in 0..<operationCount {
             _ = await viewModel.model.addNode(at: CGPoint(x: 250 + Double(i * 10), y: 250 + Double(i * 10)))
         }
         
         let initialCount = viewModel.model.nodes.count
+        #expect(initialCount == operationCount, "Should have all \(operationCount) nodes initially")
         
-        // Test undo performance - measure time, not correctness
+        // Test undo performance and correctness
         let undoStart = Date()
-        for _ in 0..<operationCount {
-            await viewModel.undo()
+        var undoCount = 0
+        while viewModel.canUndo && undoCount < 30 {  // Safety limit
+            await viewModel.model.undo(resume: false)
+            undoCount += 1
         }
         let undoDuration = Date().timeIntervalSince(undoStart)
         
         let afterUndoCount = viewModel.model.nodes.count
-        let undoedCount = initialCount - afterUndoCount
+        #expect(afterUndoCount == 0, "All nodes should be undone, got \(afterUndoCount)")
         
-        // Test redo performance
+        // Test redo performance and correctness
         let redoStart = Date()
-        for _ in 0..<operationCount {
-            await viewModel.redo()
+        let initialRedoStackSize = viewModel.model.redoStack.count
+        var redoCount = 0
+        while viewModel.canRedo && redoCount < 30 {  // Safety limit
+            await viewModel.model.redo(resume: false)
+            redoCount += 1
         }
         let redoDuration = Date().timeIntervalSince(redoStart)
         
         let finalCount = viewModel.model.nodes.count
-        let redoedCount = finalCount - afterUndoCount
+        print("  Initial redo stack: \(initialRedoStackSize), redid: \(redoCount) times")
+        #expect(finalCount == operationCount, "All nodes should be redone, got \(finalCount)")
         
-        print("✓ Undo \(operationCount) attempts: \(String(format: "%.3f", undoDuration))s (\(String(format: "%.2f", undoDuration / Double(operationCount) * 1000))ms avg)")
-        print("  Actually undid: \(undoedCount) operations")
-        print("✓ Redo \(operationCount) attempts: \(String(format: "%.3f", redoDuration))s (\(String(format: "%.2f", redoDuration / Double(operationCount) * 1000))ms avg)")
-        print("  Actually redid: \(redoedCount) operations")
+        print("✓ Undo \(undoCount) operations: \(String(format: "%.3f", undoDuration))s (\(String(format: "%.2f", undoDuration / Double(undoCount) * 1000))ms avg)")
+        print("✓ Redo \(redoCount) operations: \(String(format: "%.3f", redoDuration))s (\(String(format: "%.2f", redoDuration / Double(redoCount) * 1000))ms avg)")
         
-        // Performance expectations only - not correctness
-        // Note: The actual effectiveness of undo/redo is not validated here
+        // Performance expectations
         #expect(undoDuration < 1.0, "Undo should complete in < 1s")
         #expect(redoDuration < 1.0, "Redo should complete in < 1s")
     }

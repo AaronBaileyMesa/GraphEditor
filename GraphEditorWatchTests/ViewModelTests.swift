@@ -158,11 +158,11 @@ struct ViewModelTests {
         _ = await viewModel.model.addNode(at: .zero)
         #expect(viewModel.canUndo, "Should be able to undo after adding node")
         
-        await viewModel.undo()
+        await viewModel.model.undo(resume: false)
         #expect(viewModel.model.nodes.isEmpty, "Node should be removed after undo")
         #expect(viewModel.canRedo, "Should be able to redo")
         
-        await viewModel.redo()
+        await viewModel.model.redo(resume: false)
         #expect(viewModel.model.nodes.count == 1, "Node should be restored after redo")
     }
     

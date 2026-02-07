@@ -296,9 +296,6 @@ struct ControlNodeTests {
         let node = await viewModel.model.addNode(at: nodePos)
         await viewModel.generateControls(for: node.id)
         
-        // Record initial control positions
-        let initialPositions = viewModel.model.ephemeralControlNodes.map { $0.position }
-        
         // Deselect and then re-select
         await viewModel.clearControls()
         await viewModel.generateControls(for: node.id)
@@ -315,5 +312,201 @@ struct ControlNodeTests {
             #expect(abs(distance - expectedDistance) < tolerance,
                    "Control should be at 40pt after re-selection, got \(distance)")
         }
+    }
+    
+    // MARK: - Tests for Refactored Helper Methods
+    
+    @Test("Filter control kinds excludes addChild when node has children")
+    @MainActor
+    func testFilterControlKindsWithChildren() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a collapsible parent node
+        let parentPos = CGPoint(x: 100, y: 100)
+        await viewModel.model.addToggleNode(at: parentPos)
+        guard let parent = viewModel.model.nodes.last else {
+            Issue.record("Failed to create toggle node")
+            return
+        }
+        
+        // Add a child node
+        let childPos = CGPoint(x: 120, y: 120)
+        let child = await viewModel.model.addNode(at: childPos)
+        await viewModel.addEdge(from: parent.id, to: child.id, type: .hierarchy)
+        
+        // Generate controls for parent
+        await viewModel.generateControls(for: parent.id)
+        
+        // Verify that addChild control is NOT present (node already has children)
+        let hasAddChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == parent.id && control.kind == .addChild
+        }
+        
+        #expect(!hasAddChild, "addChild control should not be present when node has children")
+        
+        // Verify that addToggleChild IS still present (can add more toggle children)
+        let hasAddToggleChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == parent.id && control.kind == .addToggleChild
+        }
+        
+        #expect(hasAddToggleChild, "addToggleChild control should be present for collapsible nodes")
+    }
+    
+    @Test("Filter control kinds limits addEdge when node has many children")
+    @MainActor
+    func testFilterControlKindsLimitsAddEdge() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a collapsible parent node
+        let parentPos = CGPoint(x: 100, y: 100)
+        await viewModel.model.addToggleNode(at: parentPos)
+        guard let parent = viewModel.model.nodes.last else {
+            Issue.record("Failed to create toggle node")
+            return
+        }
+        
+        // Add 6 children (exceeds limit)
+        for i in 0..<6 {
+            let childPos = CGPoint(x: 100 + CGFloat(i * 20), y: 120)
+            let child = await viewModel.model.addNode(at: childPos)
+            await viewModel.addEdge(from: parent.id, to: child.id, type: .hierarchy)
+        }
+        
+        // Generate controls for parent
+        await viewModel.generateControls(for: parent.id)
+        
+        // Verify that addEdge control is NOT present (too many children)
+        let hasAddEdge = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == parent.id && control.kind == .addEdge
+        }
+        
+        #expect(!hasAddEdge, "addEdge control should be hidden when node has 6+ children")
+    }
+    
+    @Test("Filter control kinds only shows relevant controls for collapsible nodes")
+    @MainActor
+    func testFilterControlKindsForCollapsibleNode() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a collapsible node
+        let nodePos = CGPoint(x: 100, y: 100)
+        await viewModel.model.addToggleNode(at: nodePos)
+        guard let node = viewModel.model.nodes.last else {
+            Issue.record("Failed to create toggle node")
+            return
+        }
+        
+        // Generate controls
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify that both addChild and addToggleChild are present (no children yet)
+        let hasAddChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == node.id && control.kind == .addChild
+        }
+        let hasAddToggleChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == node.id && control.kind == .addToggleChild
+        }
+        
+        #expect(hasAddChild, "addChild should be available for collapsible node without children")
+        #expect(hasAddToggleChild, "addToggleChild should be available for collapsible node")
+    }
+    
+    @Test("Filter control kinds excludes child controls for regular nodes")
+    @MainActor
+    func testFilterControlKindsForRegularNode() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a regular (non-collapsible) node
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        
+        // Generate controls
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify that neither addChild nor addToggleChild are present
+        let hasAddChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == node.id && control.kind == .addChild
+        }
+        let hasAddToggleChild = viewModel.model.ephemeralControlNodes.contains { control in
+            control.ownerID == node.id && control.kind == .addToggleChild
+        }
+        
+        #expect(!hasAddChild, "addChild should not be available for regular nodes")
+        #expect(!hasAddToggleChild, "addToggleChild should not be available for regular nodes")
+    }
+    
+    @Test("Control node creation maintains 40pt distance")
+    @MainActor
+    func testCreateControlNodesDistance() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        
+        // Generate controls
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify all controls are at 40pt distance
+        let expectedDistance: CGFloat = 40.0
+        let tolerance: CGFloat = 0.1
+        
+        for control in viewModel.model.ephemeralControlNodes where control.ownerID == node.id {
+            let dx = control.position.x - nodePos.x
+            let dy = control.position.y - nodePos.y
+            let distance = hypot(dx, dy)
+            
+            #expect(abs(distance - expectedDistance) < tolerance,
+                   "Control should be created at exactly 40pt distance, got \(distance)")
+        }
+    }
+    
+    @Test("Control nodes have association edges to owner")
+    @MainActor
+    func testCreateControlNodesEdges() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        
+        // Generate controls
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify each control has a corresponding association edge
+        for control in viewModel.model.ephemeralControlNodes where control.ownerID == node.id {
+            let hasEdge = viewModel.model.ephemeralControlEdges.contains { edge in
+                edge.from == node.id && edge.target == control.id && edge.type == .association
+            }
+            
+            #expect(hasEdge, "Control node should have association edge to owner")
+        }
+    }
+    
+    @Test("Stabilize nodes zeroes velocities before control generation")
+    @MainActor
+    func testStabilizeNodesZeroesVelocities() async throws {
+        let viewModel = createTestViewModel()
+        
+        // Add a node
+        let nodePos = CGPoint(x: 100, y: 100)
+        let node = await viewModel.model.addNode(at: nodePos)
+        
+        // Manually set velocity (simulating physics) - velocity is a CGPoint
+        var nodeWithVelocity = node
+        nodeWithVelocity.velocity = CGPoint(x: 10, y: 10)
+        let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == node.id })!
+        viewModel.model.nodes[nodeIndex] = AnyNode(nodeWithVelocity)
+        
+        // Verify velocity is non-zero before
+        let velocityBefore = viewModel.model.nodes[nodeIndex].unwrapped.velocity
+        #expect(velocityBefore.x != 0 || velocityBefore.y != 0, "Velocity should be non-zero initially")
+        
+        // Generate controls (which should stabilize)
+        await viewModel.generateControls(for: node.id)
+        
+        // Verify velocity is zeroed after
+        let velocityAfter = viewModel.model.nodes.first(where: { $0.id == node.id })!.unwrapped.velocity
+        #expect(velocityAfter.x == 0 && velocityAfter.y == 0, "Velocity should be zeroed after stabilization")
     }
 }

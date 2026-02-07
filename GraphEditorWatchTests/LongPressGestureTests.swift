@@ -29,8 +29,8 @@ struct LongPressGestureTests {
     @Test("Saturation starts at 1.0")
     @MainActor
     func testInitialSaturation() async throws {
-        let viewModel = createTestViewModel()
-        var saturation: Double = 1.0
+        _ = createTestViewModel()
+        let saturation: Double = 1.0
         
         #expect(saturation == 1.0, "Saturation should start at full color")
     }
@@ -49,8 +49,8 @@ struct LongPressGestureTests {
     @Test("Menu state starts as false")
     @MainActor
     func testInitialMenuState() async throws {
-        let viewModel = createTestViewModel()
-        var showMenu = false
+        _ = createTestViewModel()
+        let showMenu = false
         
         #expect(showMenu == false, "Menu should not be shown initially")
     }

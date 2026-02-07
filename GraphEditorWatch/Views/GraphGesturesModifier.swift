@@ -10,10 +10,7 @@ import WatchKit
 import GraphEditorShared
 import os
 
-// swiftlint:disable type_body_length file_length
-// Rationale: Gesture coordination requires all gesture states and handlers in one cohesive type.
-// Splitting would harm readability and maintainability of gesture interaction logic.
-
+// swiftlint:disable:next type_body_length
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     let renderContext: RenderContext
@@ -45,8 +42,7 @@ struct GraphGesturesModifier: ViewModifier {
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
-    // Rationale: Central gesture coordinator handling tap/drag/pan disambiguation with complex state machine
-    // swiftlint:disable:next function_body_length cyclomatic_complexity
+    // swiftlint:disable:next function_body_length
     func body(content: Content) -> some View {
         // Using minimumDistance: 0 to detect touch immediately for long press desaturation
         let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
@@ -195,7 +191,7 @@ struct GraphGesturesModifier: ViewModifier {
         longPressTask = Task { @MainActor in
             let startTime = Date()
             let animationDuration = AppConstants.menuLongPressDuration * 0.75  // Animate for 75% of duration (1.0s)
-            let pauseDuration = AppConstants.menuLongPressDuration * 0.25  // Pause for 25% (0.33s)
+            _ = AppConstants.menuLongPressDuration * 0.25  // Pause for 25% (0.33s) - unused but kept for documentation
             var lastLoggedProgress = 0.0
             
             // Phase 1: Animate desaturation (0.0s to 1.0s)
@@ -303,93 +299,119 @@ struct GraphGesturesModifier: ViewModifier {
         resetGestureState()
     }
     
-    // MARK: - Tap (unchanged)
+    // MARK: - Tap Handling
     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
         Self.logger.debug("handleTap: location=\(location.x, format: .fixed(precision: 1)),\(location.y, format: .fixed(precision: 1)) visibleNodes=\(visibleNodes.count)")
+        
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
+            return handleNodeTap(node: node)
+        }
+        
+        if let edge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, renderContext: renderContext) {
+            return handleEdgeTap(edge: edge)
+        }
+        
+        return handleBackgroundTap()
+    }
+    
+    func handleControlNodeTap(controlNode: ControlNode) -> Bool {
+        Self.logger.debug("Hit control node: \(controlNode.kind.rawValue) for owner \(controlNode.ownerID?.uuidString.prefix(8) ?? "nil")")
+        
+        // Set flag BEFORE triggering async action to prevent immediate drag-end from completing edge
+        if controlNode.kind == .addEdge {
+            justEnteredEdgeMode = true
+            Self.logger.debug("Set justEnteredEdgeMode=true for addEdge control")
+        }
+        
+        // Trigger the control's action
+        Task {
+            await viewModel.handleControlTap(control: controlNode)
+        }
+        WKInterfaceDevice.current().play(.click)
+        return true
+    }
+    
+    func handleEdgeAddingMode(targetNode: any NodeProtocol) -> Bool {
+        Self.logger.debug("In edge-adding mode: draggedNodeID=\(viewModel.draggedNodeID?.uuidString.prefix(8) ?? "nil") targetNode=\(targetNode.id.uuidString.prefix(8))")
+        
+        let sourceID = viewModel.draggedNodeID
+        
+        if let sourceID = sourceID,
+           targetNode.id != sourceID,
+           !viewModel.model.edges.contains(where: { ($0.from == sourceID && $0.target == targetNode.id) ||
+               ($0.from == targetNode.id && $0.target == sourceID) }) {
+            // Create edge from source to tapped node
+            let type = viewModel.pendingEdgeType
+            Task {
+                await viewModel.addEdge(from: sourceID, to: targetNode.id, type: type)
+                Self.logger.info("✓ Created edge via tap: \(type.rawValue) from \(sourceID.uuidString.prefix(8)) → \(targetNode.id.uuidString.prefix(8))")
+            }
+            // Exit edge creation mode
+            isAddingEdge = false
+            viewModel.draggedNodeID = nil
+            WKInterfaceDevice.current().play(.click)
+            return true
+        } else {
+            // Exit edge mode and log reason
+            isAddingEdge = false
+            viewModel.draggedNodeID = nil
             
-            // Check if this is a control node
-            if let controlNode = node as? ControlNode {
-                Self.logger.debug("Hit control node: \(controlNode.kind.rawValue) for owner \(controlNode.ownerID?.uuidString.prefix(8) ?? "nil")")
-                
-                // Set flag BEFORE triggering async action to prevent immediate drag-end from completing edge
-                if controlNode.kind == .addEdge {
-                    justEnteredEdgeMode = true
-                    Self.logger.debug("Set justEnteredEdgeMode=true for addEdge control")
-                }
-                
-                // Trigger the control's action
-                Task {
-                    await viewModel.handleControlTap(control: controlNode)
-                }
-                WKInterfaceDevice.current().play(.click)
+            if sourceID == nil {
+                Self.logger.warning("Edge-adding mode active but draggedNodeID is nil!")
+            } else if targetNode.id == sourceID {
+                Self.logger.info("Cannot create edge to same node")
+                WKInterfaceDevice.current().play(.failure)
+            } else {
+                Self.logger.info("Edge already exists between these nodes")
+                WKInterfaceDevice.current().play(.failure)
+            }
+            // Return false to continue to node selection
+            return false
+        }
+    }
+    
+    func handleNodeTap(node: any NodeProtocol) -> Bool {
+        // Check if this is a control node
+        if let controlNode = node as? ControlNode {
+            return handleControlNodeTap(controlNode: controlNode)
+        }
+        
+        // Check if we're in edge-adding mode
+        if isAddingEdge {
+            let handled = handleEdgeAddingMode(targetNode: node)
+            if handled {
                 return true
             }
-            
-            // Check if we're in edge-adding mode
-            if isAddingEdge {
-                Self.logger.debug("In edge-adding mode: draggedNodeID=\(viewModel.draggedNodeID?.uuidString.prefix(8) ?? "nil") targetNode=\(node.id.uuidString.prefix(8))")
-                
-                // Capture the source ID before we clear it
-                let sourceID = viewModel.draggedNodeID
-                
-                if let sourceID = sourceID,
-                   node.id != sourceID,
-                   !viewModel.model.edges.contains(where: { ($0.from == sourceID && $0.target == node.id) ||
-                       ($0.from == node.id && $0.target == sourceID) }) {
-                    // Create edge from source to tapped node
-                    let type = viewModel.pendingEdgeType
-                    Task { 
-                        await viewModel.addEdge(from: sourceID, to: node.id, type: type)
-                        Self.logger.info("✓ Created edge via tap: \(type.rawValue) from \(sourceID.uuidString.prefix(8)) → \(node.id.uuidString.prefix(8))")
-                    }
-                    // Exit edge creation mode
-                    isAddingEdge = false
-                    viewModel.draggedNodeID = nil
-                    WKInterfaceDevice.current().play(.click)
-                    return true
-                } else {
-                    // Exit edge mode even if we can't create the edge
-                    isAddingEdge = false
-                    viewModel.draggedNodeID = nil
-                    
-                    if sourceID == nil {
-                        Self.logger.warning("Edge-adding mode active but draggedNodeID is nil!")
-                    } else if node.id == sourceID {
-                        Self.logger.info("Cannot create edge to same node")
-                        WKInterfaceDevice.current().play(.failure)
-                    } else {
-                        Self.logger.info("Edge already exists between these nodes")
-                        WKInterfaceDevice.current().play(.failure)
-                    }
-                    // Continue to select the node
-                }
-            }
-            
-            // Regular node tap - toggle selection
-            let newID = selectedNodeID == node.id ? nil : node.id
-            Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
-            selectedNodeID = newID
-            selectedEdgeID = nil
-            if let id = newID {
-                Task {
-                    await viewModel.generateControls(for: id)  // Now defined – generates immediately
-                }
-            } else {
-                Task {
-                    await viewModel.clearControls()  // Now defined – clears immediately
-                }
-            }
-            WKInterfaceDevice.current().play(.click)
-            return true
+            // If edge creation failed, continue to select the node
         }
-        if let edge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, renderContext: renderContext) {
-            selectedEdgeID = selectedEdgeID == edge.id ? nil : edge.id
-            selectedNodeID = nil
-            Task { await viewModel.clearControls() } // Clears if switching to edge
-            WKInterfaceDevice.current().play(.click)
-            return true
+        
+        // Regular node tap - toggle selection
+        let newID = selectedNodeID == node.id ? nil : node.id
+        Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
+        selectedNodeID = newID
+        selectedEdgeID = nil
+        if let id = newID {
+            Task {
+                await viewModel.generateControls(for: id)
+            }
+        } else {
+            Task {
+                await viewModel.clearControls()
+            }
         }
+        WKInterfaceDevice.current().play(.click)
+        return true
+    }
+    
+    func handleEdgeTap(edge: GraphEdge) -> Bool {
+        selectedEdgeID = selectedEdgeID == edge.id ? nil : edge.id
+        selectedNodeID = nil
+        Task { await viewModel.clearControls() }
+        WKInterfaceDevice.current().play(.click)
+        return true
+    }
+    
+    func handleBackgroundTap() -> Bool {
         // Cancel edge creation mode if active
         if isAddingEdge {
             isAddingEdge = false
@@ -399,7 +421,7 @@ struct GraphGesturesModifier: ViewModifier {
         
         selectedNodeID = nil
         selectedEdgeID = nil
-        Task { await viewModel.clearControls() } // Clears on background tap
+        Task { await viewModel.clearControls() }
         return false
     }
     
@@ -416,7 +438,7 @@ struct GraphGesturesModifier: ViewModifier {
     
     private func resetGestureState() {
         let wasDragging = draggedNode != nil
-        let nodeToRegenerate = selectedNodeID  // Capture before clearing
+        _ = selectedNodeID  // Capture before clearing - unused but kept for potential future use
         
         currentDragLocation = nil
         draggedNode = nil

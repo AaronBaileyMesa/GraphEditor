@@ -47,8 +47,8 @@ struct GraphGesturesModifierTests {
     @MainActor @Test func testHitTestNodesInScreenSpace() async {
         let viewModel = await setupViewModel()
         _ = createModifier(viewModel: viewModel,
-                                      selectedNodeID: .constant(nil),
-                                      selectedEdgeID: .constant(nil))
+                          selectedNodeID: .constant(nil),
+                          selectedEdgeID: .constant(nil))
         
         let nodes = [AnyNode(Node(label: 1, position: CGPoint(x: 100, y: 100)))]
         let renderContext = RenderContext(effectiveCentroid: CGPoint.zero, zoomScale: 1.0, offset: CGSize.zero, viewSize: CGSize(width: 300, height: 300))
@@ -193,5 +193,458 @@ struct GraphGesturesModifierTests {
             #expect(distance <= expectedDistance + tolerance,
                    "Control distance should be 40pt or less: got \(distance)")
         }
+    }
+    
+    // MARK: - Tests for Refactored Helper Methods
+    
+    @MainActor @Test func testHandleControlNodeTap() async {
+        let viewModel = await setupViewModel()
+        
+        // Add a node and generate controls
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        await viewModel.generateControls(for: node.id)
+        
+        // Get a control node
+        guard let control = viewModel.model.ephemeralControlNodes.first(where: { $0.ownerID == node.id }) else {
+            Issue.record("No control node found")
+            return
+        }
+        
+        var showMenu = false
+        let showMenuBinding = Binding<Bool>(
+            get: { showMenu },
+            set: { showMenu = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: .constant(node.id),
+            selectedEdgeID: .constant(nil),
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: showMenuBinding,
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Test that tapping a control node returns true
+        let result = modifier.handleControlNodeTap(controlNode: control)
+        #expect(result == true, "Control node tap should return true")
+    }
+    
+    @MainActor @Test func testHandleEdgeAddingModeSuccess() async {
+        let viewModel = await setupViewModel()
+        
+        // Create two nodes
+        let sourceNode = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        let targetNode = await viewModel.model.addNode(at: CGPoint(x: 150, y: 150))
+        
+        // Set up edge-adding mode
+        var isAddingEdge = true
+        viewModel.draggedNodeID = sourceNode.id
+        viewModel.pendingEdgeType = .hierarchy
+        
+        let isAddingEdgeBinding = Binding<Bool>(
+            get: { isAddingEdge },
+            set: { isAddingEdge = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: .constant(nil),
+            selectedEdgeID: .constant(nil),
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: isAddingEdgeBinding,
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Handle edge adding mode
+        let result = modifier.handleEdgeAddingMode(targetNode: targetNode)
+        
+        // Should return true and exit edge-adding mode
+        #expect(result == true, "Edge creation should succeed")
+        #expect(isAddingEdge == false, "Should exit edge-adding mode")
+        #expect(viewModel.draggedNodeID == nil, "Should clear draggedNodeID")
+        
+        // Give time for async edge creation
+        try? await Task.sleep(for: .milliseconds(100))
+        
+        // Verify edge was created
+        let edgeExists = viewModel.model.edges.contains { edge in
+            edge.from == sourceNode.id && edge.target == targetNode.id
+        }
+        #expect(edgeExists, "Edge should be created between nodes")
+    }
+    
+    @MainActor @Test func testHandleEdgeAddingModeSameNode() async {
+        let viewModel = await setupViewModel()
+        
+        // Create one node
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        
+        // Set up edge-adding mode with same source and target
+        var isAddingEdge = true
+        viewModel.draggedNodeID = node.id
+        
+        let isAddingEdgeBinding = Binding<Bool>(
+            get: { isAddingEdge },
+            set: { isAddingEdge = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: .constant(nil),
+            selectedEdgeID: .constant(nil),
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: isAddingEdgeBinding,
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Try to create edge to same node
+        let result = modifier.handleEdgeAddingMode(targetNode: node)
+        
+        // Should return false (can't create edge to self)
+        #expect(result == false, "Edge creation to same node should fail")
+        #expect(isAddingEdge == false, "Should still exit edge-adding mode")
+        #expect(viewModel.draggedNodeID == nil, "Should clear draggedNodeID")
+    }
+    
+    @MainActor @Test func testHandleEdgeAddingModeDuplicateEdge() async {
+        let viewModel = await setupViewModel()
+        
+        // Create two nodes with existing edge
+        let sourceNode = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        let targetNode = await viewModel.model.addNode(at: CGPoint(x: 150, y: 150))
+        await viewModel.addEdge(from: sourceNode.id, to: targetNode.id, type: .hierarchy)
+        
+        // Set up edge-adding mode
+        var isAddingEdge = true
+        viewModel.draggedNodeID = sourceNode.id
+        
+        let isAddingEdgeBinding = Binding<Bool>(
+            get: { isAddingEdge },
+            set: { isAddingEdge = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: .constant(nil),
+            selectedEdgeID: .constant(nil),
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: isAddingEdgeBinding,
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Try to create duplicate edge
+        let result = modifier.handleEdgeAddingMode(targetNode: targetNode)
+        
+        // Should return false (edge already exists)
+        #expect(result == false, "Duplicate edge creation should fail")
+        #expect(isAddingEdge == false, "Should exit edge-adding mode")
+    }
+    
+    @MainActor @Test func testHandleNodeTapRegularNode() async {
+        let viewModel = await setupViewModel()
+        
+        // Create a regular node
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        
+        var selectedNodeID: NodeID? = nil
+        var selectedEdgeID: UUID? = nil
+        
+        let selectedNodeBinding = Binding<NodeID?>(
+            get: { selectedNodeID },
+            set: { selectedNodeID = $0 }
+        )
+        let selectedEdgeBinding = Binding<UUID?>(
+            get: { selectedEdgeID },
+            set: { selectedEdgeID = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: selectedNodeBinding,
+            selectedEdgeID: selectedEdgeBinding,
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Tap the node
+        let result = modifier.handleNodeTap(node: node)
+        
+        #expect(result == true, "Node tap should return true")
+        #expect(selectedNodeID == node.id, "Node should be selected")
+        #expect(selectedEdgeID == nil, "Edge selection should be cleared")
+    }
+    
+    @MainActor @Test func testHandleNodeTapTogglesSelection() async {
+        let viewModel = await setupViewModel()
+        
+        // Create a regular node
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        
+        var selectedNodeID: NodeID? = node.id  // Start with node selected
+        
+        let selectedNodeBinding = Binding<NodeID?>(
+            get: { selectedNodeID },
+            set: { selectedNodeID = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: selectedNodeBinding,
+            selectedEdgeID: .constant(nil),
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Tap the already-selected node to deselect
+        _ = modifier.handleNodeTap(node: node)
+        
+        #expect(selectedNodeID == nil, "Tapping selected node should deselect it")
+    }
+    
+    @MainActor @Test func testHandleEdgeTap() async {
+        let viewModel = await setupViewModel()
+        
+        // Create two nodes and an edge
+        let node1 = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        let node2 = await viewModel.model.addNode(at: CGPoint(x: 150, y: 150))
+        await viewModel.addEdge(from: node1.id, to: node2.id, type: .hierarchy)
+        
+        guard let edge = viewModel.model.edges.first else {
+            Issue.record("No edge found")
+            return
+        }
+        
+        var selectedNodeID: NodeID? = node1.id  // Start with node selected
+        var selectedEdgeID: UUID? = nil
+        
+        let selectedNodeBinding = Binding<NodeID?>(
+            get: { selectedNodeID },
+            set: { selectedNodeID = $0 }
+        )
+        let selectedEdgeBinding = Binding<UUID?>(
+            get: { selectedEdgeID },
+            set: { selectedEdgeID = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: selectedNodeBinding,
+            selectedEdgeID: selectedEdgeBinding,
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Tap the edge
+        let result = modifier.handleEdgeTap(edge: edge)
+        
+        #expect(result == true, "Edge tap should return true")
+        #expect(selectedEdgeID == edge.id, "Edge should be selected")
+        #expect(selectedNodeID == nil, "Node selection should be cleared")
+    }
+    
+    @MainActor @Test func testHandleEdgeTapTogglesSelection() async {
+        let viewModel = await setupViewModel()
+        
+        // Create two nodes and an edge
+        let node1 = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        let node2 = await viewModel.model.addNode(at: CGPoint(x: 150, y: 150))
+        await viewModel.addEdge(from: node1.id, to: node2.id, type: .hierarchy)
+        
+        guard let edge = viewModel.model.edges.first else {
+            Issue.record("No edge found")
+            return
+        }
+        
+        var selectedEdgeID: UUID? = edge.id  // Start with edge selected
+        
+        let selectedEdgeBinding = Binding<UUID?>(
+            get: { selectedEdgeID },
+            set: { selectedEdgeID = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: .constant(nil),
+            selectedEdgeID: selectedEdgeBinding,
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: .constant(false),
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Tap the already-selected edge to deselect
+        _ = modifier.handleEdgeTap(edge: edge)
+        
+        #expect(selectedEdgeID == nil, "Tapping selected edge should deselect it")
+    }
+    
+    @MainActor @Test func testHandleBackgroundTap() async {
+        let viewModel = await setupViewModel()
+        
+        // Create a node and select it
+        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        
+        var selectedNodeID: NodeID? = node.id
+        var selectedEdgeID: UUID? = UUID()
+        var isAddingEdge = true
+        
+        let selectedNodeBinding = Binding<NodeID?>(
+            get: { selectedNodeID },
+            set: { selectedNodeID = $0 }
+        )
+        let selectedEdgeBinding = Binding<UUID?>(
+            get: { selectedEdgeID },
+            set: { selectedEdgeID = $0 }
+        )
+        let isAddingEdgeBinding = Binding<Bool>(
+            get: { isAddingEdge },
+            set: { isAddingEdge = $0 }
+        )
+        
+        let modifier = GraphGesturesModifier(
+            viewModel: viewModel,
+            renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
+            zoomScale: .constant(1.0),
+            offset: .constant(.zero),
+            draggedNode: .constant(nil),
+            dragOffset: .constant(.zero),
+            potentialEdgeTarget: .constant(nil),
+            selectedNodeID: selectedNodeBinding,
+            selectedEdgeID: selectedEdgeBinding,
+            viewSize: CGSize(width: 300, height: 300),
+            panStartOffset: .constant(nil),
+            showMenu: .constant(false),
+            maxZoom: 5.0,
+            crownPosition: .constant(0.0),
+            onUpdateZoomRanges: {},
+            isAddingEdge: isAddingEdgeBinding,
+            isSimulating: .constant(true),
+            saturation: .constant(1.0),
+            currentDragLocation: .constant(nil),
+            dragStartNode: .constant(nil)
+        )
+        
+        // Tap background
+        let result = modifier.handleBackgroundTap()
+        
+        #expect(result == false, "Background tap should return false")
+        #expect(selectedNodeID == nil, "Node selection should be cleared")
+        #expect(selectedEdgeID == nil, "Edge selection should be cleared")
+        #expect(isAddingEdge == false, "Edge-adding mode should be cancelled")
     }
 }
