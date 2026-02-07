@@ -24,7 +24,7 @@ class MockGraphStorage: GraphStorage {
         get { graphs[defaultName]?.nodes ?? [] }  // This returns [AnyNode], which is fine → [any NodeProtocol]
         set {
             let currentState = graphs[defaultName]
-            ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false)
+            ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
             
             // Critical: Convert [any NodeProtocol] → [AnyNode]
             let wrappedNodes: [AnyNode] = newValue.map { node in
@@ -40,7 +40,8 @@ class MockGraphStorage: GraphStorage {
                 edges: currentState.edges,
                 hierarchyEdgeColor: currentState.hierarchyEdgeColor,
                 associationEdgeColor: currentState.associationEdgeColor,
-                isSimulating: currentState.isSimulating
+                isSimulating: currentState.isSimulating,
+                nextNodeLabel: currentState.nextNodeLabel
             )
             graphs[defaultName] = updatedState
         }
@@ -48,8 +49,8 @@ class MockGraphStorage: GraphStorage {
     var edges: [GraphEdge] {
         get { graphs[defaultName]?.edges ?? [] }
         set {
-            let currentState = graphs[defaultName] ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false)
-            let updatedState = GraphState(nodes: currentState.nodes, edges: newValue, hierarchyEdgeColor: currentState.hierarchyEdgeColor, associationEdgeColor: currentState.associationEdgeColor, isSimulating: currentState.isSimulating)
+            let currentState = graphs[defaultName] ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
+            let updatedState = GraphState(nodes: currentState.nodes, edges: newValue, hierarchyEdgeColor: currentState.hierarchyEdgeColor, associationEdgeColor: currentState.associationEdgeColor, isSimulating: currentState.isSimulating, nextNodeLabel: currentState.nextNodeLabel)
             graphs[defaultName] = updatedState
         }
     }
@@ -84,7 +85,7 @@ class MockGraphStorage: GraphStorage {
         if graphs[name] != nil {
             throw GraphStorageError.graphExists(name)
         }
-        graphs[name] = GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false)
+        graphs[name] = GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
         viewStates.removeValue(forKey: name)
     }
     

@@ -134,4 +134,40 @@ struct GraphModelTests {
         await model.addEdge(from: node3.id, target: node1.id, type: .hierarchy)  // Should prevent cycle
         #expect(model.edges.count == 2)  // Third edge not added
     }
+    
+    @MainActor @Test func testNextNodeLabelPersistence() async throws {
+        // Use shared storage to test persistence
+        let storage = MockGraphStorage()
+        let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        
+        // Add some nodes to increment nextNodeLabel
+        _ = await model.addNode(at: .zero)
+        _ = await model.addNode(at: .zero)
+        _ = await model.addNode(at: .zero)
+        
+        #expect(model.nextNodeLabel == 4, "nextNodeLabel should be 4 after adding 3 nodes")
+        
+        // Delete all nodes but nextNodeLabel should persist
+        for node in model.nodes {
+            await model.deleteNode(withID: node.id)
+        }
+        
+        #expect(model.nextNodeLabel == 4, "nextNodeLabel should remain 4 after deleting nodes")
+        
+        // Save and reload
+        try await model.saveGraph()
+        
+        // Create new model with same storage
+        let physicsEngine2 = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
+        let newModel = GraphModel(storage: storage, physicsEngine: physicsEngine2)
+        try await newModel.loadGraph()
+        
+        #expect(newModel.nextNodeLabel == 4, "nextNodeLabel should persist after save/load")
+        
+        // Add a new node - should use label 4, not restart at 1
+        let newNode = await newModel.addNode(at: .zero)
+        #expect(newNode.unwrapped.label == 4, "New node should use saved nextNodeLabel")
+        #expect(newModel.nextNodeLabel == 5, "nextNodeLabel should increment to 5")
+    }
 }

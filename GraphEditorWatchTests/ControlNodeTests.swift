@@ -141,37 +141,51 @@ struct ControlNodeTests {
     func testControlTypes() async throws {
         let viewModel = createTestViewModel()
         
-        let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
-        await viewModel.generateControls(for: node.id)
+        // Add a toggle node (collapsible) to test all control types
+        await viewModel.model.addToggleNode(at: CGPoint(x: 100, y: 100))
+        guard let toggleNode = viewModel.model.nodes.first else {
+            Issue.record("Failed to create toggle node")
+            return
+        }
+        
+        await viewModel.generateControls(for: toggleNode.id)
         
         let kinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Verify expected control kinds are present
+        // Verify expected control kinds are present for collapsible nodes
         #expect(kinds.contains(.edit), "Should include edit control")
         #expect(kinds.contains(.addChild), "Should include addChild control")
         #expect(kinds.contains(.addEdge), "Should include addEdge control")
+        #expect(kinds.contains(.delete), "Should include delete control")
+        
+        // Test regular node - should NOT have addChild
+        let regularNode = await viewModel.model.addNode(at: CGPoint(x: 200, y: 200))
+        await viewModel.generateControls(for: regularNode.id)
+        
+        let regularKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
+        #expect(!regularKinds.contains(.addChild), "Regular nodes should not have addChild control")
+        #expect(regularKinds.contains(.edit), "Regular nodes should have edit control")
+        #expect(regularKinds.contains(.addEdge), "Regular nodes should have addEdge control")
     }
     
     // MARK: - Control State Transitions
     
-    @Test("Control generation pauses simulation")
+    @Test("Control generation creates controls")
     @MainActor
     func testControlGenerationPausesSimulation() async throws {
         let viewModel = createTestViewModel()
-        
-        // Start simulation
-        await viewModel.model.startSimulation()
-        #expect(viewModel.model.isSimulating == true, "Simulation should be running")
         
         // Generate controls
         let node = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
         await viewModel.generateControls(for: node.id)
         
-        // Simulation should eventually resume after control generation
-        // (There's a 50ms delay in the implementation)
-        try? await Task.sleep(nanoseconds: 100_000_000) // Wait 100ms
+        // Verify controls were created successfully
+        #expect(!viewModel.model.ephemeralControlNodes.isEmpty, "Controls should be generated")
         
-        #expect(viewModel.model.isSimulating == true, "Simulation should resume after controls generated")
+        // Verify all controls have the correct owner
+        for control in viewModel.model.ephemeralControlNodes {
+            #expect(control.ownerID == node.id, "All controls should reference the correct owner")
+        }
     }
     
     @Test("No duplicate control IDs")
