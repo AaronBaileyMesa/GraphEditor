@@ -7,6 +7,7 @@
 import Foundation
 import GraphEditorShared
 import WatchKit
+import SwiftUI
 import os
 
 // MARK: - Control Node Management
@@ -16,12 +17,15 @@ extension GraphViewModel {
     public func generateControls(for nodeID: NodeID) async {
         await model.pauseSimulation()
         await model.updateEphemerals(selectedNodeID: nodeID)
+        
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
             .debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
         
-        // Force immediate redraw via SwiftUI overlay
-        redrawTrigger += 1
-        objectWillChange.send()
+        // Trigger animation by updating state in an animation context
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            redrawTrigger += 1
+            objectWillChange.send()
+        }
         
         // Give SwiftUI a moment to render the overlay before resuming simulation
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
@@ -34,12 +38,15 @@ extension GraphViewModel {
     public func clearControls() async {
         await model.pauseSimulation()
         await model.updateEphemerals(selectedNodeID: nil)
+        
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
             .debug("Cleared controls")
         
-        // Force immediate redraw via SwiftUI overlay
-        redrawTrigger += 1
-        objectWillChange.send()
+        // Trigger animation by updating state in an animation context
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+            redrawTrigger += 1
+            objectWillChange.send()
+        }
         
         // Keep simulation paused when nothing is selected
     }

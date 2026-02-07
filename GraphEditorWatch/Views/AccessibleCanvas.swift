@@ -259,13 +259,13 @@ struct AccessibleCanvas: View {
             
             // SwiftUI overlay for control nodes (immediate rendering)
             // Use @ObservedObject to ensure immediate updates
+            // IMPORTANT: Don't use .id() modifier here - it breaks animations
             ControlNodesOverlayWrapper(
                 viewModel: viewModel,
                 zoomScale: zoomScale,
                 offset: offset,
                 viewSize: viewSize
             )
-            .id("\(zoomScale)-\(offset.width)-\(offset.height)")
         }
         .accessibilityIdentifier("graphCanvas")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -292,6 +292,7 @@ struct ControlNodesOverlayWrapper: View {
             viewSize: viewSize,
             redrawTrigger: viewModel.redrawTrigger
         )
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: viewModel.model.ephemeralControlNodes.count)
     }
 }
 
@@ -307,7 +308,22 @@ struct ControlNodesOverlay: View {
     let redrawTrigger: Int
     
     var body: some View {
-        ZStack {
+        // Find owner node position for animation anchor
+        let ownerScreenPos: CGPoint? = {
+            guard let ownerID = controlNodes.first?.ownerID,
+                  let owner = visibleNodes.first(where: { $0.id == ownerID }) else {
+                return nil
+            }
+            return worldToScreen(
+                worldPos: owner.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: viewSize
+            )
+        }()
+        
+        return ZStack {
             // Draw control edges first (behind the control nodes)
             ForEach(controlEdges, id: \.id) { edge in
                 if let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
@@ -346,14 +362,10 @@ struct ControlNodesOverlay: View {
                     viewSize: viewSize
                 )
                 
-                ControlNodeView(control: control, zoomScale: zoomScale)
+                ControlNodeView(control: control, zoomScale: zoomScale, ownerScreenPos: ownerScreenPos ?? screenPos)
                     .position(screenPos)
-                    .transition(.scale.combined(with: .opacity))
-                    .animation(nil, value: screenPos)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: controlNodes.count)
-        .id(controlNodes.first?.ownerID?.uuidString ?? "none")
     }
     
     private func logControlRendering() {
@@ -424,6 +436,10 @@ struct ControlNodesOverlay: View {
 struct ControlNodeView: View {
     let control: ControlNode
     let zoomScale: CGFloat
+    let ownerScreenPos: CGPoint
+    @State private var isPressed: Bool = false
+    @State private var scale: CGFloat = 0.1
+    @State private var opacity: Double = 0.0
     
     var body: some View {
         let iconName: String = switch control.kind {
@@ -436,14 +452,100 @@ struct ControlNodeView: View {
         }
         
         ZStack {
+            // Outer glow for depth
             Circle()
-                .fill(control.fillColor.opacity(0.9))
-                .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
+                .fill(control.fillColor.opacity(0.3))
+                .frame(
+                    width: control.radius * 2 * zoomScale + 4,
+                    height: control.radius * 2 * zoomScale + 4
+                )
+                .blur(radius: 3)
             
+            // Main circle with shadow
+            Circle()
+                .fill(control.fillColor.opacity(0.95))
+                .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
+                .shadow(color: .black.opacity(0.4), radius: 2 * zoomScale, x: 0, y: 1 * zoomScale)
+            
+            // Icon
             Image(systemName: iconName)
                 .font(.system(size: 16 * zoomScale, weight: .medium))
                 .foregroundColor(.white)
+                .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
         }
-        .opacity(0.9)
+        .scaleEffect(scale)
+        .opacity(opacity)
+        .scaleEffect(isPressed ? 0.9 : 1.0)
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                scale = 1.0
+                opacity = 1.0
+            }
+        }
+        .onDisappear {
+            scale = 0.1
+            opacity = 0.0
+        }
     }
+}
+
+#Preview("Control Node Animations") {
+    struct AnimationPreview: View {
+        @State private var showControls = false
+        
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                // Simulated owner node
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 40, height: 40)
+                
+                if showControls {
+                    // Simulated control nodes in a circle
+                    ForEach(Array(ControlKind.allCases.enumerated()), id: \.element) { index, kind in
+                        let angle = CGFloat(index) * (360.0 / CGFloat(ControlKind.allCases.count))
+                        let radius: CGFloat = 50.0
+                        let xOffset = cos(angle * .pi / 180) * radius
+                        let yOffset = sin(angle * .pi / 180) * radius
+                        
+                        ControlNodeView(
+                            control: ControlNode(
+                                position: CGPoint(x: xOffset, y: yOffset),
+                                ownerID: nil,
+                                kind: kind
+                            ),
+                            zoomScale: 1.0,
+                            ownerScreenPos: .zero
+                        )
+                        .offset(x: xOffset, y: yOffset)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.1).combined(with: .opacity),
+                                removal: .scale(scale: 0.1).combined(with: .opacity)
+                            )
+                        )
+                        .animation(
+                            .spring(response: 0.3, dampingFraction: 0.7)
+                                .delay(Double(index) * 0.05),
+                            value: showControls
+                        )
+                    }
+                }
+                
+                VStack {
+                    Spacer()
+                    Button(showControls ? "Hide Controls" : "Show Controls") {
+                        withAnimation {
+                            showControls.toggle()
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+    }
+    
+    return AnimationPreview()
 }

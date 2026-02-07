@@ -53,3 +53,33 @@ struct NodeView: View {
         )
     }
 }
+
+#Preview("Control Node Colors") {
+    VStack(spacing: 15) {
+        Text("Color-Coded Control Nodes")
+            .font(.headline)
+        
+        VStack(spacing: 10) {
+            ForEach(ControlKind.allCases, id: \.self) { kind in
+                HStack {
+                    NodeView(
+                        node: ControlNode(
+                            position: .zero,
+                            ownerID: nil,
+                            kind: kind
+                        ),
+                        isSelected: false,
+                        zoomScale: 3.0
+                    )
+                    .frame(width: 40, height: 40)
+                    
+                    Text(kind.rawValue)
+                        .font(.caption)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+    .padding()
+    .background(Color.black)
+}
