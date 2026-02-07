@@ -56,22 +56,32 @@ struct NodeView: View {
 
 #Preview("Control Node Colors") {
     VStack(spacing: 15) {
-        Text("Color-Coded Control Nodes")
+        Text("Control Nodes (85% size)")
             .font(.headline)
+        Text("With 1.5x hit testing area")
+            .font(.caption)
+            .foregroundColor(.gray)
         
         VStack(spacing: 10) {
             ForEach(ControlKind.allCases, id: \.self) { kind in
                 HStack {
-                    NodeView(
-                        node: ControlNode(
-                            position: .zero,
-                            ownerID: nil,
-                            kind: kind
-                        ),
-                        isSelected: false,
-                        zoomScale: 3.0
-                    )
-                    .frame(width: 40, height: 40)
+                    ZStack {
+                        // Show hit testing area in preview
+                        Circle()
+                            .stroke(Color.gray.opacity(0.3), lineWidth: 1)
+                            .frame(width: 60, height: 60)  // 1.5x visual size
+                        
+                        NodeView(
+                            node: ControlNode(
+                                position: .zero,
+                                ownerID: nil,
+                                kind: kind
+                            ),
+                            isSelected: false,
+                            zoomScale: 3.0
+                        )
+                    }
+                    .frame(width: 60, height: 60)
                     
                     Text(kind.rawValue)
                         .font(.caption)

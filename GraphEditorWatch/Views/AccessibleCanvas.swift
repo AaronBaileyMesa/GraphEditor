@@ -452,6 +452,15 @@ struct ControlNodeView: View {
         }
         
         ZStack {
+            // Invisible larger hit testing area (1.5x the visual size)
+            Circle()
+                .fill(Color.clear)
+                .frame(
+                    width: control.radius * 2 * zoomScale * 1.5,
+                    height: control.radius * 2 * zoomScale * 1.5
+                )
+                .contentShape(Circle())
+            
             // Outer glow for depth
             Circle()
                 .fill(control.fillColor.opacity(0.3))
@@ -460,18 +469,21 @@ struct ControlNodeView: View {
                     height: control.radius * 2 * zoomScale + 4
                 )
                 .blur(radius: 3)
+                .allowsHitTesting(false)  // Don't intercept touches
             
             // Main circle with shadow
             Circle()
                 .fill(control.fillColor.opacity(0.95))
                 .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
                 .shadow(color: .black.opacity(0.4), radius: 2 * zoomScale, x: 0, y: 1 * zoomScale)
+                .allowsHitTesting(false)  // Don't intercept touches
             
-            // Icon
+            // Icon (scaled proportionally with control size)
             Image(systemName: iconName)
-                .font(.system(size: 16 * zoomScale, weight: .medium))
+                .font(.system(size: 18 * zoomScale, weight: .medium))  // Increased from 16 to 18
                 .foregroundColor(.white)
                 .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                .allowsHitTesting(false)  // Don't intercept touches
         }
         .scaleEffect(scale)
         .opacity(opacity)
