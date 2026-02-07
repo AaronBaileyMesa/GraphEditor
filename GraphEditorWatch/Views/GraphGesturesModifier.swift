@@ -1,4 +1,3 @@
-
 //  GraphGesturesModifier.swift
 //  GraphEditorWatch
 //
