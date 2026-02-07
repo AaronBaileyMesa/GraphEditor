@@ -199,11 +199,23 @@ extension ControlKind {
             }
         case .duplicate:
             return { viewModel, nodeID in
-                // Duplicate the node
+                // Duplicate the node (simulation is already paused from control selection)
                 if let newID = await viewModel.model.duplicateNode(withID: nodeID) {
-                    viewModel.selectedNodeID = newID  // Select the duplicate
                     WKInterfaceDevice.current().play(.click)
                     Self.logger.debug("Duplicated node \(nodeID.uuidString.prefix(8)) to \(newID.uuidString.prefix(8))")
+                    
+                    // CRITICAL: Force immediate render while simulation is paused
+                    // This ensures the new node appears in the Canvas before simulation resumes
+                    await MainActor.run {
+                        viewModel.objectWillChange.send()
+                        viewModel.redrawTrigger += 1
+                    }
+                    
+                    // Give SwiftUI time to render the new node while paused
+                    try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
+                    
+                    // Select the duplicate - this triggers control generation via subscription
+                    viewModel.selectedNodeID = newID
                 }
             }
         case .addToggleChild:

@@ -97,6 +97,10 @@ struct ContentView: View {
         .onChange(of: viewSize) { _, newSize in
             viewModel.resetViewToFitGraph(viewSize: newSize)
         }
+        .onChange(of: viewModel.selectedNodeID) { _, newID in
+            // Sync ContentView's local state when viewModel changes programmatically
+            selectedNodeID = newID
+        }
       
         // Menu sheet
         .sheet(isPresented: $showMenu) {
