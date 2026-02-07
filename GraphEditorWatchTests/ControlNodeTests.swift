@@ -352,6 +352,10 @@ struct ControlNodeTests {
         #expect(hasAddToggleChild, "addToggleChild control should be present for collapsible nodes")
     }
     
+    // ROOT CAUSE IDENTIFIED: viewModel.addEdge() launches concurrent Tasks to run physics
+    // simulation (startLayoutAnimation). When called in a loop with immediate node creation,
+    // these concurrent simulations can interfere with each other. Solution: Use model.addEdge()
+    // directly in tests, or create all nodes first before adding edges.
     @Test("Filter control kinds limits addEdge when node has many children")
     @MainActor
     func testFilterControlKindsLimitsAddEdge() async throws {
@@ -366,21 +370,29 @@ struct ControlNodeTests {
         }
         
         // Add 6 children (exceeds limit)
+        // Use model.addEdge() directly to avoid concurrent simulation interference
         for i in 0..<6 {
-            let childPos = CGPoint(x: 100 + CGFloat(i * 20), y: 120)
+            let childPos = CGPoint(x: 200 + CGFloat(i * 30), y: 100 + CGFloat(i * 30))
             let child = await viewModel.model.addNode(at: childPos)
-            await viewModel.addEdge(from: parent.id, to: child.id, type: .hierarchy)
+            await viewModel.model.addEdge(from: parent.id, target: child.id, type: .hierarchy)
         }
+        
+        // Verify we have exactly 6 hierarchy edges
+        let hierarchyChildren = viewModel.model.edges.filter { $0.from == parent.id && $0.type == .hierarchy }
+        #expect(hierarchyChildren.count == 6, "Expected 6 hierarchy edges, got \(hierarchyChildren.count)")
         
         // Generate controls for parent
         await viewModel.generateControls(for: parent.id)
+        
+        // Check what controls were actually generated
+        let controlKinds = viewModel.model.ephemeralControlNodes.filter { $0.ownerID == parent.id }.map { $0.kind.rawValue }
         
         // Verify that addEdge control is NOT present (too many children)
         let hasAddEdge = viewModel.model.ephemeralControlNodes.contains { control in
             control.ownerID == parent.id && control.kind == .addEdge
         }
         
-        #expect(!hasAddEdge, "addEdge control should be hidden when node has 6+ children")
+        #expect(!hasAddEdge, "addEdge control should be hidden when node has 6+ children. Controls generated: \(controlKinds.joined(separator: ", "))")
     }
     
     @Test("Filter control kinds only shows relevant controls for collapsible nodes")
