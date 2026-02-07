@@ -120,12 +120,12 @@ struct AccessibleCanvasRenderer {
             let labelPos = CGPoint(x: screenPos.x, y: screenPos.y - (node.radius + 12) * renderContext.zoomScale)
             ctx.draw(labelText, at: labelPos, anchor: .center)
             
-            // Existing +/- for ToggleNode
-            if let toggleNode = node as? ToggleNode {
+            // Existing +/- for collapsible nodes
+            if let concreteNode = node as? Node, concreteNode.isCollapsible {
                 var chevronContext = ctx
                 drawFloatingChevron(
                     at: screenPos,
-                    isExpanded: toggleNode.isExpanded,
+                    isExpanded: concreteNode.isExpanded,
                     in: &chevronContext,
                     zoomScale: renderContext.zoomScale
                 )

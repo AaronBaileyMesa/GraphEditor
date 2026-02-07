@@ -182,7 +182,7 @@ struct NodeMenuView: View {
     
     private var toggleExpandButton: some View {
         Group {
-            if let toggleNode = viewModel.model.toggleNode(with: selectedNodeID) {
+            if let toggleNode = viewModel.model.collapsibleNode(with: selectedNodeID) {
                 MenuButton(
                     action: {
                         Task { await viewModel.toggleSelectedNode() }

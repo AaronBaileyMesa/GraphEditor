@@ -35,9 +35,9 @@ struct NodeView: View {
                     .fill(node.fillColor)  // Or dynamic based on node type
                     .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
                 
-                // Add icon/label as in ToggleNode.draw
-                if let toggleNode = node as? ToggleNode {
-                    Text(toggleNode.isExpanded ? "-" : "+")
+                // Add icon/label for collapsible nodes
+                if let concreteNode = node as? Node, concreteNode.isCollapsible {
+                    Text(concreteNode.isExpanded ? "-" : "+")
                         .foregroundColor(.white)
                         .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
                 }

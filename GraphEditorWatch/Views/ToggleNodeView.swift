@@ -9,7 +9,7 @@ import SwiftUI
 import GraphEditorShared
 
 struct ToggleNodeView: View {
-    let node: ToggleNode  // Pass the ToggleNode instance
+    let node: Node  // Pass the collapsible Node instance
     let zoomScale: CGFloat  // For scaling icon with zoom (from your GraphCanvasView)
     let onTap: () -> Void  // Optional: Handle tap to toggle (if not using gestures)
 

@@ -65,7 +65,10 @@ import os
     
     var isSelectedToggleNode: Bool {
         guard let id = selectedNodeID else { return false }
-        return model.nodes.first { $0.id == id }?.unwrapped is ToggleNode
+        if let node = model.nodes.first(where: { $0.id == id })?.unwrapped as? Node {
+            return node.isCollapsible
+        }
+        return false
     }
     
     public var canUndo: Bool {
@@ -166,7 +169,13 @@ extension ControlKind {
         switch self {
         case .addChild:
             return { viewModel, nodeID in
-                await viewModel.model.addPlainChild(to: nodeID)  // Call existing model method (ensure it's public)
+                let success = await viewModel.model.addPlainChild(to: nodeID)
+                if success {
+                    WKInterfaceDevice.current().play(.click)
+                    Self.logger.debug("Added plain child to node \(nodeID.uuidString.prefix(8))")
+                } else {
+                    WKInterfaceDevice.current().play(.failure)
+                }
             }
         case .edit:
             return { viewModel, nodeID in
@@ -200,9 +209,13 @@ extension ControlKind {
         case .addToggleChild:
             return { viewModel, nodeID in
                 // Add a toggle node child
-                await viewModel.model.addToggleChild(to: nodeID)
-                WKInterfaceDevice.current().play(.click)
-                Self.logger.debug("Added toggle child to node \(nodeID.uuidString.prefix(8))")
+                let success = await viewModel.model.addToggleChild(to: nodeID)
+                if success {
+                    WKInterfaceDevice.current().play(.click)
+                    Self.logger.debug("Added toggle child to node \(nodeID.uuidString.prefix(8))")
+                } else {
+                    WKInterfaceDevice.current().play(.failure)
+                }
             }
         }
     }

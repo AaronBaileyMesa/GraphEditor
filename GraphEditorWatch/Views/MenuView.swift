@@ -26,7 +26,7 @@ struct MenuView: View {
     
     var body: some View {
         if let id = selectedNodeID, selectedEdgeID == nil {
-            if viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped is ToggleNode {
+            if let node = viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped as? Node, node.isCollapsible {
                 ToggleNodeMenuView(
                     viewModel: viewModel,
                     onDismiss: { showMenu = false },
