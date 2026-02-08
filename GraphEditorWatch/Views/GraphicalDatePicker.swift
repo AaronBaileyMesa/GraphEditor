@@ -26,7 +26,7 @@ struct GraphicalDatePicker: View {
     }
     
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 2) {
             monthYearPicker()
             calendarGrid()
             actionButtons()
@@ -39,16 +39,8 @@ struct GraphicalDatePicker: View {
         )
     }
     
-    // NEW: Helper to compute number of weeks (for dynamic height)
-    private var numberOfWeeks: Int {
-        let days = generateDays()
-        return (days.count + 6) / 7  // Ceiling division for weeks
-    }
-    
-    // NEW: Height helpers (estimates; adjust if needed based on testing)
-    private func headerHeight() -> CGFloat { cellSize / 2 }
-    private func weekdayHeight() -> CGFloat { cellSize / 2 }
-    private func rowHeight() -> CGFloat { cellSize }
+    // Height helpers
+    private func weekdayHeight() -> CGFloat { cellSize * 0.35 }
     
     private var minDate: Date { calendar.date(byAdding: .year, value: -100, to: Date()) ?? Date.distantPast }
     private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
@@ -130,37 +122,47 @@ struct GraphicalDatePicker: View {
     
     private func calendarGrid() -> some View {
         let days = generateDays()
-        return VStack(spacing: 2) {  // Reduced spacing for compactness
+        let weekCount = numberOfWeeks(for: days)
+        
+        return VStack(spacing: 1) {  // Minimal spacing
+            // Weekday headers
             HStack(spacing: 0) {
                 ForEach(Array(daysOfWeek.enumerated()), id: \.offset) { _, day in
-                    Text(day).frame(width: cellSize, height: weekdayHeight()).font(.caption2).foregroundColor(.gray)
+                    Text(day)
+                        .frame(width: cellSize, height: weekdayHeight())
+                        .font(.caption2)
+                        .foregroundColor(.gray)
                 }
             }
-            ForEach(0..<6) { week in  // Up to 6 weeks
+            
+            // Date cells - only show needed weeks
+            ForEach(0..<weekCount, id: \.self) { week in
                 HStack(spacing: 0) {
                     ForEach(0..<7) { dayIndex in
                         let index = week * 7 + dayIndex
-                        if index < days.count {  // Split: Check index first (non-optional Bool)
-                            if let dayDate = days[index] {  // Now isolated optional binding
-                                Button(action: { selectDay(dayDate) }, label: {
-                                    Text("\(calendar.component(.day, from: dayDate))")
-                                        .frame(width: cellSize, height: rowHeight())
-                                        .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
-                                        .clipShape(Circle())
-                                        .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
-                                })
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
-                            } else {
-                                Color.clear.frame(width: cellSize, height: rowHeight())
+                        if index < days.count, let dayDate = days[index] {
+                            Button(action: { selectDay(dayDate) }) {
+                                Text("\(calendar.component(.day, from: dayDate))")
+                                    .font(.system(size: max(10, 11 * 0.8)))
+                                    .frame(width: cellSize, height: cellSize * 0.9)
+                                    .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
+                                    .clipShape(Circle())
+                                    .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
                             }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
                         } else {
-                            Color.clear.frame(width: cellSize, height: rowHeight())
+                            Color.clear.frame(width: cellSize, height: cellSize * 0.9)
                         }
                     }
                 }
             }
         }
+    }
+    
+    // Calculate number of weeks needed for current month
+    private func numberOfWeeks(for days: [Date?]) -> Int {
+        return (days.count + 6) / 7  // Ceiling division
     }
     
     private func generateDays() -> [Date?] {
@@ -211,21 +213,21 @@ struct GraphicalDatePicker: View {
     
     // MARK: - Action Buttons
     private func actionButtons() -> some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Button(action: {
                 let today = Date()
                 date = today
                 displayMonth = today
                 WKInterfaceDevice.current().play(.success)
             }) {
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
                     Image(systemName: "calendar.badge.clock")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                     Text("Today")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .padding(.horizontal, 6)
                 .background(Color.blue.opacity(0.3))
                 .clipShape(Capsule())
             }
@@ -236,20 +238,20 @@ struct GraphicalDatePicker: View {
                 displayMonth = date
                 WKInterfaceDevice.current().play(.click)
             }) {
-                HStack(spacing: 3) {
+                HStack(spacing: 2) {
                     Image(systemName: "arrow.counterclockwise")
-                        .font(.system(size: 10))
+                        .font(.system(size: 9))
                     Text("Selected")
-                        .font(.system(size: 10, weight: .medium))
+                        .font(.system(size: 9, weight: .medium))
                 }
-                .padding(.vertical, 4)
-                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .padding(.horizontal, 6)
                 .background(Color.gray.opacity(0.3))
                 .clipShape(Capsule())
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Return to selected date")
         }
-        .padding(.top, 2)
+        .padding(.top, 1)
     }
 }
