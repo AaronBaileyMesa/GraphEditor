@@ -67,11 +67,34 @@ struct AccessibleCanvasRenderer {
         node: any NodeProtocol,
         saturation: Double,
         isSelected: Bool,
+        isEdgeCreationSource: Bool = false,
+        isEdgeCreationTarget: Bool = false,
         logger: Logger? = nil
     ) {
         let screenPos = modelToScreen(node.position, renderContext: renderContext)
         let scaledRadius = node.radius * renderContext.zoomScale  // Assume ControlNode has smaller radius
-        let borderWidth: CGFloat = isSelected ? max(3.0, 4 * renderContext.zoomScale) : 1.0
+        
+        // Determine border styling based on edge creation state
+        let borderWidth: CGFloat
+        let borderColor: Color
+        
+        if isEdgeCreationSource {
+            // Source node: thicker pulsing border
+            borderWidth = max(4.0, 5 * renderContext.zoomScale)
+            borderColor = .yellow
+        } else if isEdgeCreationTarget {
+            // Potential target: subtle highlight
+            borderWidth = max(2.5, 3 * renderContext.zoomScale)
+            borderColor = .cyan.opacity(0.8)
+        } else if isSelected {
+            // Normal selection
+            borderWidth = max(3.0, 4 * renderContext.zoomScale)
+            borderColor = .white
+        } else {
+            // Default
+            borderWidth = 1.0
+            borderColor = .gray.opacity(0.5)
+        }
         
         let nodeRect = CGRect(
             x: screenPos.x - scaledRadius,
@@ -88,7 +111,7 @@ struct AccessibleCanvasRenderer {
             fill = desaturatedColor(fill, saturation: saturation)
         }
         ctx.fill(nodePath, with: .color(fill))
-        ctx.stroke(nodePath, with: .color(isSelected ? .white : .gray.opacity(0.5)), lineWidth: borderWidth)
+        ctx.stroke(nodePath, with: .color(borderColor), lineWidth: borderWidth)
         
         // NEW: Handle ControlNode (no label, add icon)
         if let control = node as? ControlNode {

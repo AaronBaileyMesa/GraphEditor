@@ -82,12 +82,39 @@ struct AnimatedCanvasContent: View {
             
             // MARK: - Nodes (non-selected)
             for node in nonSelectedNodes {
+                // Determine if this node is a potential edge target
+                let isTarget: Bool
+                if isAddingEdge,
+                   let sourceID = viewModel.draggedNodeID,
+                   node.id != sourceID,
+                   !(node is ControlNode) {
+                    // Check if edge already exists (in either direction for undirected graphs)
+                    let edgeExists = allVisibleEdges.contains { edge in
+                        (edge.from == sourceID && edge.target == node.id) ||
+                        (edge.from == node.id && edge.target == sourceID)
+                    }
+                    
+                    // Check if edge would create a cycle (only for hierarchy edges)
+                    let wouldCycle = viewModel.pendingEdgeType == .hierarchy &&
+                                    viewModel.model.wouldCreateCycle(
+                                        withNewEdgeFrom: sourceID,
+                                        target: node.id,
+                                        type: viewModel.pendingEdgeType
+                                    )
+                    
+                    isTarget = !edgeExists && !wouldCycle
+                } else {
+                    isTarget = false
+                }
+                
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
                     graphicsContext: context,
                     node: node,  // Draw using actual model position
                     saturation: saturation,
-                    isSelected: false
+                    isSelected: false,
+                    isEdgeCreationSource: false,
+                    isEdgeCreationTarget: isTarget
                 )
             }
             
@@ -119,12 +146,17 @@ struct AnimatedCanvasContent: View {
             
             // MARK: - Selected Node (if any)
             if let node = selectedNode {
+                // Check if this selected node is the source of edge creation
+                let isSource = isAddingEdge && viewModel.draggedNodeID == node.id
+                
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
                     graphicsContext: context,
                     node: node,
                     saturation: saturation,
-                    isSelected: true
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false
                 )
             }
             
@@ -151,12 +183,17 @@ struct AnimatedCanvasContent: View {
             var draggedCopy = dragged
             draggedCopy.position = dragged.position + dragOffset
             
+            // Check if this dragged node is the source of edge creation
+            let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
+            
             AccessibleCanvasRenderer.drawSingleNode(
                 renderContext: renderContext,
                 graphicsContext: context,
                 node: draggedCopy,
                 saturation: saturation,
-                isSelected: true
+                isSelected: true,
+                isEdgeCreationSource: isSource,
+                isEdgeCreationTarget: false
             )
         }
         
