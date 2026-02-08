@@ -46,10 +46,18 @@ struct NodeView: View {
                     .foregroundColor(.white)
                     .font(.system(size: max(8.0, 12.0 * zoomScale)))
                     .offset(y: -(node.radius + 10) * zoomScale)  // Position above
+                
+                // NEW: Display first content if present (only at reasonable zoom levels)
+                if !node.contents.isEmpty, zoomScale >= 0.5 {
+                    Text(node.contents[0].displayText)
+                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: max(6.0, 9.0 * zoomScale)))
+                        .offset(y: (node.radius + 10) * zoomScale)  // Position below
+                }
             }
         }
         .accessibilityLabel(
-            (node as? ControlNode)?.kind.rawValue ?? "Node \(node.label)"
+            (node as? ControlNode)?.kind.rawValue ?? "Node \(node.label)" + (node.contents.isEmpty ? "" : ", \(node.contents[0].displayText)")
         )
     }
 }

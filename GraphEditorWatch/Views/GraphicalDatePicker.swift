@@ -13,6 +13,7 @@ import WatchKit  // Added for screenBounds
 struct GraphicalDatePicker: View {
     @Binding var date: Date
     @State private var displayMonth: Date  // Keep as Date for display
+    @State private var crownAccumulator: Double = 0.0  // Crown rotation value
     
     // NEW: Reference date for crown value (e.g., 1970-01-01)
     private let referenceDate = Date(timeIntervalSince1970: 0)
@@ -26,14 +27,31 @@ struct GraphicalDatePicker: View {
     init(date: Binding<Date>) {
         _date = date
         _displayMonth = State(initialValue: date.wrappedValue)
+        // Initialize crown accumulator to current month offset from reference
+        let monthsFromRef = Calendar.current.dateComponents([.month], from: referenceDate, to: date.wrappedValue).month ?? 0
+        _crownAccumulator = State(initialValue: Double(monthsFromRef))
     }
     
     var body: some View {
         VStack(spacing: 2) {  // Reduced spacing for compactness
             header()
             calendarGrid()
+            todayButton()
         }
-        .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months
+        .focusable(true)
+        .digitalCrownRotation(
+            $crownAccumulator,
+            from: monthsToMinDate,
+            through: monthsToMaxDate,
+            by: 1.0,
+            sensitivity: .medium,
+            isContinuous: false,
+            isHapticFeedbackEnabled: true
+        )
+        .onChange(of: crownAccumulator) { _, newValue in
+            updateMonthFromCrown(newValue)
+        }
+        .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months (backup gesture)
             .onEnded { value in
                 if value.translation.width < -50 { nextMonth() }
                 if value.translation.width > 50 { previousMonth() }
@@ -190,4 +208,39 @@ struct GraphicalDatePicker: View {
     private func isSelected(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, inSameDayAs: date) }
     private func isToday(_ dayDate: Date) -> Bool { calendar.isDateInToday(dayDate) }
     private func isCurrentMonth(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, equalTo: displayMonth, toGranularity: .month) }
+    
+    // MARK: - Crown Navigation
+    private func updateMonthFromCrown(_ months: Double) {
+        let monthOffset = Int(months.rounded())
+        if let newMonth = calendar.date(byAdding: .month, value: monthOffset, to: referenceDate),
+           newMonth >= minDate && newMonth <= maxDate {
+            displayMonth = newMonth
+        }
+    }
+    
+    // MARK: - Today Button
+    private func todayButton() -> some View {
+        Button(action: {
+            let today = Date()
+            date = today
+            displayMonth = today
+            let monthsFromRef = calendar.dateComponents([.month], from: referenceDate, to: today).month ?? 0
+            crownAccumulator = Double(monthsFromRef)
+            WKInterfaceDevice.current().play(.success)
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.caption2)
+                Text("Today")
+                    .font(.caption2)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .background(Color.blue.opacity(0.2))
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.top, 4)
+        .accessibilityLabel("Jump to today")
+    }
 }

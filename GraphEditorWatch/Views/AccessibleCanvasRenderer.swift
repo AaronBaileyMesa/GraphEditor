@@ -141,6 +141,16 @@ struct AccessibleCanvasRenderer {
             let labelPos = CGPoint(x: screenPos.x, y: screenPos.y - (node.radius + 12) * renderContext.zoomScale)
             ctx.draw(labelText, at: labelPos, anchor: .center)
             
+            // NEW: Draw first content item if present (below node)
+            if !node.contents.isEmpty, renderContext.zoomScale >= 0.5 {  // Only show at reasonable zoom levels
+                let contentText = node.contents[0].displayText
+                let contentLabel = Text(contentText)
+                    .font(.system(size: max(6, 9 * renderContext.zoomScale)))
+                    .foregroundColor(.white.opacity(0.8))
+                let contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * renderContext.zoomScale)
+                ctx.draw(contentLabel, at: contentPos, anchor: .center)
+            }
+            
             // Existing +/- for collapsible nodes
             if let concreteNode = node as? Node, concreteNode.isCollapsible {
                 var chevronContext = ctx
