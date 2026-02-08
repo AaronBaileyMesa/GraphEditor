@@ -75,7 +75,10 @@ struct ToggleNodeMenuView: View {
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { isMenuFocused = true }
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
+                isMenuFocused = true
+            }
         }
         .onChange(of: isMenuFocused) { _, newValue in
             if !newValue { isMenuFocused = true }

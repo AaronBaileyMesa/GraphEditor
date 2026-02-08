@@ -28,7 +28,6 @@ extension GraphViewModel {
         focusState = .graph
         
         await resumeSimulation()
-        objectWillChange.send()
     }
     
     @MainActor
@@ -54,7 +53,6 @@ extension GraphViewModel {
         
         focusState = .graph
         await resumeSimulation()
-        objectWillChange.send()
         Task { await startLayoutAnimation() }
     }
     

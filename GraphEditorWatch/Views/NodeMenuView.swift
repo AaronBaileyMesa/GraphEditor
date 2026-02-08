@@ -76,7 +76,8 @@ struct NodeMenuView: View {
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
                 isMenuFocused = true
             }
             Self.logger.debug("Node Menu appeared: selectedNodeID=\(selectedNodeID?.uuidString.prefix(8) ?? "nil")")

@@ -21,12 +21,6 @@ extension GraphViewModel {
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
             .debug("Generated controls for node \(nodeID.uuidString.prefix(8))")
         
-        // Trigger animation by updating state in an animation context
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-            redrawTrigger += 1
-            objectWillChange.send()
-        }
-        
         // Give SwiftUI a moment to render the overlay before resuming simulation
         try? await Task.sleep(nanoseconds: 50_000_000) // 50ms delay
         
@@ -41,12 +35,6 @@ extension GraphViewModel {
         
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
             .debug("Cleared controls")
-        
-        // Trigger animation by updating state in an animation context
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-            redrawTrigger += 1
-            objectWillChange.send()
-        }
         
         // Keep simulation paused when nothing is selected
     }

@@ -28,7 +28,6 @@ struct AnimatedCanvasContent: View {
     let currentDragLocation: CGPoint?
     let isAddingEdge: Bool
     let dragStartNode: (any NodeProtocol)?
-    let redrawTrigger: Int  // FIXED: Pass redrawTrigger to force recomputation
     
     var body: some View {
         Canvas { graphicsContext, _ in
@@ -141,7 +140,6 @@ struct AnimatedCanvasContent: View {
             // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
             drawDragPreview(in: &context, renderContext: renderContext, visibleNodes: visibleNodes)
         }
-        .id(redrawTrigger)  // FIXED: Force Canvas to recreate when redrawTrigger changes
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
@@ -195,7 +193,7 @@ struct AnimatedCanvasContent: View {
 }
 
 struct AccessibleCanvas: View {
-    let viewModel: GraphViewModel
+    @ObservedObject var viewModel: GraphViewModel
     let zoomScale: CGFloat
     let offset: CGSize
     let draggedNode: (any NodeProtocol)?
@@ -234,8 +232,7 @@ struct AccessibleCanvas: View {
                             saturation: saturation,
                             currentDragLocation: currentDragLocation,
                             isAddingEdge: isAddingEdge,
-                            dragStartNode: dragStartNode,
-                            redrawTrigger: viewModel.redrawTrigger
+                            dragStartNode: dragStartNode
                         )
                     }
                 } else {
@@ -254,12 +251,10 @@ struct AccessibleCanvas: View {
                         saturation: saturation,
                         currentDragLocation: currentDragLocation,
                         isAddingEdge: isAddingEdge,
-                        dragStartNode: dragStartNode,
-                        redrawTrigger: viewModel.redrawTrigger
+                        dragStartNode: dragStartNode
                     )
                 }
             }
-            .id(viewModel.redrawTrigger)
             
             // SwiftUI overlay for control nodes (immediate rendering)
             // Use @ObservedObject to ensure immediate updates
@@ -293,8 +288,7 @@ struct ControlNodesOverlayWrapper: View {
             effectiveCentroid: viewModel.effectiveCentroid,
             zoomScale: zoomScale,
             offset: offset,
-            viewSize: viewSize,
-            redrawTrigger: viewModel.redrawTrigger
+            viewSize: viewSize
         )
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: viewModel.model.ephemeralControlNodes.count)
     }
@@ -309,7 +303,6 @@ struct ControlNodesOverlay: View {
     let zoomScale: CGFloat
     let offset: CGSize
     let viewSize: CGSize
-    let redrawTrigger: Int
     
     var body: some View {
         // Find owner node position for animation anchor

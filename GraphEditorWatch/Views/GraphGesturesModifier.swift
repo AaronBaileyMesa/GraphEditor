@@ -115,7 +115,6 @@ struct GraphGesturesModifier: ViewModifier {
                         // Update attached control nodes' positions in real-time
                         // Maintains exact 40pt offset from owner node
                         viewModel.repositionEphemerals(for: dragged.id, to: newOwnerPos)
-                        viewModel.model.objectWillChange.send()  // Ensure redraw for non-ToggleNodes
                     }
                 }
                 

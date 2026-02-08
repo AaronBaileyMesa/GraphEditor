@@ -39,6 +39,5 @@ extension GraphViewModel {
         isAnimating = false
         
         await model.resetVelocityHistory()
-        objectWillChange.send()
     }
 }

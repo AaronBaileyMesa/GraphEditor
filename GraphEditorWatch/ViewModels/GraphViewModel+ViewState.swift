@@ -96,14 +96,11 @@ extension GraphViewModel {
         #if os(watchOS)
         WKInterfaceDevice.current().play(.click)
         #endif
-        
-        objectWillChange.send()
     }
     
     public func setSelectedEdge(_ id: UUID?) {
         selectedEdgeID = id
         focusState = id.map { .edge($0) } ?? .graph
-        objectWillChange.send()
     }
     
     // MARK: Tap Handling
@@ -136,8 +133,6 @@ extension GraphViewModel {
             Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
                 .debug("Selected node \(tappedNode.label) (type: \(type(of: tappedNode)))")
             #endif
-            
-            model.objectWillChange.send()
         } else {
             selectedNodeID = nil
             selectedEdgeID = nil
@@ -149,7 +144,6 @@ extension GraphViewModel {
         }
         
         focusState = selectedNodeID.map { .node($0) } ?? .graph
-        objectWillChange.send()
         await resumeSimulationAfterDelay()
     }
 }

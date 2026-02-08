@@ -59,6 +59,7 @@ struct GraphCanvasView: View {
             dragStartNode: dragStartNode,
             onUpdateZoomRanges: onUpdateZoomRanges
         )
+        .id("\(viewModel.zoomScale)-\(viewModel.offset.width)-\(viewModel.offset.height)")
         .modifier(GraphGesturesModifier(
             viewModel: viewModel,
             renderContext: renderContext,

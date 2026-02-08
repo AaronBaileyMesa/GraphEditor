@@ -25,22 +25,12 @@ import os
     @Published public var model: GraphModel
     @Published public var selectedEdgeID: UUID?
     @Published public var pendingEdgeType: EdgeType = .association
-    @Published public var selectedNodeID: UUID? {
-        didSet {
-            Task { @MainActor in
-                objectWillChange.send()
-                redrawTrigger += 1  // Force redraw on selection change
-                Self.logger.debug("Selected node changed to \(self.selectedNodeID?.uuidString.prefix(8) ?? "nil") – triggered controls update")
-                // REMOVED: isAnimating sets – now synced via $isSimulating subscription
-            }
-        }
-    }
+    @Published public var selectedNodeID: UUID?
     
     @Published public var offset: CGSize = .zero
     @Published public var zoomScale: CGFloat = 1.0
     @Published public var currentGraphName: String = "default"
     @Published public var draggedNodeID: UUID?
-    @Published public var redrawTrigger: Int = 0  // Increments to force view redraws
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
     @Published public var lastFrameTime: Date?  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
@@ -97,11 +87,10 @@ import os
             self.model = model
             self.currentGraphName = model.currentGraphName  // Sync on init
             
-            // Forward model's changes (store directly without assigning the whole chain)
+            // Forward model's changes to trigger view updates
             model.objectWillChange
-                .receive(on: RunLoop.main)  // Use RunLoop.main for immediate execution in the current run loop
+                .receive(on: RunLoop.main)
                 .sink { [weak self] _ in
-                    self?.redrawTrigger += 1  // NEW: Increment to trigger redraw
                     self?.objectWillChange.send()
                 }
                 .store(in: &cancellables)
@@ -203,13 +192,6 @@ extension ControlKind {
                 if let newID = await viewModel.model.duplicateNode(withID: nodeID) {
                     WKInterfaceDevice.current().play(.click)
                     Self.logger.debug("Duplicated node \(nodeID.uuidString.prefix(8)) to \(newID.uuidString.prefix(8))")
-                    
-                    // CRITICAL: Force immediate render while simulation is paused
-                    // This ensures the new node appears in the Canvas before simulation resumes
-                    await MainActor.run {
-                        viewModel.objectWillChange.send()
-                        viewModel.redrawTrigger += 1
-                    }
                     
                     // Give SwiftUI time to render the new node while paused
                     try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
