@@ -14,45 +14,70 @@ struct EditContentSheet: View {
     let viewModel: GraphViewModel
     let onSave: ([NodeContent]) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var contents: [NodeContent] = []
     @State private var selectedType: DataType?
     @State private var selectedComponent: DateField?
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberString: String = ""  // Changed to string for custom input
-    @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
     @State private var dateChanged: Bool = false  // NEW: Track if date was modified
+    @State private var hasNavigated: Bool = false  // Track if we've navigated away
     
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                contentsSection(proxy: proxy)
+        NavigationStack {
+            ScrollViewReader { proxy in
+                List {
+                    contentsSection(proxy: proxy)
+                }
+                .navigationTitle("Contents")
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Done") {
+                            dismiss()
+                        }
+                    }
+                }
             }
-            .navigationTitle("Contents")  // Changed to "Contents" as requested
-            .navigationBarTitleDisplayMode(.inline)
-            .focused($isSheetFocused)
-            .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
             .onChange(of: dateValue) { _, _ in
-                dateChanged = true  // NEW: Set flag on any change (no add here)
+                dateChanged = true
             }
-            .onChange(of: selectedType) { oldValue, _ in
-                addPendingContent(for: oldValue)  // NEW: Add pending for previous type on switch
-            }
-            .onChange(of: isSheetFocused) { _, newValue in
-                print("Sheet focus changed to: \(newValue)")
+            .onChange(of: selectedType) { oldValue, newValue in
+                print("📋 Type changed from \(String(describing: oldValue)) to \(String(describing: newValue))")
+                addPendingContent(for: oldValue)
             }
             .onAppear {
-                isSheetFocused = true
+                print("📋 EditContentSheet appeared for node: \(selectedID)")
                 if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents  // Load existing contents
-                    Task { await viewModel.model.snapshot() }  // Pre-edit snapshot for undo (async to match model API)
+                    contents = node.contents
+                    print("📋 Loaded \(contents.count) contents")
+                    Task { await viewModel.model.snapshot() }
+                } else {
+                    print("⚠️ Node not found!")
                 }
             }
             .onDisappear {
-                print("onDisappear triggered - saving contents: \(contents)")  // Debug log
-                addPendingContent(for: selectedType)  // Handle unsaved for current type
-                onSave(contents)
+                // Only save if we haven't navigated to a child view
+                if !hasNavigated {
+                    print("📋 EditContentSheet disappearing - saving \(contents.count) contents")
+                    addPendingContent(for: selectedType)
+                    onSave(contents)
+                } else {
+                    print("📋 EditContentSheet temporarily hidden (navigation)")
+                    hasNavigated = false  // Reset for when we come back
+                }
+            }
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        print("📋 Save button tapped")
+                        addPendingContent(for: selectedType)
+                        onSave(contents)
+                        dismiss()
+                    }
+                }
             }
         }
     }
@@ -107,7 +132,6 @@ struct EditContentSheet: View {
         switch type {
         case .string:
             TextField("Enter text", text: $stringValue)
-                .focused($isSheetFocused)
                 .onSubmit { addStringContent() }
         case .date:
             GraphicalDatePicker(date: $dateValue)
@@ -119,52 +143,28 @@ struct EditContentSheet: View {
                 )
                 .fixedSize(horizontal: false, vertical: true)
         case .number:
-            VStack(spacing: 4) {
-                // Display with +/- buttons
-                HStack(spacing: 4) {
-                    Button(action: {
-                        if let current = Double(numberString) {
-                            numberString = String(current - 1.0)
-                        }
-                    }) {
-                        Image(systemName: "minus.circle.fill")
-                            .font(.system(size: 16))
+            NavigationLink {
+                SimpleCrownNumberInput(value: Binding(
+                    get: { Double(numberString) ?? 0.0 },
+                    set: { newValue in
+                        numberString = String(format: "%.2f", newValue)
+                        print("📋 Number updated to: \(numberString)")
                     }
-                    .buttonStyle(.plain)
-                    
-                    TextField("0.00", text: $numberString)
-                        .font(.system(size: 14, weight: .medium))
-                        .multilineTextAlignment(.center)
-                        .frame(height: 30)
-                        .background(Color.gray.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                        .focused($isSheetFocused)
-                    
-                    Button(action: {
-                        if let current = Double(numberString) {
-                            numberString = String(current + 1.0)
-                        } else {
-                            numberString = "1.0"
-                        }
-                    }) {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.system(size: 16))
-                    }
-                    .buttonStyle(.plain)
+                ))
+                .onAppear {
+                    hasNavigated = true
                 }
-                
-                // Quick value buttons
-                HStack(spacing: 3) {
-                    quickValueButton("0", value: "0")
-                    quickValueButton("10", value: "10")
-                    quickValueButton("100", value: "100")
-                    quickValueButton("Clear", value: "") {
-                        Image(systemName: "xmark.circle")
-                            .font(.system(size: 10))
-                    }
+            } label: {
+                HStack {
+                    Text("Enter number")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(numberString.isEmpty ? "0.00" : numberString)
+                        .font(.caption)
+                        .foregroundColor(.white)
                 }
             }
-            .onSubmit { addNumberContent() }
         }
     }
     
@@ -220,17 +220,28 @@ struct EditContentSheet: View {
     @ViewBuilder
     private func numberEditView(for index: Int) -> some View {
         if case .number(var value) = contents[index] {
-            NumericKeypadView(text: Binding(
-                get: { String(format: "%.2f", value) },
-                set: { newValue in
-                    if let num = Double(newValue) {
-                        contents[index] = .number(num)
-                        value = num
+            NavigationLink {
+                SimpleCrownNumberInput(value: Binding(
+                    get: { value },
+                    set: { newValue in
+                        contents[index] = .number(newValue)
+                        value = newValue
+                        editingIndex = nil  // Exit edit when done
                     }
+                ))
+                .onAppear {
+                    hasNavigated = true
                 }
-            ))
-            .onSubmit {
-                editingIndex = nil  // Exit edit on submit
+            } label: {
+                HStack {
+                    Text("Edit number")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(String(format: "%.2f", value))
+                        .font(.caption)
+                        .foregroundColor(.white)
+                }
             }
         }
     }
@@ -310,27 +321,6 @@ struct EditContentSheet: View {
         stringValue = ""
         dateValue = Date()
         numberString = ""  // Reset string instead
-    }
-    
-    @ViewBuilder
-    private func quickValueButton<Content: View>(_ label: String, value: String, @ViewBuilder content: () -> Content = { EmptyView() }) -> some View {
-        Button(action: {
-            numberString = value
-            WKInterfaceDevice.current().play(.click)
-        }) {
-            if label == "Clear" {
-                content()
-            } else {
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 3)
-        .padding(.horizontal, 4)
-        .background(Color.gray.opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .buttonStyle(.plain)
     }
 }
 
