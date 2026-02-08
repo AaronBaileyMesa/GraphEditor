@@ -42,131 +42,22 @@ struct GraphGesturesModifier: ViewModifier {
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
     
-    // swiftlint:disable:next function_body_length
     func body(content: Content) -> some View {
-        // Using minimumDistance: 0 to detect touch immediately for long press desaturation
         let dragGesture = DragGesture(minimumDistance: 0, coordinateSpace: .local)
             .onChanged { value in
-                // Log EVERY change to diagnose tap detection issues
-                let isFirstChange = currentDragLocation == nil
-                if isFirstChange {
-                    Self.logger.debug("DragGesture FIRST onChanged: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) startLocation=\(value.startLocation.x, format: .fixed(precision: 1)),\(value.startLocation.y, format: .fixed(precision: 1)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
-                    
-                    // Start long press desaturation on first touch
-                    longPressStartLocation = value.startLocation
-                    handleLongPressStart()
-                }
-                currentDragLocation = value.location  // Track for edge preview
-                let translation = value.translation
-                let magnitude = hypot(translation.width, translation.height)
-                
-                // Only log significant drags to reduce noise
-                if magnitude > dragStartThreshold || draggedNode != nil {
-                    Self.logger.debug("Drag changed: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(translation.width, format: .fixed(precision: 1)),\(translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2))")
-                }
-                
-                if draggedNode == nil && magnitude > dragStartThreshold && !hasCheckedForNodeThisGesture {
-                    // Mark that we've checked for a node - prevents repeated checks during pan
-                    hasCheckedForNodeThisGesture = true
-                    
-                    // Cancel long press immediately when drag threshold is exceeded
-                    handleLongPressCancel()
-                    longPressStartLocation = nil
-                    
-                    let screenPos = value.startLocation
-                    let modelPos = CoordinateTransformer.screenToModel(screenPos, renderContext)
-                    Self.logger.debug("Drag threshold exceeded: checking for node at start location=\(screenPos.x, format: .fixed(precision: 1)),\(screenPos.y, format: .fixed(precision: 1))")
-                    if let hitNode = HitTestHelper.closestNode(at: screenPos, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
-                        draggedNode = hitNode
-                        dragStartNode = hitNode
-                        let initialModelPos = hitNode.position
-                        dragOffset = modelPos - initialModelPos
-                        selectedNodeID = hitNode.id
-                        viewModel.draggedNodeID = hitNode.id
-                        viewModel.model.draggedNodeID = hitNode.id  // Sync to model for physics exclusion
-                        
-                        // CRITICAL: Pause simulation BEFORE repositioning to prevent race condition
-                        // Must be synchronous to ensure no physics steps occur during drag
-                        viewModel.model.physicsEngine.isPaused = true
-                        
-                        // Reposition controls immediately to ensure correct distance
-                        viewModel.repositionEphemerals(for: hitNode.id, to: initialModelPos)
-                        
-                        Self.logger.debug("Started dragging node \(hitNode.id.uuidString.prefix(8)) - paused physics")
-                    } else if let hitEdge = HitTestHelper.closestEdge(at: screenPos, visibleEdges: viewModel.model.visibleEdges, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
-                        selectedEdgeID = hitEdge.id
-                        selectedNodeID = nil
-                    } else {
-                        panStartOffset = offset
-                    }
-                }
-                
-                if let dragged = draggedNode {
-                    let liveScreenPos = value.location
-                    let liveModelPos = CoordinateTransformer.screenToModel(liveScreenPos, renderContext)
-                    let newOwnerPos = liveModelPos - dragOffset  // Corrected: Use - for accurate delta
-                    
-                    if let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
-                        let oldOwnerPos = viewModel.model.nodes[nodeIndex].position
-                        // Existing: Update dragged node's position
-                        Self.logger.debug("Drag: oldOwner=(\(oldOwnerPos.x, format: .fixed(precision: 1)),\(oldOwnerPos.y, format: .fixed(precision: 1))) newOwner=(\(newOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y, format: .fixed(precision: 1))) delta=(\(newOwnerPos.x - oldOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y - oldOwnerPos.y, format: .fixed(precision: 1)))")
-                        viewModel.model.nodes[nodeIndex].position = newOwnerPos
-                        
-                        // Update attached control nodes' positions in real-time
-                        // Maintains exact 40pt offset from owner node
-                        viewModel.repositionEphemerals(for: dragged.id, to: newOwnerPos)
-                    }
-                }
-                
-                // Edge preview (unchanged)
-                if isAddingEdge,
-                   let dragged = draggedNode,
-                   let pos = currentDragLocation {
-                    if let target = HitTestHelper.closestNode(at: pos, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext),
-                       target.id != dragged.id {
-                        potentialEdgeTarget = target
-                    } else {
-                        potentialEdgeTarget = nil
-                    }
-                }
-                
-                // Pan handling (adapted from your case .none)
-                if draggedNode == nil {
-                    let delta = CGSize(
-                        width: value.translation.width - (panStartOffset?.width ?? 0),
-                        height: value.translation.height - (panStartOffset?.height ?? 0)
-                    )
-                    offset.width += delta.width / zoomScale
-                    offset.height += delta.height / zoomScale
-                    panStartOffset = value.translation
-                }
+                handleDragChanged(value)
             }
             .onEnded { value in
-                let magnitude = hypot(value.translation.width, value.translation.height)
-                Self.logger.debug("DragGesture onEnded: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(value.translation.width, format: .fixed(precision: 1)),\(value.translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
-                
-                // Clean up long press state if it wasn't converted to a long press
-                if longPressStartLocation != nil {
-                    handleLongPressCancel()
-                    longPressStartLocation = nil
-                }
-                
                 handleDragEnded(value)
             }
         
-        // Long press gesture for menu - completed when duration elapses
         let longPressGesture = LongPressGesture(minimumDuration: AppConstants.menuLongPressDuration, maximumDistance: 25.0)
             .onEnded { _ in
-                if draggedNode == nil {
-                    handleLongPressEnded()
-                } else {
-                    handleLongPressCancel()
-                }
+                handleLongPressGestureEnded()
             }
 
         content
             .highPriorityGesture(
-                // Use SpatialTapGesture on watchOS to get tap location
                 SpatialTapGesture(coordinateSpace: .local)
                     .onEnded { event in
                         let location = event.location
@@ -176,12 +67,179 @@ struct GraphGesturesModifier: ViewModifier {
                                       visibleEdges: viewModel.model.visibleEdges)
                     }
             )
-            .gesture(dragGesture)  // Lower priority for drag (includes long press detection)
-            .simultaneousGesture(longPressGesture)  // Re-enabled: Long press for menu
-
+            .gesture(dragGesture)
+            .simultaneousGesture(longPressGesture)
     }
     
-    // FIXED: Restore handlers from old version (adapted for latest)
+    // MARK: - Drag Gesture Handlers
+    
+    // swiftlint:disable:next function_body_length
+    private func handleDragChanged(_ value: DragGesture.Value) {
+        // Log EVERY change to diagnose tap detection issues
+        let isFirstChange = currentDragLocation == nil
+        if isFirstChange {
+            Self.logger.debug("DragGesture FIRST onChanged: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) startLocation=\(value.startLocation.x, format: .fixed(precision: 1)),\(value.startLocation.y, format: .fixed(precision: 1)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
+            
+            // Start long press desaturation on first touch
+            longPressStartLocation = value.startLocation
+            handleLongPressStart()
+        }
+        currentDragLocation = value.location  // Track for edge preview
+        let translation = value.translation
+        let magnitude = hypot(translation.width, translation.height)
+        
+        // Only log significant drags to reduce noise
+        if magnitude > dragStartThreshold || draggedNode != nil {
+            Self.logger.debug("Drag changed: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(translation.width, format: .fixed(precision: 1)),\(translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2))")
+        }
+        
+        if draggedNode == nil && magnitude > dragStartThreshold && !hasCheckedForNodeThisGesture {
+            // Mark that we've checked for a node - prevents repeated checks during pan
+            hasCheckedForNodeThisGesture = true
+            
+            // Cancel long press immediately when drag threshold is exceeded
+            handleLongPressCancel()
+            longPressStartLocation = nil
+            
+            let screenPos = value.startLocation
+            let modelPos = CoordinateTransformer.screenToModel(screenPos, renderContext)
+            Self.logger.debug("Drag threshold exceeded: checking for node at start location=\(screenPos.x, format: .fixed(precision: 1)),\(screenPos.y, format: .fixed(precision: 1))")
+            if let hitNode = HitTestHelper.closestNode(at: screenPos, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
+                draggedNode = hitNode
+                dragStartNode = hitNode
+                let initialModelPos = hitNode.position
+                dragOffset = modelPos - initialModelPos
+                selectedNodeID = hitNode.id
+                viewModel.draggedNodeID = hitNode.id
+                viewModel.model.draggedNodeID = hitNode.id  // Sync to model for physics exclusion
+                
+                // CRITICAL: Pause simulation BEFORE repositioning to prevent race condition
+                // Must be synchronous to ensure no physics steps occur during drag
+                viewModel.model.physicsEngine.isPaused = true
+                
+                // Reposition controls immediately to ensure correct distance
+                viewModel.repositionEphemerals(for: hitNode.id, to: initialModelPos)
+                
+                Self.logger.debug("Started dragging node \(hitNode.id.uuidString.prefix(8)) - paused physics")
+            } else if let hitEdge = HitTestHelper.closestEdge(at: screenPos, visibleEdges: viewModel.model.visibleEdges, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
+                selectedEdgeID = hitEdge.id
+                selectedNodeID = nil
+            } else {
+                panStartOffset = offset
+            }
+        }
+        
+        if let dragged = draggedNode {
+            let liveScreenPos = value.location
+            let liveModelPos = CoordinateTransformer.screenToModel(liveScreenPos, renderContext)
+            let newOwnerPos = liveModelPos - dragOffset  // Corrected: Use - for accurate delta
+            
+            if let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == dragged.id }) {
+                let oldOwnerPos = viewModel.model.nodes[nodeIndex].position
+                // Existing: Update dragged node's position
+                Self.logger.debug("Drag: oldOwner=(\(oldOwnerPos.x, format: .fixed(precision: 1)),\(oldOwnerPos.y, format: .fixed(precision: 1))) newOwner=(\(newOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y, format: .fixed(precision: 1))) delta=(\(newOwnerPos.x - oldOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y - oldOwnerPos.y, format: .fixed(precision: 1)))")
+                viewModel.model.nodes[nodeIndex].position = newOwnerPos
+                
+                // Update attached control nodes' positions in real-time
+                // Maintains exact 40pt offset from owner node
+                viewModel.repositionEphemerals(for: dragged.id, to: newOwnerPos)
+            }
+        }
+        
+        // Edge preview (unchanged)
+        if isAddingEdge,
+           let dragged = draggedNode,
+           let pos = currentDragLocation {
+            if let target = HitTestHelper.closestNode(at: pos, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext),
+               target.id != dragged.id {
+                potentialEdgeTarget = target
+            } else {
+                potentialEdgeTarget = nil
+            }
+        }
+        
+        // Pan handling (adapted from your case .none)
+        if draggedNode == nil {
+            let delta = CGSize(
+                width: value.translation.width - (panStartOffset?.width ?? 0),
+                height: value.translation.height - (panStartOffset?.height ?? 0)
+            )
+            offset.width += delta.width / zoomScale
+            offset.height += delta.height / zoomScale
+            panStartOffset = value.translation
+        }
+    }
+    
+    private func handleDragEnded(_ value: DragGesture.Value) {
+        let magnitude = hypot(value.translation.width, value.translation.height)
+        Self.logger.debug("DragGesture onEnded: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(value.translation.width, format: .fixed(precision: 1)),\(value.translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
+        
+        // Clean up long press state if it wasn't converted to a long press
+        if longPressStartLocation != nil {
+            handleLongPressCancel()
+            longPressStartLocation = nil
+        }
+        
+        let moved = magnitude >= dragStartThreshold
+        Self.logger.debug("Drag ended: magnitude=\(magnitude, format: .fixed(precision: 2)) threshold=\(dragStartThreshold, format: .fixed(precision: 2)) moved=\(moved) hasDraggedNode=\(draggedNode != nil)")
+        
+        // Treat as tap if movement was small AND we didn't start dragging a node
+        if !moved && draggedNode == nil {
+            Self.logger.debug("Treating as tap at location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1))")
+            _ = handleTap(
+                at: value.location,
+                visibleNodes: viewModel.model.visibleNodes,
+                visibleEdges: viewModel.model.visibleEdges
+            )
+            resetGestureState()
+            return
+        }
+        
+        // If we started dragging but movement was small, still treat as tap
+        if !moved && draggedNode != nil {
+            Self.logger.debug("Drag was too small, treating as tap instead")
+            _ = handleTap(at: value.location,
+                          visibleNodes: viewModel.model.visibleNodes,
+                          visibleEdges: viewModel.model.visibleEdges)
+            resetGestureState()
+            return
+        }
+        
+        // Edge creation (FIXED: No 'EdgeType.directed' – use viewModel.pendingEdgeType; treat as undirected for uniqueness check)
+        // Skip edge creation if we just entered edge mode (prevents immediate completion on control tap)
+        if isAddingEdge && !justEnteredEdgeMode,
+           let from = draggedNode ?? dragStartNode,
+           let target = HitTestHelper.closestNode(at: value.location,
+                                                  visibleNodes: viewModel.model.visibleNodes,
+                                                  renderContext: renderContext),
+           from.id != target.id,
+           !viewModel.model.edges.contains(where: { ($0.from == from.id && $0.target == target.id) ||
+               ($0.from == target.id && $0.target == from.id) }) {
+            let type = viewModel.pendingEdgeType  // Assume this is set elsewhere (e.g., .hierarchy)
+            Task { await viewModel.addEdge(from: from.id, to: target.id, type: type) }
+            Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(target.label)\"")
+        }
+        
+        // Clear the flag after first drag-end
+        if justEnteredEdgeMode {
+            justEnteredEdgeMode = false
+            // Don't reset gesture state when entering edge mode - we need to preserve state
+            Self.logger.debug("Skipping resetGestureState because we just entered edge mode")
+            return
+        }
+        
+        resetGestureState()
+    }
+    
+    // MARK: - Long Press Handlers
+    
+    private func handleLongPressGestureEnded() {
+        if draggedNode == nil {
+            handleLongPressEnded()
+        } else {
+            handleLongPressCancel()
+        }
+    }
     private func handleLongPressStart() {
         Self.logger.debug("Long press started: Beginning desaturation")
         pressProgress = 0.0
@@ -243,59 +301,6 @@ struct GraphGesturesModifier: ViewModifier {
             pressProgress = 0.0
             saturation = 1.0  // Reset saturation
         }
-    }
-    
-    private func handleDragEnded(_ value: DragGesture.Value) {
-        let magnitude = hypot(value.translation.width, value.translation.height)
-        let moved = magnitude >= dragStartThreshold
-        Self.logger.debug("Drag ended: magnitude=\(magnitude, format: .fixed(precision: 2)) threshold=\(dragStartThreshold, format: .fixed(precision: 2)) moved=\(moved) hasDraggedNode=\(draggedNode != nil)")
-        
-        // Treat as tap if movement was small AND we didn't start dragging a node
-        if !moved && draggedNode == nil {
-            Self.logger.debug("Treating as tap at location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1))")
-            _ = handleTap(
-                at: value.location,
-                visibleNodes: viewModel.model.visibleNodes,
-                visibleEdges: viewModel.model.visibleEdges
-            )
-            resetGestureState()
-            return
-        }
-        
-        // If we started dragging but movement was small, still treat as tap
-        if !moved && draggedNode != nil {
-            Self.logger.debug("Drag was too small, treating as tap instead")
-            _ = handleTap(at: value.location,
-                          visibleNodes: viewModel.model.visibleNodes,
-                          visibleEdges: viewModel.model.visibleEdges)
-            resetGestureState()
-            return
-        }
-        
-        // Edge creation (FIXED: No 'EdgeType.directed' – use viewModel.pendingEdgeType; treat as undirected for uniqueness check)
-        // Skip edge creation if we just entered edge mode (prevents immediate completion on control tap)
-        if isAddingEdge && !justEnteredEdgeMode,
-           let from = draggedNode ?? dragStartNode,
-           let target = HitTestHelper.closestNode(at: value.location,
-                                                  visibleNodes: viewModel.model.visibleNodes,
-                                                  renderContext: renderContext),
-           from.id != target.id,
-           !viewModel.model.edges.contains(where: { ($0.from == from.id && $0.target == target.id) ||
-               ($0.from == target.id && $0.target == from.id) }) {
-            let type = viewModel.pendingEdgeType  // Assume this is set elsewhere (e.g., .hierarchy)
-            Task { await viewModel.addEdge(from: from.id, to: target.id, type: type) }
-            Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(target.label)\"")
-        }
-        
-        // Clear the flag after first drag-end
-        if justEnteredEdgeMode {
-            justEnteredEdgeMode = false
-            // Don't reset gesture state when entering edge mode - we need to preserve state
-            Self.logger.debug("Skipping resetGestureState because we just entered edge mode")
-            return
-        }
-        
-        resetGestureState()
     }
     
     // MARK: - Tap Handling
