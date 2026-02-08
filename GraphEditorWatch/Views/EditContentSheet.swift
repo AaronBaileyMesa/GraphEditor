@@ -119,9 +119,52 @@ struct EditContentSheet: View {
                 )
                 .fixedSize(horizontal: false, vertical: true)
         case .number:
-            NumericKeypadView(text: $numberString)
-                .focused($isSheetFocused)
-                .onSubmit { addNumberContent() }
+            VStack(spacing: 4) {
+                // Display with +/- buttons
+                HStack(spacing: 4) {
+                    Button(action: {
+                        if let current = Double(numberString) {
+                            numberString = String(current - 1.0)
+                        }
+                    }) {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 16))
+                    }
+                    .buttonStyle(.plain)
+                    
+                    TextField("0.00", text: $numberString)
+                        .font(.system(size: 14, weight: .medium))
+                        .multilineTextAlignment(.center)
+                        .frame(height: 30)
+                        .background(Color.gray.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .focused($isSheetFocused)
+                    
+                    Button(action: {
+                        if let current = Double(numberString) {
+                            numberString = String(current + 1.0)
+                        } else {
+                            numberString = "1.0"
+                        }
+                    }) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16))
+                    }
+                    .buttonStyle(.plain)
+                }
+                
+                // Quick value buttons
+                HStack(spacing: 3) {
+                    quickValueButton("0", value: "0")
+                    quickValueButton("10", value: "10")
+                    quickValueButton("100", value: "100")
+                    quickValueButton("Clear", value: "") {
+                        Image(systemName: "xmark.circle")
+                            .font(.system(size: 10))
+                    }
+                }
+            }
+            .onSubmit { addNumberContent() }
         }
     }
     
@@ -267,6 +310,27 @@ struct EditContentSheet: View {
         stringValue = ""
         dateValue = Date()
         numberString = ""  // Reset string instead
+    }
+    
+    @ViewBuilder
+    private func quickValueButton<Content: View>(_ label: String, value: String, @ViewBuilder content: () -> Content = { EmptyView() }) -> some View {
+        Button(action: {
+            numberString = value
+            WKInterfaceDevice.current().play(.click)
+        }) {
+            if label == "Clear" {
+                content()
+            } else {
+                Text(label)
+                    .font(.system(size: 9, weight: .medium))
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 3)
+        .padding(.horizontal, 4)
+        .background(Color.gray.opacity(0.2))
+        .clipShape(RoundedRectangle(cornerRadius: 4))
+        .buttonStyle(.plain)
     }
 }
 
