@@ -13,10 +13,6 @@ import WatchKit  // Added for screenBounds
 struct GraphicalDatePicker: View {
     @Binding var date: Date
     @State private var displayMonth: Date  // Keep as Date for display
-    @State private var crownAccumulator: Double = 0.0  // Crown rotation value
-    
-    // NEW: Reference date for crown value (e.g., 1970-01-01)
-    private let referenceDate = Date(timeIntervalSince1970: 0)
     
     private let calendar = Calendar.current
     private let daysOfWeek = DateFormatter().veryShortWeekdaySymbols ?? ["S", "M", "T", "W", "T", "F", "S"]  // Single letters
@@ -27,31 +23,15 @@ struct GraphicalDatePicker: View {
     init(date: Binding<Date>) {
         _date = date
         _displayMonth = State(initialValue: date.wrappedValue)
-        // Initialize crown accumulator to current month offset from reference
-        let monthsFromRef = Calendar.current.dateComponents([.month], from: referenceDate, to: date.wrappedValue).month ?? 0
-        _crownAccumulator = State(initialValue: Double(monthsFromRef))
     }
     
     var body: some View {
-        VStack(spacing: 2) {  // Reduced spacing for compactness
-            header()
+        VStack(spacing: 4) {
+            monthYearPicker()
             calendarGrid()
-            todayButton()
+            actionButtons()
         }
-        .focusable(true)
-        .digitalCrownRotation(
-            $crownAccumulator,
-            from: monthsToMinDate,
-            through: monthsToMaxDate,
-            by: 1.0,
-            sensitivity: .medium,
-            isContinuous: false,
-            isHapticFeedbackEnabled: true
-        )
-        .onChange(of: crownAccumulator) { _, newValue in
-            updateMonthFromCrown(newValue)
-        }
-        .gesture(DragGesture(minimumDistance: 20)  // Swipe to change months (backup gesture)
+        .gesture(DragGesture(minimumDistance: 30)  // Swipe to change months
             .onEnded { value in
                 if value.translation.width < -50 { nextMonth() }
                 if value.translation.width > 50 { previousMonth() }
@@ -70,61 +50,81 @@ struct GraphicalDatePicker: View {
     private func weekdayHeight() -> CGFloat { cellSize / 2 }
     private func rowHeight() -> CGFloat { cellSize }
     
-    // UPDATED: Dynamic crown range (months from reference to min/max)
-    private var monthsToMinDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: minDate).month ?? -1200) }
-    private var monthsToMaxDate: Double { Double(Calendar.current.dateComponents([.month], from: referenceDate, to: maxDate).month ?? 1200) }
-    
     private var minDate: Date { calendar.date(byAdding: .year, value: -100, to: Date()) ?? Date.distantPast }
     private var maxDate: Date { calendar.date(byAdding: .year, value: 100, to: Date()) ?? Date.distantFuture }
     
-    // UPDATED: Arrows pushed to edges with Spacer, closer pairs (spacing:0), smaller font for text
-    private func header() -> some View {
-        HStack(spacing: 0) {  // No overall spacing; use Spacer for edges
-            HStack(spacing: 0) {  // Left pair close together
-                Button(action: previousYear) {
-                    Image(systemName: "chevron.left.2").padding(6)
-                }
-                .contentShape(Rectangle())
-                .buttonStyle(PlainButtonStyle())
-                
+    // Simplified month/year picker with steppers
+    private func monthYearPicker() -> some View {
+        HStack(spacing: 8) {
+            // Month stepper
+            HStack(spacing: 2) {
                 Button(action: previousMonth) {
-                    Image(systemName: "chevron.left").padding(6)
+                    Image(systemName: "chevron.left")
+                        .font(.caption2)
+                        .padding(4)
                 }
-                .contentShape(Rectangle())
-                .buttonStyle(PlainButtonStyle())
-            }
-            
-            Spacer()  // Push text to center
-            
-            Text(monthYearString)
-                .font(.system(size: 12, weight: .medium))  // Slightly larger font for readability
-                .frame(maxWidth: .infinity, alignment: .center)
-            
-            Spacer()  // Push right pair to edge
-            
-            HStack(spacing: 0) {  // Right pair close together
+                .buttonStyle(.plain)
+                
+                Text(monthString)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(minWidth: 30)
+                
                 Button(action: nextMonth) {
-                    Image(systemName: "chevron.right").padding(6)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .padding(4)
                 }
-                .contentShape(Rectangle())
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Color.gray.opacity(0.2))
+            .clipShape(Capsule())
+            
+            // Year stepper
+            HStack(spacing: 2) {
+                Button(action: previousYear) {
+                    Image(systemName: "chevron.left")
+                        .font(.caption2)
+                        .padding(4)
+                }
+                .buttonStyle(.plain)
+                
+                Text(yearString)
+                    .font(.system(size: 11, weight: .medium))
+                    .frame(minWidth: 35)
                 
                 Button(action: nextYear) {
-                    Image(systemName: "chevron.right.2").padding(6)
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .padding(4)
                 }
-                .contentShape(Rectangle())
-                .buttonStyle(PlainButtonStyle())
+                .buttonStyle(.plain)
             }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Color.gray.opacity(0.2))
+            .clipShape(Capsule())
         }
-        .font(.caption2)  // For arrows
-        .padding(.horizontal, 2)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Navigate months and years")
+        .accessibilityLabel("Select month and year: \(monthYearString)")
+    }
+    
+    private var monthString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        return formatter.string(from: displayMonth)
+    }
+    
+    private var yearString: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy"
+        return formatter.string(from: displayMonth)
     }
     
     private var monthYearString: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "MMM yy"  // UPDATED: Abbreviated month and last two digits of year (e.g., "Nov 25")
+        formatter.dateFormat = "MMMM yyyy"
         return formatter.string(from: displayMonth)
     }
     
@@ -209,38 +209,47 @@ struct GraphicalDatePicker: View {
     private func isToday(_ dayDate: Date) -> Bool { calendar.isDateInToday(dayDate) }
     private func isCurrentMonth(_ dayDate: Date) -> Bool { calendar.isDate(dayDate, equalTo: displayMonth, toGranularity: .month) }
     
-    // MARK: - Crown Navigation
-    private func updateMonthFromCrown(_ months: Double) {
-        let monthOffset = Int(months.rounded())
-        if let newMonth = calendar.date(byAdding: .month, value: monthOffset, to: referenceDate),
-           newMonth >= minDate && newMonth <= maxDate {
-            displayMonth = newMonth
-        }
-    }
-    
-    // MARK: - Today Button
-    private func todayButton() -> some View {
-        Button(action: {
-            let today = Date()
-            date = today
-            displayMonth = today
-            let monthsFromRef = calendar.dateComponents([.month], from: referenceDate, to: today).month ?? 0
-            crownAccumulator = Double(monthsFromRef)
-            WKInterfaceDevice.current().play(.success)
-        }) {
-            HStack(spacing: 4) {
-                Image(systemName: "calendar.badge.clock")
-                    .font(.caption2)
-                Text("Today")
-                    .font(.caption2)
+    // MARK: - Action Buttons
+    private func actionButtons() -> some View {
+        HStack(spacing: 8) {
+            Button(action: {
+                let today = Date()
+                date = today
+                displayMonth = today
+                WKInterfaceDevice.current().play(.success)
+            }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "calendar.badge.clock")
+                        .font(.system(size: 10))
+                    Text("Today")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(Color.blue.opacity(0.3))
+                .clipShape(Capsule())
             }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 8)
-            .background(Color.blue.opacity(0.2))
-            .clipShape(Capsule())
+            .buttonStyle(.plain)
+            .accessibilityLabel("Jump to today")
+            
+            Button(action: {
+                displayMonth = date
+                WKInterfaceDevice.current().play(.click)
+            }) {
+                HStack(spacing: 3) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 10))
+                    Text("Selected")
+                        .font(.system(size: 10, weight: .medium))
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(Color.gray.opacity(0.3))
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Return to selected date")
         }
-        .buttonStyle(.plain)
-        .padding(.top, 4)
-        .accessibilityLabel("Jump to today")
+        .padding(.top, 2)
     }
 }
