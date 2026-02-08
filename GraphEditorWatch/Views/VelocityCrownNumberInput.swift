@@ -48,7 +48,6 @@ struct VelocityCrownNumberInput: View {
                         .fill(Color.gray.opacity(0.2))
                 )
         }
-        .focusable(true)
         .digitalCrownRotation(
             $accumulatedRotation,
             from: -Double.greatestFiniteMagnitude,
@@ -58,14 +57,17 @@ struct VelocityCrownNumberInput: View {
             isContinuous: true,
             isHapticFeedbackEnabled: true
         )
+        .focusable(true)
         .onChange(of: accumulatedRotation) { oldValue, newValue in
             handleRotation(oldValue: oldValue, newValue: newValue)
         }
         .onAppear {
             displayValue = value
+            print("🔢 VelocityCrownNumberInput appeared with value: \(value)")
         }
         .onDisappear {
             value = displayValue
+            print("🔢 VelocityCrownNumberInput disappearing with value: \(displayValue)")
         }
         .gesture(
             DragGesture(minimumDistance: 50)
@@ -98,6 +100,7 @@ struct VelocityCrownNumberInput: View {
     }
     
     private func handleRotation(oldValue: Double, newValue: Double) {
+        print("🔢 Crown rotation: \(oldValue) → \(newValue)")
         let now = Date()
         let timeDelta = now.timeIntervalSince(lastRotationTime)
         let rotationDelta = abs(newValue - oldValue)
@@ -113,6 +116,7 @@ struct VelocityCrownNumberInput: View {
         // Apply the change
         let change = (newValue - oldValue) * currentIncrement / 0.01
         displayValue += change
+        print("🔢 Display value updated to: \(displayValue) (increment: \(currentIncrement))")
         
         // Clamp to reasonable range
         displayValue = max(-1_000_000, min(1_000_000, displayValue))
@@ -145,11 +149,13 @@ struct VelocityCrownNumberInput: View {
     }
     
     private func toggleSign() {
+        print("🔢 Toggling sign from \(displayValue) to \(-displayValue)")
         displayValue = -displayValue
         WKInterfaceDevice.current().play(.click)
     }
     
     private func resetToZero() {
+        print("🔢 Resetting to zero")
         displayValue = 0
         WKInterfaceDevice.current().play(.success)
     }

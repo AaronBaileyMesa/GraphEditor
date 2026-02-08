@@ -36,11 +36,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>        #endif
+    }
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>}
+
+// Keep the clamped helper (used elsewhere too)
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -79,11 +82,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>        #endif
+    }
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>}
+
+// Keep the clamped helper (used elsewhere too)
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>

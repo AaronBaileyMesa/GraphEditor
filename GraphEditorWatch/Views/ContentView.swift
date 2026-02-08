@@ -79,6 +79,10 @@ struct ContentView: View {
                 print("ContentView appeared – confirming render")
             }
             .focused($canvasFocus)
+            .onChange(of: viewModel.model.editingNodeID) { _, newValue in
+                // Release canvas focus when sheet appears
+                canvasFocus = (newValue == nil)
+            }
             .sheet(item: $viewModel.model.editingNodeID) { id in
                 EditContentSheet(
                     selectedID: id,
