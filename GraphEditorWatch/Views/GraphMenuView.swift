@@ -35,6 +35,7 @@ struct GraphMenuView: View {
                 VStack(spacing: 8) {  // Changed to VStack for vertical stacking on small screen
                     overlaysToggle
                     simulationToggle
+                    layoutModeToggle
                 }
                 .padding(.horizontal, 8)
                 
@@ -139,6 +140,21 @@ struct GraphMenuView: View {
             }
         }
         .accessibilityIdentifier("simulationToggle")
+    }
+    
+    private var layoutModeToggle: some View {
+        Toggle(isOn: Binding(
+            get: { viewModel.model.layoutMode == .hierarchy },
+            set: { newValue in
+                let mode: LayoutMode = newValue ? .hierarchy : .network
+                viewModel.model.setLayoutMode(mode)
+            }
+        )) {
+            Label("Tree Layout", systemImage: "arrow.up.left")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("layoutModeToggle")
     }
     
     private var resetGraphButton: some View {
