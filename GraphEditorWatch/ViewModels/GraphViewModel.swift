@@ -211,6 +211,13 @@ extension ControlKind {
                     WKInterfaceDevice.current().play(.failure)
                 }
             }
+        case .toggleExpand:
+            return { viewModel, nodeID in
+                // Toggle expansion state of collapsible node
+                await viewModel.toggleExpansion(for: nodeID)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Toggled expansion for node \(nodeID.uuidString.prefix(8))")
+            }
         }
     }
 }

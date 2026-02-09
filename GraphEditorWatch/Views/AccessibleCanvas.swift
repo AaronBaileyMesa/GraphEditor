@@ -396,7 +396,17 @@ struct ControlNodesOverlay: View {
                     viewSize: viewSize
                 )
                 
-                ControlNodeView(control: control, zoomScale: zoomScale, ownerScreenPos: ownerScreenPos ?? screenPos)
+                // Find owner node to get its expanded state
+                let ownerNode = control.ownerID.flatMap { ownerID in
+                    visibleNodes.first(where: { $0.id == ownerID })
+                }
+                
+                ControlNodeView(
+                    control: control,
+                    zoomScale: zoomScale,
+                    ownerScreenPos: ownerScreenPos ?? screenPos,
+                    ownerNode: ownerNode
+                )
                     .position(screenPos)
             }
         }
@@ -471,19 +481,30 @@ struct ControlNodeView: View {
     let control: ControlNode
     let zoomScale: CGFloat
     let ownerScreenPos: CGPoint
+    let ownerNode: (any NodeProtocol)?
     @State private var isPressed: Bool = false
     @State private var scale: CGFloat = 0.1
     @State private var opacity: Double = 0.0
     
     var body: some View {
-        let iconName: String = switch control.kind {
-        case .addChild: "plus.circle.fill"
-        case .addEdge: "arrow.right.circle.fill"
-        case .edit: "pencil"
-        case .delete: "trash.fill"
-        case .duplicate: "doc.on.doc.fill"
-        case .addToggleChild: "checklist"
-        }
+        // Determine icon based on control kind and owner state
+        let iconName: String = {
+            if control.kind == .toggleExpand {
+                // Check if owner is expanded
+                let isExpanded = (ownerNode as? Node)?.isExpanded ?? false
+                return isExpanded ? "chevron.down" : "chevron.right"
+            }
+            
+            switch control.kind {
+            case .addChild: return "plus.circle.fill"
+            case .addEdge: return "arrow.right.circle.fill"
+            case .edit: return "pencil"
+            case .delete: return "trash.fill"
+            case .duplicate: return "doc.on.doc.fill"
+            case .addToggleChild: return "checklist"
+            case .toggleExpand: return "chevron.right"  // Fallback, handled above
+            }
+        }()
         
         ZStack {
             // Invisible larger hit testing area (1.5x the visual size)
@@ -563,7 +584,8 @@ struct ControlNodeView: View {
                                 kind: kind
                             ),
                             zoomScale: 1.0,
-                            ownerScreenPos: .zero
+                            ownerScreenPos: .zero,
+                            ownerNode: nil
                         )
                         .offset(x: xOffset, y: yOffset)
                         .transition(
