@@ -27,11 +27,8 @@ struct GraphMenuView: View {
             VStack(spacing: 8) {
                 // Add Section (from AddSection, no edge/child since no selection)
                 Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                HStack(spacing: 8) {
-                    addNodeButton
-                    addToggleNodeButton
-                }
-                .padding(.horizontal, 8)
+                addNodeButton
+                    .padding(.horizontal, 8)
                 
                 // View Section
                 Text("View").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
@@ -109,22 +106,9 @@ struct GraphMenuView: View {
                 onDismiss()
             },
             label: {
-                Label("Node", systemImage: "plus.circle")
+                Label("Add Node", systemImage: "plus.circle")
             },
             accessibilityIdentifier: "addNodeButton"
-        )
-    }
-    
-    private var addToggleNodeButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "plus.circle.fill")
-            },
-            accessibilityIdentifier: "addToggleNodeButton"
         )
     }
     

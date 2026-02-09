@@ -26,58 +26,39 @@ struct EditContentSheet: View {
     @State private var hasNavigated: Bool = false  // Track if we've navigated away
     
     var body: some View {
-        NavigationStack {
-            ScrollViewReader { proxy in
-                List {
-                    contentsSection(proxy: proxy)
-                }
-                .navigationTitle("Contents")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Done") {
-                            dismiss()
-                        }
-                    }
-                }
+        ScrollViewReader { proxy in
+            List {
+                contentsSection(proxy: proxy)
             }
-            .onChange(of: dateValue) { _, _ in
-                dateChanged = true
+            .navigationTitle("Contents")
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .onChange(of: dateValue) { _, _ in
+            dateChanged = true
+        }
+        .onChange(of: selectedType) { oldValue, newValue in
+            print("📋 Type changed from \(String(describing: oldValue)) to \(String(describing: newValue))")
+            addPendingContent(for: oldValue)
+        }
+        .onAppear {
+            print("📋 EditContentSheet appeared for node: \(selectedID)")
+            if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                contents = node.contents
+                print("📋 Loaded \(contents.count) contents")
+                Task { await viewModel.model.snapshot() }
+            } else {
+                print("⚠️ Node not found!")
             }
-            .onChange(of: selectedType) { oldValue, newValue in
-                print("📋 Type changed from \(String(describing: oldValue)) to \(String(describing: newValue))")
-                addPendingContent(for: oldValue)
-            }
-            .onAppear {
-                print("📋 EditContentSheet appeared for node: \(selectedID)")
-                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents
-                    print("📋 Loaded \(contents.count) contents")
-                    Task { await viewModel.model.snapshot() }
-                } else {
-                    print("⚠️ Node not found!")
-                }
-            }
-            .onDisappear {
-                // Only save if we haven't navigated to a child view
-                if !hasNavigated {
-                    print("📋 EditContentSheet disappearing - saving \(contents.count) contents")
-                    addPendingContent(for: selectedType)
-                    onSave(contents)
-                } else {
-                    print("📋 EditContentSheet temporarily hidden (navigation)")
-                    hasNavigated = false  // Reset for when we come back
-                }
-            }
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        print("📋 Save button tapped")
-                        addPendingContent(for: selectedType)
-                        onSave(contents)
-                        dismiss()
-                    }
-                }
+        }
+        .onDisappear {
+            // Only save if we haven't navigated to a child view
+            if !hasNavigated {
+                print("📋 EditContentSheet disappearing - saving \(contents.count) contents")
+                addPendingContent(for: selectedType)
+                onSave(contents)
+            } else {
+                print("📋 EditContentSheet temporarily hidden (navigation)")
+                hasNavigated = false  // Reset for when we come back
             }
         }
     }

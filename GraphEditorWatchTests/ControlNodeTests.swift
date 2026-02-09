@@ -160,6 +160,8 @@ struct ControlNodeTests {
         
         // Test regular node - should NOT have addChild
         let regularNode = await viewModel.model.addNode(at: CGPoint(x: 200, y: 200))
+        // Make it non-collapsible to test regular node behavior
+        await viewModel.model.toggleNodeCollapsibility(nodeID: regularNode.id)
         await viewModel.generateControls(for: regularNode.id)
         
         let regularKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
@@ -431,6 +433,8 @@ struct ControlNodeTests {
         // Add a regular (non-collapsible) node
         let nodePos = CGPoint(x: 100, y: 100)
         let node = await viewModel.model.addNode(at: nodePos)
+        // Make it non-collapsible
+        await viewModel.model.toggleNodeCollapsibility(nodeID: node.id)
         
         // Generate controls
         await viewModel.generateControls(for: node.id)

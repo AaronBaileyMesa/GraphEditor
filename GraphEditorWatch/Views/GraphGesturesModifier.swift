@@ -38,6 +38,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var longPressStartLocation: CGPoint?
     @State private var hasCheckedForNodeThisGesture = false  // Prevents repeated hit tests during pan
     @State private var justEnteredEdgeMode = false  // Prevents immediate drag-end from trying to complete edge
+    @State private var longPressSucceeded = false  // Prevents drag-end from interfering after long press menu
     
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
@@ -174,6 +175,15 @@ struct GraphGesturesModifier: ViewModifier {
         let magnitude = hypot(value.translation.width, value.translation.height)
         Self.logger.debug("DragGesture onEnded: location=\(value.location.x, format: .fixed(precision: 1)),\(value.location.y, format: .fixed(precision: 1)) translation=\(value.translation.width, format: .fixed(precision: 1)),\(value.translation.height, format: .fixed(precision: 1)) magnitude=\(magnitude, format: .fixed(precision: 2)) selectedNode=\(selectedNodeID?.uuidString.prefix(8) ?? "nil") visibleNodes=\(viewModel.model.visibleNodes.count)")
         
+        // If long press succeeded, don't process drag end - the menu is already showing
+        if longPressSucceeded {
+            Self.logger.debug("Long press succeeded - skipping drag end processing")
+            longPressSucceeded = false
+            longPressStartLocation = nil
+            resetGestureState()
+            return
+        }
+        
         // Clean up long press state if it wasn't converted to a long press
         if longPressStartLocation != nil {
             handleLongPressCancel()
@@ -287,12 +297,32 @@ struct GraphGesturesModifier: ViewModifier {
         longPressTask = nil
         pressProgress = 0.0
         saturation = 1.0  // Reset to full saturation
+        longPressSucceeded = false  // Reset flag
     }
     
     private func handleLongPressEnded() {
-        Self.logger.debug("Long press ended: Showing menu")
+        Self.logger.debug("Long press ended: Checking what's under cursor")
         longPressTask?.cancel()
         longPressTask = nil
+        longPressSucceeded = true  // Mark that long press succeeded
+        
+        // Perform hit test at the long press location to determine correct menu
+        if let location = longPressStartLocation {
+            if let hitNode = HitTestHelper.closestNode(at: location, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
+                selectedNodeID = hitNode.id
+                selectedEdgeID = nil
+                Self.logger.debug("Long press on node: \(hitNode.id.uuidString.prefix(8))")
+            } else if let hitEdge = HitTestHelper.closestEdge(at: location, visibleEdges: viewModel.model.visibleEdges, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
+                selectedEdgeID = hitEdge.id
+                selectedNodeID = nil
+                Self.logger.debug("Long press on edge: \(hitEdge.id.uuidString.prefix(8))")
+            } else {
+                selectedNodeID = nil
+                selectedEdgeID = nil
+                Self.logger.debug("Long press on empty canvas")
+            }
+        }
+        
         showMenu = true  // Trigger menu
         
         // Keep saturation at final desaturated state briefly before resetting
