@@ -32,22 +32,15 @@ struct NodeView: View {
                     .foregroundColor(.white)
             } else {
                 Circle()
-                    .fill(node.fillColor)  // Or dynamic based on node type
+                    .fill(node.fillColor)
                     .frame(width: node.radius * 2 * zoomScale, height: node.radius * 2 * zoomScale)
-                
-                // Add icon/label for collapsible nodes
-                if let concreteNode = node as? Node, concreteNode.isCollapsible {
-                    Text(concreteNode.isExpanded ? "-" : "+")
-                        .foregroundColor(.white)
-                        .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .bold))
-                }
                 
                 Text("\(node.label)")
                     .foregroundColor(.white)
                     .font(.system(size: max(8.0, 12.0 * zoomScale)))
                     .offset(y: -(node.radius + 10) * zoomScale)  // Position above
                 
-                // NEW: Display first content if present (only at reasonable zoom levels)
+                // Display first content if present (only at reasonable zoom levels)
                 if !node.contents.isEmpty, zoomScale >= 0.5 {
                     Text(node.contents[0].displayText)
                         .foregroundColor(.white.opacity(0.8))
