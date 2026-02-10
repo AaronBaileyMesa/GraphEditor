@@ -143,8 +143,11 @@ struct MealDefinitionSheet: View {
         isCreating = true
 
         Task { @MainActor in
-            // Find a position for the new meal (center of visible area)
-            let centerPosition = CGPoint(x: 250, y: 250)
+            // Position for the new meal aligned with directional layout anchor
+            // For horizontal layout with 35pt spacing, 5 tasks (175pt total):
+            // anchor = 20 + (165 - 175) / 2 = 15pt (but segment doesn't fit, so use margin)
+            // anchor = 20pt for segments that don't fit
+            let mealPosition = CGPoint(x: 20, y: 125)
 
             // Build the taco dinner graph
             _ = await TacoTemplateBuilder.buildGraph(
@@ -152,8 +155,11 @@ struct MealDefinitionSheet: View {
                 guests: guests,
                 dinnerTime: dinnerTime,
                 protein: protein,
-                at: centerPosition
+                at: mealPosition
             )
+
+            // Start simulation to settle the new nodes
+            await viewModel.model.startSimulation()
 
             isCreating = false
             onDismiss()
