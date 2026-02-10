@@ -1,4 +1,4 @@
-//  GraphEditorWatchTests
+I'm interested in experimenting in a non-destructive way with building features to support BPMN 2.0 in this project. Give me some feasibilty and advisibility analysis on this idea.
 //
 //  Performance benchmarks for GraphEditor operations
 //
@@ -516,5 +516,325 @@ struct PerformanceTests {
         print("✓ Cleared large graph in \(String(format: "%.3f", clearDuration))s")
         
         #expect(clearDuration < 2.0, "Clearing large graph should complete in < 2s")
+    }
+    
+    // MARK: - Hierarchical Layout Tests
+    
+    @MainActor @Test("Hierarchical Layout: Shallow hierarchy (3 levels)", .timeLimit(.minutes(1)))
+    func testShallowHierarchyLayout() async {
+        let viewModel = createTestViewModel()
+        
+        // Create a 3-level hierarchy: 1 root -> 2 children -> 4 grandchildren
+        let rootNode = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        let root = rootNode.id
+        
+        var children: [NodeID] = []
+        for _ in 0..<2 {
+            let childNode = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+            await viewModel.model.addEdge(from: root, target: childNode.id, type: .hierarchy)
+            children.append(childNode.id)
+        }
+        
+        for child in children {
+            for _ in 0..<2 {
+                let grandchildNode = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+                await viewModel.model.addEdge(from: child, target: grandchildNode.id, type: .hierarchy)
+            }
+        }
+        
+        // Enable hierarchical layout
+        viewModel.model.setLayoutMode(.hierarchy)
+        
+        // Run simulation to settle
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 200)
+        
+        // Verify layout properties
+        let depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        
+        // Check depth assignments
+        #expect(depths[root] == 0, "Root should be at depth 0")
+        for child in children {
+            #expect(depths[child] == 1, "Children should be at depth 1")
+        }
+        
+        // Verify all nodes are within bounds
+        let bounds = viewModel.model.physicsEngine.simulationBounds
+        for node in viewModel.model.nodes {
+            #expect(node.position.y >= 0, "Node Y should be >= 0")
+            #expect(node.position.y <= bounds.height, "Node Y should be <= bounds height")
+        }
+        
+        print("✓ Shallow hierarchy layout validated (3 levels, 7 nodes)")
+    }
+    
+    @MainActor @Test("Hierarchical Layout: Deep hierarchy (6 levels)", .timeLimit(.minutes(1)))
+    func testDeepHierarchyLayout() async {
+        let viewModel = createTestViewModel()
+        
+        // Create a 6-level chain: Node 1 -> Node 2 -> ... -> Node 6
+        var previousNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+        var allNodes = [previousNodeID]
+        
+        for _ in 1..<6 {
+            let newNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+            await viewModel.model.addEdge(from: previousNodeID, target: newNodeID, type: .hierarchy)
+            allNodes.append(newNodeID)
+            previousNodeID = newNodeID
+        }
+        
+        // Enable hierarchical layout
+        viewModel.model.setLayoutMode(.hierarchy)
+        
+        // Run simulation to settle
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 200)
+        
+        // Verify depth calculations
+        let depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        
+        // Check depth assignments are sequential
+        for (index, nodeID) in allNodes.enumerated() {
+            #expect(depths[nodeID] == index, "Node \(index) should be at depth \(index)")
+        }
+        
+        // Verify all nodes are within bounds
+        let bounds = viewModel.model.physicsEngine.simulationBounds
+        let isValid = HierarchyLayoutHelper.validateLayoutBounds(
+            depths: depths,
+            simulationBounds: bounds
+        )
+        #expect(isValid, "Deep hierarchy layout should keep all nodes within bounds")
+        
+        // Verify the Y range spans the hierarchy
+        // The root and deepest node should have different Y positions
+        let rootNode = viewModel.model.nodes.first { $0.id == allNodes[0] }
+        let deepestNode = viewModel.model.nodes.first { $0.id == allNodes[allNodes.count - 1] }
+        let yRange = abs(deepestNode!.position.y - rootNode!.position.y)
+        #expect(yRange > 20, "Hierarchy should span vertically (range: \(yRange))")
+        
+        // Verify all nodes are visible (within bounds)
+        for node in viewModel.model.nodes {
+            #expect(node.position.y >= 0 && node.position.y <= bounds.height,
+                   "Node should be within vertical bounds")
+        }
+        
+        print("✓ Deep hierarchy layout validated (6 levels, all nodes visible)")
+    }
+    
+    @MainActor @Test("Hierarchical Layout: Wide hierarchy (many children)", .timeLimit(.minutes(1)))
+    func testWideHierarchyLayout() async {
+        let viewModel = createTestViewModel()
+        
+        // Create a wide hierarchy: 1 root with 10 children
+        let root = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+        var children: [NodeID] = []
+        
+        for _ in 0..<10 {
+            let childID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+            await viewModel.model.addEdge(from: root, target: childID, type: .hierarchy)
+            children.append(childID)
+        }
+        
+        // Enable hierarchical layout
+        viewModel.model.setLayoutMode(.hierarchy)
+        
+        // Run simulation to settle
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 200)
+        
+        // Verify all children are at same depth
+        let depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        
+        for child in children {
+            #expect(depths[child] == 1, "All children should be at depth 1")
+        }
+        
+        // Verify children are spread horizontally
+        let childNodes = viewModel.model.nodes.filter { children.contains($0.id) }
+        let xPositions = childNodes.map { $0.position.x }
+        let xRange = (xPositions.max() ?? 0) - (xPositions.min() ?? 0)
+        
+        #expect(xRange > 50, "Children should be spread horizontally (range: \(xRange))")
+        
+        print("✓ Wide hierarchy layout validated (1 root with 10 children)")
+    }
+    
+    @MainActor @Test("Hierarchical Layout: Multiple roots", .timeLimit(.minutes(1)))
+    func testMultipleRootsHierarchy() async {
+        let viewModel = createTestViewModel()
+        
+        // Create two separate hierarchies
+        let root1 = (await viewModel.model.addNode(at: CGPoint(x: 50, y: 100))).id
+        let child1 = (await viewModel.model.addNode(at: CGPoint(x: 50, y: 100))).id
+        await viewModel.model.addEdge(from: root1, target: child1, type: .hierarchy)
+        
+        let root2 = (await viewModel.model.addNode(at: CGPoint(x: 150, y: 100))).id
+        let child2 = (await viewModel.model.addNode(at: CGPoint(x: 150, y: 100))).id
+        await viewModel.model.addEdge(from: root2, target: child2, type: .hierarchy)
+        
+        // Enable hierarchical layout
+        viewModel.model.setLayoutMode(.hierarchy)
+        
+        // Run simulation to settle
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 200)
+        
+        // Verify depth calculations
+        let depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        
+        // Both roots should be at depth 0
+        #expect(depths[root1] == 0, "Root 1 should be at depth 0")
+        #expect(depths[root2] == 0, "Root 2 should be at depth 0")
+        
+        // Both children should be at depth 1
+        #expect(depths[child1] == 1, "Child 1 should be at depth 1")
+        #expect(depths[child2] == 1, "Child 2 should be at depth 1")
+        
+        print("✓ Multiple roots hierarchy validated")
+    }
+    
+    @MainActor @Test("Hierarchical Layout: Dynamic spacing calculation", .timeLimit(.minutes(1)))
+    func testDynamicSpacingCalculation() async {
+        let viewModel = createTestViewModel()
+        let bounds = viewModel.model.physicsEngine.simulationBounds
+        
+        // Test shallow hierarchy (should use full spacing)
+        var previousNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+        for _ in 1..<3 {
+            let newNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+            await viewModel.model.addEdge(from: previousNodeID, target: newNodeID, type: .hierarchy)
+            previousNodeID = newNodeID
+        }
+        
+        viewModel.model.setLayoutMode(.hierarchy)
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 100)
+        
+        var depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        var isValid = HierarchyLayoutHelper.validateLayoutBounds(
+            depths: depths,
+            simulationBounds: bounds
+        )
+        
+        #expect(isValid, "Shallow hierarchy should fit within bounds")
+        
+        // Now create a very deep hierarchy (10 levels)
+        await viewModel.clearGraph()
+        previousNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+        for _ in 1..<10 {
+            let newNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+            await viewModel.model.addEdge(from: previousNodeID, target: newNodeID, type: .hierarchy)
+            previousNodeID = newNodeID
+        }
+        
+        viewModel.model.setLayoutMode(.hierarchy)
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 100)
+        
+        depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        isValid = HierarchyLayoutHelper.validateLayoutBounds(
+            depths: depths,
+            simulationBounds: bounds
+        )
+        
+        #expect(isValid, "Deep hierarchy should use dynamic spacing to fit within bounds")
+        
+        // Verify all nodes are within bounds
+        for node in viewModel.model.nodes {
+            #expect(node.position.y >= 0 && node.position.y <= bounds.height,
+                   "All nodes should be within bounds even for deep hierarchy")
+        }
+        
+        print("✓ Dynamic spacing calculation validated")
+    }
+    
+    @MainActor @Test("Hierarchical Layout: Very deep hierarchy (9 levels)", .timeLimit(.minutes(1)))
+    func testVeryDeepHierarchyLayout() async {
+        let viewModel = createTestViewModel()
+        
+        // Create a 9-level chain: Node 1 -> Node 2 -> ... -> Node 9
+        var previousNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+        var allNodes = [previousNodeID]
+        
+        for _ in 1..<9 {
+            let newNodeID = (await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))).id
+            await viewModel.model.addEdge(from: previousNodeID, target: newNodeID, type: .hierarchy)
+            allNodes.append(newNodeID)
+            previousNodeID = newNodeID
+        }
+        
+        // Enable hierarchical layout
+        viewModel.model.setLayoutMode(.hierarchy)
+        
+        // Run simulation to settle
+        await runSimulationUntilStable(viewModel: viewModel, maxIterations: 200)
+        
+        // Verify depth calculations
+        let depths = HierarchyLayoutHelper.calculateDepths(
+            nodes: viewModel.model.nodes.map { $0.unwrapped },
+            edges: viewModel.model.edges
+        )
+        
+        // Check depth assignments are sequential
+        for (index, nodeID) in allNodes.enumerated() {
+            #expect(depths[nodeID] == index, "Node \(index) should be at depth \(index)")
+        }
+        
+        // Verify all nodes are within bounds (critical for very deep hierarchies)
+        let bounds = viewModel.model.physicsEngine.simulationBounds
+        let isValid = HierarchyLayoutHelper.validateLayoutBounds(
+            depths: depths,
+            simulationBounds: bounds
+        )
+        #expect(isValid, "Very deep hierarchy (9 levels) should fit within bounds with dynamic spacing")
+        
+        // Verify all nodes are actually visible
+        for (index, nodeID) in allNodes.enumerated() {
+            let node = viewModel.model.nodes.first { $0.id == nodeID }
+            #expect(node!.position.y >= 0 && node!.position.y <= bounds.height,
+                   "Node \(index) should be within vertical bounds (y=\(node!.position.y))")
+        }
+        
+        // Calculate actual spacing used
+        let rootNode = viewModel.model.nodes.first { $0.id == allNodes[0] }
+        let deepestNode = viewModel.model.nodes.first { $0.id == allNodes[allNodes.count - 1] }
+        let yRange = abs(deepestNode!.position.y - rootNode!.position.y)
+        let avgSpacing = yRange / CGFloat(allNodes.count - 1)
+        
+        print("✓ Very deep hierarchy (9 levels) validated")
+        print("  Y range: \(String(format: "%.1f", yRange))px, avg spacing: \(String(format: "%.1f", avgSpacing))px")
+        
+        // Verify spacing is reasonable (should be compressed but not too tight)
+        // Allow very small spacing for extremely deep hierarchies
+        #expect(avgSpacing >= 5, "Average spacing should be at least 5px for very deep hierarchies")
+    }
+    
+    // Helper function to run simulation until stable
+    @MainActor
+    private func runSimulationUntilStable(viewModel: GraphViewModel, maxIterations: Int) async {
+        await viewModel.model.startSimulation()
+        
+        // Wait for simulation to stabilize
+        for _ in 0..<maxIterations {
+            if !viewModel.model.isSimulating {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        
+        await viewModel.model.stopSimulation()
     }
 }

@@ -18,6 +18,7 @@ struct GraphsMenuView: View {
     @State private var newGraphName: String = ""
     @State private var graphs: [String] = []
     @State private var errorMessage: String?
+    @State private var showTacoSheet: Bool = false
     
     var body: some View {
         ScrollView {  // Scrollable for long lists
@@ -38,7 +39,15 @@ struct GraphsMenuView: View {
                 
                 // New graph button
                 newGraphButton
-                
+
+                // Templates Section (Home Economics)
+                if AppConstants.homeEconomicsEnabled {
+                    Text("Templates").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 8)
+
+                    tacoTemplateButton
+                }
+
                 // List graphs button and dynamic list
                 listGraphsButton
                 ForEach(graphs, id: \.self) { name in
@@ -76,6 +85,17 @@ struct GraphsMenuView: View {
                 }
             }
         }
+        .sheet(isPresented: $showTacoSheet) {
+            NavigationStack {
+                MealDefinitionSheet(
+                    viewModel: viewModel,
+                    onDismiss: {
+                        showTacoSheet = false
+                        onDismiss()
+                    }
+                )
+            }
+        }
         .onAppear {
             graphName = viewModel.currentGraphName
             // Optionally auto-list graphs here: Task { graphs = try await viewModel.model.listGraphNames() }
@@ -92,6 +112,18 @@ struct GraphsMenuView: View {
                 Label("New", systemImage: "doc.badge.plus")
             },
             accessibilityIdentifier: "newGraphButton"
+        )
+    }
+
+    private var tacoTemplateButton: some View {
+        MenuButton(
+            action: {
+                showTacoSheet = true
+            },
+            label: {
+                Label("New Taco Dinner", systemImage: "fork.knife")
+            },
+            accessibilityIdentifier: "tacoTemplateButton"
         )
     }
     

@@ -21,4 +21,7 @@ public struct AppConstants {
     public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
     public static let crownZoomSteps: Int = 20  // Smooth steps for crown
     
+    // MARK: - Home Economics Feature Flag
+    public static let homeEconomicsEnabled: Bool = true  // Toggle for development
+    
 }

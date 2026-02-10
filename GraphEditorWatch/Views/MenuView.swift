@@ -26,12 +26,22 @@ struct MenuView: View {
     
     var body: some View {
         if selectedNodeID != nil, selectedEdgeID == nil {
-            NodeMenuView(
-                viewModel: viewModel,
-                onDismiss: { showMenu = false },
-                selectedNodeID: $selectedNodeID,
-                isAddingEdge: $isAddingEdge
-            )
+            // Check if selected node is a TaskNode
+            if let node = viewModel.model.nodes.first(where: { $0.id == selectedNodeID }),
+               node.unwrapped is TaskNode {
+                TaskNodeMenuView(
+                    viewModel: viewModel,
+                    onDismiss: { showMenu = false },
+                    selectedNodeID: $selectedNodeID
+                )
+            } else {
+                NodeMenuView(
+                    viewModel: viewModel,
+                    onDismiss: { showMenu = false },
+                    selectedNodeID: $selectedNodeID,
+                    isAddingEdge: $isAddingEdge
+                )
+            }
         } else if selectedEdgeID != nil {
             EdgeMenuView(
                 viewModel: viewModel,
