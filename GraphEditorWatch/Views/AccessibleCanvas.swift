@@ -89,7 +89,9 @@ struct AnimatedCanvasContent: View {
                    node.id != sourceID,
                    !(node is ControlNode) {
                     // Check if edge already exists (in either direction for undirected graphs)
-                    let edgeExists = allVisibleEdges.contains { edge in
+                    // NOTE: Must check model.edges, not allVisibleEdges, because visibleEdges
+                    // is filtered by layout mode and won't include all edge types
+                    let edgeExists = viewModel.model.edges.contains { edge in
                         (edge.from == sourceID && edge.target == node.id) ||
                         (edge.from == node.id && edge.target == sourceID)
                     }
@@ -503,6 +505,21 @@ struct ControlNodeView: View {
             case .duplicate: return "doc.on.doc.fill"
             case .addToggleChild: return "checklist"
             case .toggleExpand: return "chevron.right"  // Fallback, handled above
+            
+            // Workflow controls
+            case .startWorkflow: return "play.fill"
+            case .stopWorkflow: return "stop.fill"
+            case .completeTask: return "checkmark.circle.fill"
+            case .startTask: return "play.circle.fill"
+            case .blockTask: return "exclamationmark.triangle.fill"
+            case .unblockTask: return "play.circle.fill"
+            case .declineTask: return "xmark.circle.fill"
+            case .resetTask: return "arrow.counterclockwise"
+            case .addShopTask: return "cart.fill"
+            case .addPrepTask: return "fork.knife"
+            case .addCookTask: return "flame.fill"
+            case .addRecipe: return "book.fill"
+            case .scaleRecipe: return "person.2.fill"
             }
         }()
         

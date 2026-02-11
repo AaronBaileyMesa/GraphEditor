@@ -23,5 +23,10 @@ public struct AppConstants {
     
     // MARK: - Home Economics Feature Flag
     public static let homeEconomicsEnabled: Bool = true  // Toggle for development
-    
+
+    // MARK: - Debug Logging
+    /// Controls verbose debug logging in the Watch app
+    /// Set to false to reduce console noise during development
+    public static let verboseDebugLogging: Bool = false
+
 }

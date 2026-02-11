@@ -16,6 +16,7 @@ struct NodeMenuView: View {
     @Binding var selectedNodeID: NodeID?
     @Binding var isAddingEdge: Bool
     @State private var selectedEdgeType: GraphEditorShared.EdgeType = .association  // Use shared EdgeType
+    @State private var showSegmentLayoutSheet = false
     @FocusState private var isMenuFocused: Bool
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "nodemenuview")
@@ -29,6 +30,11 @@ struct NodeMenuView: View {
     
     var isToggleNode: Bool {
         viewModel.isSelectedToggleNode
+    }
+    
+    var isSegmentRoot: Bool {
+        guard let nodeID = selectedNodeID else { return false }
+        return viewModel.model.segmentConfigs[nodeID] != nil
     }
     
     var body: some View {
@@ -53,6 +59,13 @@ struct NodeMenuView: View {
                         edgeTypeButton(type: .hierarchy)
                     }
                     .padding(.horizontal, 8)
+                }
+                
+                // Layout Section: Only show for segment root nodes
+                if isSegmentRoot {
+                    Text("Layout").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
+                    segmentLayoutButton
+                        .padding(.horizontal, 8)
                 }
                 
                 // Edit Section: Split into multiple rows to prevent wrapping
@@ -95,6 +108,19 @@ struct NodeMenuView: View {
             }
         }
         .ignoresSafeArea(.keyboard)
+        .sheet(isPresented: $showSegmentLayoutSheet) {
+            NavigationStack {
+                if let nodeID = selectedNodeID {
+                    SegmentLayoutSheet(
+                        viewModel: viewModel,
+                        segmentRootID: nodeID,
+                        onDismiss: {
+                            showSegmentLayoutSheet = false
+                        }
+                    )
+                }
+            }
+        }
     }
     
     // Edge type button (same as NodeMenuView)
@@ -110,6 +136,18 @@ struct NodeMenuView: View {
                 .cornerRadius(4)
         }
         .accessibilityLabel("Select \(type == .association ? "Association" : "Hierarchy") edge type")
+    }
+    
+    private var segmentLayoutButton: some View {
+        MenuButton(
+            action: {
+                showSegmentLayoutSheet = true
+            },
+            label: {
+                Label("Direction", systemImage: "arrow.left.and.right")
+            },
+            accessibilityIdentifier: "segmentLayoutButton"
+        )
     }
     
     private var addChildButton: some View {

@@ -14,7 +14,7 @@ struct SegmentLayoutSheet: View {
     let segmentRootID: UUID
     let onDismiss: () -> Void
     
-    @State private var selectedDirection: LayoutDirection
+    @State private var selectedDirection: GraphEditorShared.LayoutDirection
     
     init(viewModel: GraphViewModel, segmentRootID: UUID, onDismiss: @escaping () -> Void) {
         self.viewModel = viewModel

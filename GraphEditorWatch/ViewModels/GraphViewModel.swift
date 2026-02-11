@@ -34,6 +34,7 @@ import os
     @Published public var isAnimating: Bool = false  // True for active animations (simulation or transitions)
     @Published public var lastFrameTime: Date?  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
+    @Published public var viewSize: CGSize = .zero  // Current viewport size for centering nodes
     
     // MARK: Private Properties
     
@@ -217,6 +218,138 @@ extension ControlKind {
                 await viewModel.toggleExpansion(for: nodeID)
                 WKInterfaceDevice.current().play(.click)
                 Self.logger.debug("Toggled expansion for node \(nodeID.uuidString.prefix(8))")
+            }
+            
+        // MARK: - Workflow Controls (Meal Planning)
+            
+        case .startWorkflow:
+            return { viewModel, nodeID in
+                viewModel.model.startWorkflow(for: nodeID)
+                WKInterfaceDevice.current().play(.success)
+                Self.logger.debug("Started workflow for meal \(nodeID.uuidString.prefix(8))")
+                
+                // Auto-select and center the first task
+                if let firstTask = viewModel.model.currentTask(for: nodeID) {
+                    viewModel.selectedNodeID = firstTask.id
+                    
+                    // Center the first task on screen
+                    if viewModel.viewSize != .zero {
+                        viewModel.centerNode(firstTask.id, viewSize: viewModel.viewSize)
+                    }
+                }
+            }
+            
+        case .stopWorkflow:
+            return { viewModel, nodeID in
+                viewModel.model.stopWorkflow(for: nodeID)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Stopped workflow for meal \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .completeTask:
+            return { viewModel, nodeID in
+                // nodeID is the task node - need to find parent meal node
+                // Traverse backwards through hierarchy edges to find the meal
+                guard let mealID = viewModel.model.findMealForTask(nodeID) else {
+                    Self.logger.error("Could not find parent meal for task \(nodeID.uuidString.prefix(8))")
+                    WKInterfaceDevice.current().play(.failure)
+                    return
+                }
+                
+                // Complete current task and auto-advance
+                if let nextTask = viewModel.model.completeCurrentTask(for: mealID, autoAdvance: true) {
+                    WKInterfaceDevice.current().play(.success)
+                    Self.logger.debug("Completed task and started next: \(nextTask.taskType.rawValue)")
+                    
+                    // Auto-select the next task to show its controls
+                    viewModel.selectedNodeID = nextTask.id
+                    
+                    // Center the next task on screen
+                    if viewModel.viewSize != .zero {
+                        viewModel.centerNode(nextTask.id, viewSize: viewModel.viewSize)
+                    }
+                } else {
+                    WKInterfaceDevice.current().play(.success)
+                    Self.logger.debug("Completed final task for meal \(mealID.uuidString.prefix(8))")
+                    
+                    // Workflow complete - select the meal node to show completion state
+                    viewModel.selectedNodeID = mealID
+                    
+                    // Center the meal node on screen
+                    if viewModel.viewSize != .zero {
+                        viewModel.centerNode(mealID, viewSize: viewModel.viewSize)
+                    }
+                }
+            }
+            
+        case .startTask:
+            return { viewModel, nodeID in
+                viewModel.model.updateTaskStatus(nodeID, to: .inProgress)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Started task \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .blockTask:
+            return { viewModel, nodeID in
+                viewModel.model.updateTaskStatus(nodeID, to: .blocked)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Blocked task \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .unblockTask:
+            return { viewModel, nodeID in
+                viewModel.model.updateTaskStatus(nodeID, to: .inProgress)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Unblocked task \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .declineTask:
+            return { viewModel, nodeID in
+                viewModel.model.updateTaskStatus(nodeID, to: .declined)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Declined task \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .resetTask:
+            return { viewModel, nodeID in
+                viewModel.model.updateTaskStatus(nodeID, to: .pending)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Reset task \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .addShopTask:
+            return { viewModel, nodeID in
+                await viewModel.model.addTaskToMeal(mealID: nodeID, taskType: .shop)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Added shop task to meal \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .addPrepTask:
+            return { viewModel, nodeID in
+                await viewModel.model.addTaskToMeal(mealID: nodeID, taskType: .prep)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Added prep task to meal \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .addCookTask:
+            return { viewModel, nodeID in
+                await viewModel.model.addTaskToMeal(mealID: nodeID, taskType: .cook)
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Added cook task to meal \(nodeID.uuidString.prefix(8))")
+            }
+            
+        case .addRecipe:
+            return { viewModel, nodeID in
+                // TODO: Implement recipe addition flow
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Add recipe to meal \(nodeID.uuidString.prefix(8)) - not yet implemented")
+            }
+            
+        case .scaleRecipe:
+            return { viewModel, nodeID in
+                // TODO: Implement recipe scaling flow
+                WKInterfaceDevice.current().play(.click)
+                Self.logger.debug("Scale recipe \(nodeID.uuidString.prefix(8)) - not yet implemented")
             }
         }
     }

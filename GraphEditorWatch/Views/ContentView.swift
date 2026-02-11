@@ -72,6 +72,7 @@ struct ContentView: View {
             
             .onAppear {
                 viewSize = geo.size
+                viewModel.viewSize = geo.size  // Sync to ViewModel
                 wristSide = WKInterfaceDevice.current().wristLocation
                 canvasFocus = true
                 Task { await viewModel.resumeSimulation() }
@@ -99,6 +100,7 @@ struct ContentView: View {
         }
         .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
         .onChange(of: viewSize) { _, newSize in
+            viewModel.viewSize = newSize  // Sync to ViewModel
             viewModel.resetViewToFitGraph(viewSize: newSize)
         }
         .onChange(of: viewModel.selectedNodeID) { _, newID in

@@ -1,5 +1,5 @@
-I'm interested in experimenting in a non-destructive way with building features to support BPMN 2.0 in this project. Give me some feasibilty and advisibility analysis on this idea.
 //
+//  PerformanceTests.swift
 //  Performance benchmarks for GraphEditor operations
 //
 
@@ -48,8 +48,8 @@ struct PerformanceTests {
         #expect(actualCount == nodeCount, "Should have created all \(nodeCount) nodes, got \(actualCount)")
         
         // Log performance metrics for visibility
-        print("✓ Added \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.4f", avgTimePerNode * 1000))ms per node")
+        // print("✓ Added \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.4f", avgTimePerNode * 1000))ms per node")
         
         // Expect reasonable performance (< 15ms per node)
         #expect(avgTimePerNode < 0.015, "Average time per node should be < 15ms, got \(String(format: "%.4f", avgTimePerNode * 1000))ms")
@@ -87,8 +87,8 @@ struct PerformanceTests {
         // With bulk operation mode, all nodes should be deleted
         #expect(remainingNodes == 0, "Should have deleted all nodes, \(remainingNodes) remaining")
         
-        print("✓ Deleted \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.4f", avgTimePerNode * 1000))ms per node")
+        // print("✓ Deleted \(nodeCount) nodes in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.4f", avgTimePerNode * 1000))ms per node")
         
         #expect(avgTimePerNode < 0.01, "Average deletion time should be < 10ms per node")
     }
@@ -121,7 +121,7 @@ struct PerformanceTests {
         #expect(viewModel.model.nodes.isEmpty, "All nodes should be cleared")
         #expect(viewModel.model.edges.isEmpty, "All edges should be cleared")
         
-        print("✓ Cleared graph (200 nodes, 300 edges) in \(String(format: "%.3f", duration))s")
+        // print("✓ Cleared graph (200 nodes, 300 edges) in \(String(format: "%.3f", duration))s")
         
         #expect(duration < 1.0, "Clear operation should complete in < 1s")
     }
@@ -151,8 +151,8 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerEdge = duration / Double(edgeCount)
         
-        print("✓ Added \(edgeCount) edges in \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.4f", avgTimePerEdge * 1000))ms per edge")
+        // print("✓ Added \(edgeCount) edges in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.4f", avgTimePerEdge * 1000))ms per edge")
         
         #expect(avgTimePerEdge < 0.050, "Average time per edge should be < 50ms")
     }
@@ -187,7 +187,7 @@ struct PerformanceTests {
         
         let duration = Date().timeIntervalSince(startTime)
         
-        print("✓ Traversed dense graph (100 nodes, ~500 edges) in \(String(format: "%.4f", duration * 1000))ms")
+        // print("✓ Traversed dense graph (100 nodes, ~500 edges) in \(String(format: "%.4f", duration * 1000))ms")
         
         #expect(duration < 0.5, "Graph traversal should complete in < 500ms")
     }
@@ -226,8 +226,8 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerStep = duration / Double(iterations)
         
-        print("✓ Physics simulation (\(iterations) steps, 50 nodes, 75 edges): \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.2f", avgTimePerStep * 1000))ms per step")
+        // print("✓ Physics simulation (\(iterations) steps, 50 nodes, 75 edges): \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.2f", avgTimePerStep * 1000))ms per step")
         
         // Target 60 FPS = ~16.67ms per frame
         #expect(avgTimePerStep < 0.017, "Physics step should be < 17ms for 60 FPS target")
@@ -252,8 +252,8 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerGeneration = duration / Double(iterations)
         
-        print("✓ Generated control nodes \(iterations) times in \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.2f", avgTimePerGeneration * 1000))ms per generation")
+        // print("✓ Generated control nodes \(iterations) times in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.2f", avgTimePerGeneration * 1000))ms per generation")
         
         #expect(avgTimePerGeneration < 0.50, "Control generation should be < 500ms")
     }
@@ -276,8 +276,8 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerReposition = duration / Double(iterations)
         
-        print("✓ Repositioned controls \(iterations) times in \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.4f", avgTimePerReposition * 1000))ms per reposition")
+        // print("✓ Repositioned controls \(iterations) times in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.4f", avgTimePerReposition * 1000))ms per reposition")
         
         #expect(avgTimePerReposition < 0.005, "Reposition should be < 5ms")
     }
@@ -310,14 +310,14 @@ struct PerformanceTests {
         try await viewModel.model.saveGraph()
         let saveDuration = Date().timeIntervalSince(saveStart)
         
-        print("✓ Saved graph (100 nodes, 150 edges) in \(String(format: "%.3f", saveDuration))s")
+        // print("✓ Saved graph (100 nodes, 150 edges) in \(String(format: "%.3f", saveDuration))s")
         
         // Test load performance
         let loadStart = Date()
         try await viewModel.model.loadGraph()
         let loadDuration = Date().timeIntervalSince(loadStart)
         
-        print("✓ Loaded graph (100 nodes, 150 edges) in \(String(format: "%.3f", loadDuration))s")
+        // print("✓ Loaded graph (100 nodes, 150 edges) in \(String(format: "%.3f", loadDuration))s")
         
         #expect(saveDuration < 1.0, "Save should complete in < 1s")
         #expect(loadDuration < 1.0, "Load should complete in < 1s")
@@ -365,9 +365,9 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerComputation = duration / Double(iterations)
         
-        print("✓ Hidden nodes cache computation \(iterations) times (10 parents, 100 children)")
-        print("  Total: \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.2f", avgTimePerComputation * 1000))ms per computation")
+        // print("✓ Hidden nodes cache computation \(iterations) times (10 parents, 100 children)")
+        // print("  Total: \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.2f", avgTimePerComputation * 1000))ms per computation")
         
         #expect(avgTimePerComputation < 0.030, "Cache computation should be < 30ms")
     }
@@ -402,9 +402,9 @@ struct PerformanceTests {
         let duration = Date().timeIntervalSince(startTime)
         let avgTimePerAccess = duration / Double(iterations)
         
-        print("✓ Hidden nodes cache hit performance (\(iterations) accesses)")
-        print("  Total: \(String(format: "%.3f", duration))s")
-        print("  Average: \(String(format: "%.6f", avgTimePerAccess * 1000))ms per access")
+        // print("✓ Hidden nodes cache hit performance (\(iterations) accesses)")
+        // print("  Total: \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerAccess * 1000))ms per access")
         
         // Cache hits should be extremely fast (< 10μs is excellent for property access with variability)
         #expect(avgTimePerAccess < 0.000010, "Cache hits should be < 10μs")
@@ -454,11 +454,11 @@ struct PerformanceTests {
         let redoDuration = Date().timeIntervalSince(redoStart)
         
         let finalCount = viewModel.model.nodes.count
-        print("  Initial redo stack: \(initialRedoStackSize), redid: \(redoCount) times")
+        // print("  Initial redo stack: \(initialRedoStackSize), redid: \(redoCount) times")
         #expect(finalCount == operationCount, "All nodes should be redone, got \(finalCount)")
         
-        print("✓ Undo \(undoCount) operations: \(String(format: "%.3f", undoDuration))s (\(String(format: "%.2f", undoDuration / Double(undoCount) * 1000))ms avg)")
-        print("✓ Redo \(redoCount) operations: \(String(format: "%.3f", redoDuration))s (\(String(format: "%.2f", redoDuration / Double(redoCount) * 1000))ms avg)")
+        // print("✓ Undo \(undoCount) operations: \(String(format: "%.3f", undoDuration))s (\(String(format: "%.2f", undoDuration / Double(undoCount) * 1000))ms avg)")
+        // print("✓ Redo \(redoCount) operations: \(String(format: "%.3f", redoDuration))s (\(String(format: "%.2f", redoDuration / Double(redoCount) * 1000))ms avg)")
         
         // Performance expectations (accounting for system load variability)
         #expect(undoDuration < 1.5, "Undo should complete in < 1.5s")
@@ -477,7 +477,7 @@ struct PerformanceTests {
         // Pause simulation to prevent physics from interfering with node positions
         await viewModel.model.stopSimulation()
         
-        print("Creating large graph: \(nodeCount) nodes, \(edgeCount) edges...")
+        // print("Creating large graph: \(nodeCount) nodes, \(edgeCount) edges...")
         
         let startTime = Date()
         
@@ -505,15 +505,15 @@ struct PerformanceTests {
         #expect(actualNodes >= minExpected, "Should have at least \(minExpected) nodes, got \(actualNodes)")
         #expect(viewModel.model.edges.count <= edgeCount, "Should have approximately all edges")
         
-        print("✓ Created large graph in \(String(format: "%.2f", duration))s")
-        print("  Final: \(viewModel.model.nodes.count) nodes, \(viewModel.model.edges.count) edges")
+        // print("✓ Created large graph in \(String(format: "%.2f", duration))s")
+        // print("  Final: \(viewModel.model.nodes.count) nodes, \(viewModel.model.edges.count) edges")
         
         // Verify clearing is also performant
         let clearStart = Date()
         await viewModel.clearGraph()
         let clearDuration = Date().timeIntervalSince(clearStart)
         
-        print("✓ Cleared large graph in \(String(format: "%.3f", clearDuration))s")
+        // print("✓ Cleared large graph in \(String(format: "%.3f", clearDuration))s")
         
         #expect(clearDuration < 2.0, "Clearing large graph should complete in < 2s")
     }
@@ -567,7 +567,7 @@ struct PerformanceTests {
             #expect(node.position.y <= bounds.height, "Node Y should be <= bounds height")
         }
         
-        print("✓ Shallow hierarchy layout validated (3 levels, 7 nodes)")
+        // print("✓ Shallow hierarchy layout validated (3 levels, 7 nodes)")
     }
     
     @MainActor @Test("Hierarchical Layout: Deep hierarchy (6 levels)", .timeLimit(.minutes(1)))
@@ -623,7 +623,7 @@ struct PerformanceTests {
                    "Node should be within vertical bounds")
         }
         
-        print("✓ Deep hierarchy layout validated (6 levels, all nodes visible)")
+        // print("✓ Deep hierarchy layout validated (6 levels, all nodes visible)")
     }
     
     @MainActor @Test("Hierarchical Layout: Wide hierarchy (many children)", .timeLimit(.minutes(1)))
@@ -663,7 +663,7 @@ struct PerformanceTests {
         
         #expect(xRange > 50, "Children should be spread horizontally (range: \(xRange))")
         
-        print("✓ Wide hierarchy layout validated (1 root with 10 children)")
+        // print("✓ Wide hierarchy layout validated (1 root with 10 children)")
     }
     
     @MainActor @Test("Hierarchical Layout: Multiple roots", .timeLimit(.minutes(1)))
@@ -699,7 +699,7 @@ struct PerformanceTests {
         #expect(depths[child1] == 1, "Child 1 should be at depth 1")
         #expect(depths[child2] == 1, "Child 2 should be at depth 1")
         
-        print("✓ Multiple roots hierarchy validated")
+        // print("✓ Multiple roots hierarchy validated")
     }
     
     @MainActor @Test("Hierarchical Layout: Dynamic spacing calculation", .timeLimit(.minutes(1)))
@@ -758,7 +758,7 @@ struct PerformanceTests {
                    "All nodes should be within bounds even for deep hierarchy")
         }
         
-        print("✓ Dynamic spacing calculation validated")
+        // print("✓ Dynamic spacing calculation validated")
     }
     
     @MainActor @Test("Hierarchical Layout: Very deep hierarchy (9 levels)", .timeLimit(.minutes(1)))
@@ -814,8 +814,8 @@ struct PerformanceTests {
         let yRange = abs(deepestNode!.position.y - rootNode!.position.y)
         let avgSpacing = yRange / CGFloat(allNodes.count - 1)
         
-        print("✓ Very deep hierarchy (9 levels) validated")
-        print("  Y range: \(String(format: "%.1f", yRange))px, avg spacing: \(String(format: "%.1f", avgSpacing))px")
+        // print("✓ Very deep hierarchy (9 levels) validated")
+        // print("  Y range: \(String(format: "%.1f", yRange))px, avg spacing: \(String(format: "%.1f", avgSpacing))px")
         
         // Verify spacing is reasonable (should be compressed but not too tight)
         // Allow very small spacing for extremely deep hierarchies

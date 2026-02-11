@@ -81,6 +81,30 @@ extension GraphViewModel {
         zoomScale = newZoom.clamped(to: 0.2...5.0)
     }
     
+    /// Centers a specific node on the screen by adjusting the offset
+    /// - Parameters:
+    ///   - nodeID: The ID of the node to center
+    ///   - viewSize: The size of the viewport
+    @MainActor
+    public func centerNode(_ nodeID: NodeID, viewSize: CGSize) {
+        guard let node = model.nodes.first(where: { $0.id == nodeID }) else { return }
+        
+        let nodePos = node.position
+        let centroid = effectiveCentroid
+        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
+        
+        // Calculate what offset would place the node at screen center
+        // From modelToScreen: screenPos = viewCenter + (modelPos - centroid) * zoom + offset
+        // Solving for offset when screenPos = viewCenter:
+        // viewCenter = viewCenter + (nodePos - centroid) * zoom + offset
+        // offset = -(nodePos - centroid) * zoom
+        
+        let relativePos = nodePos - centroid
+        let scaledPos = relativePos * zoomScale
+        
+        offset = CGSize(width: -scaledPos.x, height: -scaledPos.y)
+    }
+    
     // MARK: Selection & Focus
     
     @MainActor
