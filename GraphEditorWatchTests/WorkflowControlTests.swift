@@ -44,14 +44,16 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show construction controls
+        // Should show construction controls (CRUD disabled)
         #expect(controlKinds.contains(.startWorkflow), "Should show startWorkflow control")
         #expect(controlKinds.contains(.addShopTask), "Should show addShopTask control")
         #expect(controlKinds.contains(.addPrepTask), "Should show addPrepTask control")
         #expect(controlKinds.contains(.addCookTask), "Should show addCookTask control")
         #expect(controlKinds.contains(.addRecipe), "Should show addRecipe control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled for workflow
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show execution controls
         #expect(!controlKinds.contains(.stopWorkflow), "Should not show stopWorkflow")
@@ -83,11 +85,13 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show execution controls
+        // Should show execution controls (CRUD disabled)
         #expect(controlKinds.contains(.stopWorkflow), "Should show stopWorkflow control")
         #expect(controlKinds.contains(.completeTask), "Should show completeTask control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled during workflow execution
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show construction controls
         #expect(!controlKinds.contains(.startWorkflow), "Should not show startWorkflow")
@@ -114,12 +118,14 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show pending status controls
+        // Should show pending status controls (CRUD disabled)
         #expect(controlKinds.contains(.startTask), "Should show startTask control")
         #expect(controlKinds.contains(.blockTask), "Should show blockTask control")
         #expect(controlKinds.contains(.declineTask), "Should show declineTask control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled for workflow tasks
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show other status controls
         #expect(!controlKinds.contains(.completeTask), "Should not show completeTask")
@@ -145,15 +151,17 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show in-progress status controls
+        // Should show in-progress status controls (CRUD disabled)
         #expect(controlKinds.contains(.completeTask), "Should show completeTask control")
         #expect(controlKinds.contains(.blockTask), "Should show blockTask control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
+        
+        // CRUD controls disabled for workflow tasks
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show other status controls
         #expect(!controlKinds.contains(.startTask), "Should not show startTask")
         #expect(!controlKinds.contains(.declineTask), "Should not show declineTask")
-        #expect(!controlKinds.contains(.delete), "Should not show delete (task in progress)")
     }
     
     @Test("TaskNode shows blocked status controls")
@@ -174,11 +182,13 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show blocked status controls
+        // Should show blocked status controls (CRUD disabled)
         #expect(controlKinds.contains(.unblockTask), "Should show unblockTask control")
         #expect(controlKinds.contains(.declineTask), "Should show declineTask control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled for workflow tasks
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show other status controls
         #expect(!controlKinds.contains(.startTask), "Should not show startTask")
@@ -203,10 +213,12 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show completed status controls
+        // Should show completed status controls (CRUD disabled)
         #expect(controlKinds.contains(.resetTask), "Should show resetTask control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled for workflow tasks
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
         
         // Should NOT show other status controls
         #expect(!controlKinds.contains(.startTask), "Should not show startTask")
@@ -236,11 +248,13 @@ struct WorkflowControlTests {
         
         let controlKinds = Set(viewModel.model.ephemeralControlNodes.map { $0.kind })
         
-        // Should show recipe-specific controls
+        // Should show recipe-specific controls (CRUD disabled)
         #expect(controlKinds.contains(.scaleRecipe), "Should show scaleRecipe control")
-        #expect(controlKinds.contains(.edit), "Should show edit control")
-        #expect(controlKinds.contains(.addChild), "Should show addChild control for ingredients")
-        #expect(controlKinds.contains(.delete), "Should show delete control")
+        
+        // CRUD controls disabled for workflow recipes
+        #expect(!controlKinds.contains(.edit), "Should not show edit control")
+        #expect(!controlKinds.contains(.addChild), "Should not show addChild control")
+        #expect(!controlKinds.contains(.delete), "Should not show delete control")
     }
     
     // MARK: - Control Action Tests
