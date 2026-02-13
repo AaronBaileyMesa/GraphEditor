@@ -81,7 +81,13 @@ struct AnimatedCanvasContent: View {
             )
             
             // MARK: - Nodes (non-selected)
-            for node in nonSelectedNodes {
+            // Separate person nodes and table nodes for proper z-ordering
+            let personNodes = nonSelectedNodes.filter { $0 is PersonNode }
+            let tableNodes = nonSelectedNodes.filter { $0 is TableNode }
+            let otherNodes = nonSelectedNodes.filter { !($0 is PersonNode) && !($0 is TableNode) }
+            
+            // Draw in order: other nodes, person nodes, then tables on top
+            for node in otherNodes + personNodes {
                 // Determine if this node is a potential edge target
                 let isTarget: Bool
                 if isAddingEdge,
@@ -109,6 +115,9 @@ struct AnimatedCanvasContent: View {
                     isTarget = false
                 }
                 
+                // Find if this person is seated at a table (fast O(1) lookup)
+                let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
                     graphicsContext: context,
@@ -116,7 +125,45 @@ struct AnimatedCanvasContent: View {
                     saturation: saturation,
                     isSelected: false,
                     isEdgeCreationSource: false,
-                    isEdgeCreationTarget: isTarget
+                    isEdgeCreationTarget: isTarget,
+                    tablePosition: tablePos
+                )
+            }
+            
+            // Draw table nodes last so they appear on top of person nodes
+            for node in tableNodes {
+                // Determine if this node is a potential edge target
+                let isTarget: Bool
+                if isAddingEdge,
+                   let sourceID = viewModel.draggedNodeID,
+                   node.id != sourceID,
+                   !(node is ControlNode) {
+                    let edgeExists = viewModel.model.edges.contains { edge in
+                        (edge.from == sourceID && edge.target == node.id) ||
+                        (edge.from == node.id && edge.target == sourceID)
+                    }
+                    
+                    let wouldCycle = viewModel.pendingEdgeType == .hierarchy &&
+                                    viewModel.model.wouldCreateCycle(
+                                        withNewEdgeFrom: sourceID,
+                                        target: node.id,
+                                        type: viewModel.pendingEdgeType
+                                    )
+                    
+                    isTarget = !edgeExists && !wouldCycle
+                } else {
+                    isTarget = false
+                }
+
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: node,
+                    saturation: saturation,
+                    isSelected: false,
+                    isEdgeCreationSource: false,
+                    isEdgeCreationTarget: isTarget,
+                    tablePosition: nil  // Tables don't have tablePosition
                 )
             }
             
@@ -150,7 +197,10 @@ struct AnimatedCanvasContent: View {
             if let node = selectedNode {
                 // Check if this selected node is the source of edge creation
                 let isSource = isAddingEdge && viewModel.draggedNodeID == node.id
-                
+
+                // Find if this person is seated at a table (fast O(1) lookup)
+                let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
                     graphicsContext: context,
@@ -158,7 +208,8 @@ struct AnimatedCanvasContent: View {
                     saturation: saturation,
                     isSelected: true,
                     isEdgeCreationSource: isSource,
-                    isEdgeCreationTarget: false
+                    isEdgeCreationTarget: false,
+                    tablePosition: tablePos
                 )
             }
             
@@ -185,18 +236,55 @@ struct AnimatedCanvasContent: View {
             var draggedCopy = dragged
             draggedCopy.position = dragged.position + dragOffset
             
-            // Check if this dragged node is the source of edge creation
-            let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
-            
-            AccessibleCanvasRenderer.drawSingleNode(
-                renderContext: renderContext,
-                graphicsContext: context,
-                node: draggedCopy,
-                saturation: saturation,
-                isSelected: true,
-                isEdgeCreationSource: isSource,
-                isEdgeCreationTarget: false
-            )
+            // If dragging a table, draw seated persons first, then the table on top
+            if let table = dragged as? TableNode {
+                _ = table.position + dragOffset
+                for (_, personID) in table.seatingAssignments {
+                    if let person = viewModel.model.nodes.first(where: { $0.id == personID })?.unwrapped as? PersonNode {
+                        var personCopy = person
+                        personCopy.position = person.position + dragOffset
+
+                        AccessibleCanvasRenderer.drawSingleNode(
+                            renderContext: renderContext,
+                            graphicsContext: context,
+                            node: personCopy,
+                            saturation: saturation,
+                            isSelected: false,
+                            isEdgeCreationSource: false,
+                            isEdgeCreationTarget: false,
+                            tablePosition: table.position  // Pass table position for proper scaling
+                        )
+                    }
+                }
+                
+                // Draw the table on top of person nodes
+                let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: draggedCopy,
+                    saturation: saturation,
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false,
+                    tablePosition: nil  // Tables don't have tablePosition
+                )
+            } else {
+                // For non-table nodes, draw as before
+                let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
+                let tablePos = (draggedCopy is PersonNode) ? viewModel.model.tablePosition(for: draggedCopy.id) : nil
+
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: draggedCopy,
+                    saturation: saturation,
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false,
+                    tablePosition: tablePos
+                )
+            }
         }
         
         // Draw edge preview line when adding an edge
@@ -505,6 +593,7 @@ struct ControlNodeView: View {
             case .duplicate: return "doc.on.doc.fill"
             case .addToggleChild: return "checklist"
             case .toggleExpand: return "chevron.right"  // Fallback, handled above
+            case .openMenu: return "list.bullet.circle.fill"
             
             // Workflow controls
             case .startWorkflow: return "play.fill"

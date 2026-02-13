@@ -108,6 +108,28 @@ struct MealNodeMenuView: View {
                         }
                     }
                     
+                    // Preferences Section
+                    if let preferenceID = preferenceNodeID {
+                        Text("Preferences").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                        
+                        actionButton("View Preferences", icon: "list.bullet.rectangle", color: .purple) {
+                            selectedNodeID = preferenceID
+                        }
+                    }
+                    
+                    // Table Seating Section
+                    Text("Table Seating").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                    
+                    if let table = viewModel.model.table(for: meal.id) {
+                        actionButton("Manage Table Seating", icon: "person.3.fill", color: .orange) {
+                            selectedNodeID = table.id
+                        }
+                    } else {
+                        actionButton("Create Table", icon: "plus.rectangle.fill", color: .orange) {
+                            createTableForMeal()
+                        }
+                    }
+                    
                     // Tasks Section
                     Text("Tasks (\(completedTaskCount)/\(tasks.count))").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
                     
@@ -130,6 +152,11 @@ struct MealNodeMenuView: View {
     }
     
     // MARK: - Computed Properties
+    
+    private var preferenceNodeID: NodeID? {
+        guard let mealID = selectedNodeID else { return nil }
+        return viewModel.model.preference(for: mealID)?.id
+    }
     
     private var hasWorkflowStarted: Bool {
         guard let mealID = selectedNodeID else { return false }
@@ -330,6 +357,33 @@ struct MealNodeMenuView: View {
             }
             
             loadMealAndTasks()
+        }
+    }
+    
+    private func createTableForMeal() {
+        guard let meal = mealNode else { return }
+        
+        Task {
+            // Create table near meal
+            let tablePosition = CGPoint(
+                x: meal.position.x + 150,
+                y: meal.position.y
+            )
+            
+            let table = await viewModel.model.addTable(
+                name: "\(meal.name) Table",
+                headSeats: 1,
+                sideSeats: min(3, meal.guests / 2),
+                at: tablePosition
+            )
+            
+            // Link meal to table
+            await viewModel.model.linkMealToTable(mealID: meal.id, tableID: table.id)
+            
+            // Navigate to table
+            await MainActor.run {
+                selectedNodeID = table.id
+            }
         }
     }
 }

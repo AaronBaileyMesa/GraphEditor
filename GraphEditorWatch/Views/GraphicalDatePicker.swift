@@ -141,14 +141,14 @@ struct GraphicalDatePicker: View {
                     ForEach(0..<7) { dayIndex in
                         let index = week * 7 + dayIndex
                         if index < days.count, let dayDate = days[index] {
-                            Button(action: { selectDay(dayDate) }) {
+                            Button(action: { selectDay(dayDate) }, label: {
                                 Text("\(calendar.component(.day, from: dayDate))")
                                     .font(.system(size: max(10, 11 * 0.8)))
                                     .frame(width: cellSize, height: cellSize * 0.9)
                                     .background(isSelected(dayDate) ? Color.blue : (isToday(dayDate) ? Color.green.opacity(0.3) : Color.clear))
                                     .clipShape(Circle())
                                     .foregroundColor(isCurrentMonth(dayDate) ? .primary : .gray)
-                            }
+                            })
                             .buttonStyle(.plain)
                             .accessibilityLabel("\(calendar.component(.day, from: dayDate)) \(monthYearString)")
                         } else {
@@ -219,7 +219,7 @@ struct GraphicalDatePicker: View {
                 date = today
                 displayMonth = today
                 WKInterfaceDevice.current().play(.success)
-            }) {
+            }, label: {
                 HStack(spacing: 2) {
                     Image(systemName: "calendar.badge.clock")
                         .font(.system(size: 9))
@@ -230,14 +230,14 @@ struct GraphicalDatePicker: View {
                 .padding(.horizontal, 6)
                 .background(Color.blue.opacity(0.3))
                 .clipShape(Capsule())
-            }
+            })
             .buttonStyle(.plain)
             .accessibilityLabel("Jump to today")
             
             Button(action: {
                 displayMonth = date
                 WKInterfaceDevice.current().play(.click)
-            }) {
+            }, label: {
                 HStack(spacing: 2) {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 9))
@@ -248,7 +248,7 @@ struct GraphicalDatePicker: View {
                 .padding(.horizontal, 6)
                 .background(Color.gray.opacity(0.3))
                 .clipShape(Capsule())
-            }
+            })
             .buttonStyle(.plain)
             .accessibilityLabel("Return to selected date")
         }

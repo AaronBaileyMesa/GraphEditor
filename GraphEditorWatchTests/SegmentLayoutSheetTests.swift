@@ -122,7 +122,7 @@ struct SegmentLayoutSheetTests {
         viewModel.model.setSegmentConfig(
             rootNodeID: rootNode2.id,
             direction: .vertical,
-            strength: 600,
+            strength: 0.8,
             nodeSpacing: 40
         )
         
@@ -364,7 +364,7 @@ struct SegmentLayoutSheetTests {
         // Config should still exist
         let config = viewModel.model.segmentConfigs[rootNode.id]
         #expect(config?.direction == .horizontal, "Config should persist after simulation cycles")
-        #expect(config?.strength == 500, "Strength should persist")
+        #expect(config?.strength == 0.7, "Strength should persist")
         #expect(config?.nodeSpacing == 35, "Spacing should persist")
     }
     

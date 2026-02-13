@@ -55,6 +55,71 @@ struct NodeView: View {
                         .font(.system(size: max(6.0, 9.0 * zoomScale)))
                         .offset(y: (mealNode.radius * 1.5 + 10) * zoomScale)
                 }
+            } else if let decisionNode = node as? DecisionNode {
+                // DecisionNode: Diamond shape with question mark
+                Circle()
+                    .fill(decisionNode.fillColor)
+                    .frame(width: decisionNode.radius * 2.2 * zoomScale, height: decisionNode.radius * 2.2 * zoomScale)
+
+                Image(systemName: "questionmark.circle.fill")
+                    .font(.system(size: max(10.0, 14.0 * zoomScale), weight: .medium))
+                    .foregroundColor(.white)
+
+                Text("\(decisionNode.label)")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(6.0, 10.0 * zoomScale)))
+                    .offset(y: -(decisionNode.radius * 1.3 + 10) * zoomScale)
+            } else if let choiceNode = node as? ChoiceNode {
+                // ChoiceNode: Small circle with checkmark if selected
+                Circle()
+                    .fill(choiceNode.fillColor)
+                    .frame(width: choiceNode.radius * 2 * zoomScale, height: choiceNode.radius * 2 * zoomScale)
+
+                if choiceNode.isSelected {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: max(6.0, 10.0 * zoomScale), weight: .bold))
+                        .foregroundColor(.white)
+                }
+
+                Text("\(choiceNode.label)")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(6.0, 9.0 * zoomScale)))
+                    .offset(y: -(choiceNode.radius + 8) * zoomScale)
+            } else if let preferenceNode = node as? PreferenceNode {
+                // PreferenceNode: Larger circle with document icon
+                Circle()
+                    .fill(preferenceNode.fillColor)
+                    .frame(width: preferenceNode.radius * 2.4 * zoomScale, height: preferenceNode.radius * 2.4 * zoomScale)
+
+                Image(systemName: "doc.text.fill")
+                    .font(.system(size: max(10.0, 14.0 * zoomScale), weight: .medium))
+                    .foregroundColor(.white)
+
+                Text("\(preferenceNode.label)")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(7.0, 11.0 * zoomScale)))
+                    .offset(y: -(preferenceNode.radius * 1.4 + 10) * zoomScale)
+            } else if let personNode = node as? PersonNode {
+                // PersonNode: Circle with person icon
+                Circle()
+                    .fill(personNode.fillColor)
+                    .frame(width: personNode.radius * 2 * zoomScale, height: personNode.radius * 2 * zoomScale)
+
+                Image(systemName: "person.fill")
+                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .medium))
+                    .foregroundColor(.white)
+
+                Text("\(personNode.label)")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(6.0, 10.0 * zoomScale)))
+                    .offset(y: -(personNode.radius + 8) * zoomScale)
+                
+                if zoomScale >= 0.5, !personNode.name.isEmpty {
+                    Text(personNode.name)
+                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: max(6.0, 9.0 * zoomScale)))
+                        .offset(y: (personNode.radius + 8) * zoomScale)
+                }
             } else if let control = node as? ControlNode {
                 // Distinct rendering for controls: smaller, with icon
                 Circle()

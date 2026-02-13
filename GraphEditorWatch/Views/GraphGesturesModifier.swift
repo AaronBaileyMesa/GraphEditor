@@ -126,7 +126,7 @@ struct GraphGesturesModifier: ViewModifier {
                 selectedEdgeID = hitEdge.id
                 selectedNodeID = nil
             } else {
-                panStartOffset = offset
+                panStartOffset = value.translation
             }
         }
         
@@ -140,7 +140,24 @@ struct GraphGesturesModifier: ViewModifier {
                 // Existing: Update dragged node's position
                 Self.logger.debug("Drag: oldOwner=(\(oldOwnerPos.x, format: .fixed(precision: 1)),\(oldOwnerPos.y, format: .fixed(precision: 1))) newOwner=(\(newOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y, format: .fixed(precision: 1))) delta=(\(newOwnerPos.x - oldOwnerPos.x, format: .fixed(precision: 1)),\(newOwnerPos.y - oldOwnerPos.y, format: .fixed(precision: 1)))")
                 viewModel.model.nodes[nodeIndex].position = newOwnerPos
-                
+
+                // If dragging a table, update seated person positions in real-time
+                if let table = dragged as? TableNode {
+                    Self.logger.debug("Dragging table with \(table.seatingAssignments.count) seated persons")
+                    // Create updated table with new position for seat calculations
+                    var updatedTable = table
+                    updatedTable.position = newOwnerPos
+
+                    for (seatPosition, personID) in table.seatingAssignments {
+                        if let personIndex = viewModel.model.nodes.firstIndex(where: { $0.id == personID }) {
+                            let oldPersonPos = viewModel.model.nodes[personIndex].position
+                            let newPersonPos = updatedTable.seatPosition(for: seatPosition)
+                            viewModel.model.nodes[personIndex].position = newPersonPos
+                            Self.logger.debug("Updated person at seat: (\(oldPersonPos.x, format: .fixed(precision: 1)),\(oldPersonPos.y, format: .fixed(precision: 1))) → (\(newPersonPos.x, format: .fixed(precision: 1)),\(newPersonPos.y, format: .fixed(precision: 1)))")
+                        }
+                    }
+                }
+
                 // Update attached control nodes' positions in real-time
                 // Maintains exact 40pt offset from owner node
                 viewModel.repositionEphemerals(for: dragged.id, to: newOwnerPos)
@@ -228,6 +245,12 @@ struct GraphGesturesModifier: ViewModifier {
             let type = viewModel.pendingEdgeType  // Assume this is set elsewhere (e.g., .hierarchy)
             Task { await viewModel.addEdge(from: from.id, to: target.id, type: type) }
             Self.logger.debug("Added edge: \(type.rawValue) \"\(from.label)\" → \"\(target.label)\"")
+        }
+        
+        // If we dragged a table, rearrange seated persons
+        if let table = draggedNode as? TableNode, moved {
+            Self.logger.debug("Table was dragged - rearranging seated persons")
+            viewModel.model.arrangePersonsAroundTable(tableID: table.id)
         }
         
         // Clear the flag after first drag-end
@@ -357,6 +380,15 @@ struct GraphGesturesModifier: ViewModifier {
             Self.logger.debug("Set justEnteredEdgeMode=true for addEdge control")
         }
         
+        // Handle openMenu control specially - it needs to show the menu
+        if controlNode.kind == .openMenu, let ownerID = controlNode.ownerID {
+            selectedNodeID = ownerID
+            showMenu = true
+            WKInterfaceDevice.current().play(.click)
+            Self.logger.debug("Opened menu for node \(ownerID.uuidString.prefix(8))")
+            return true
+        }
+        
         // Trigger the control's action
         Task {
             await viewModel.handleControlTap(control: controlNode)
@@ -419,6 +451,23 @@ struct GraphGesturesModifier: ViewModifier {
             // If edge creation failed, continue to select the node
         }
         
+        // Regular node tap - handle special node types
+        
+        // ChoiceNodes: Select/deselect choice in parent DecisionNode
+        if let choiceNode = node as? ChoiceNode {
+            Self.logger.debug("Tapped ChoiceNode: \(node.label) id=\(node.id.uuidString.prefix(8))")
+            // Find parent DecisionNode
+            if let parentEdge = viewModel.model.edges.first(where: { $0.target == node.id && $0.type == .hierarchy }),
+               let parentDecision = viewModel.model.nodes.first(where: { $0.id == parentEdge.from }),
+               let decisionNode = parentDecision.unwrapped as? DecisionNode {
+                Task {
+                    await viewModel.model.selectChoice(choiceNode.id, in: decisionNode.id)
+                }
+                WKInterfaceDevice.current().play(.click)
+                return true
+            }
+        }
+        
         // Regular node tap - toggle selection
         let newID = selectedNodeID == node.id ? nil : node.id
         Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
@@ -427,6 +476,19 @@ struct GraphGesturesModifier: ViewModifier {
         if let id = newID {
             Task {
                 await viewModel.generateControls(for: id)
+            }
+            
+            // Auto-open menu for interactive node types
+            // Need to check the unwrapped type since node is a protocol
+            if let anyNode = viewModel.model.nodes.first(where: { $0.id == id }) {
+                let shouldAutoOpen = anyNode.unwrapped is DecisionNode || 
+                                    anyNode.unwrapped is TaskNode || 
+                                    anyNode.unwrapped is MealNode || 
+                                    anyNode.unwrapped is PreferenceNode
+                if shouldAutoOpen {
+                    Self.logger.debug("Auto-opening menu for interactive node type")
+                    showMenu = true
+                }
             }
         } else {
             Task {

@@ -119,7 +119,7 @@ struct EditContentSheetTests {
         let node = await viewModel.model.addNode(at: .zero)
         await viewModel.model.updateNodeContents(withID: node.id, newContents: contents)
         
-        let updatedNode = await viewModel.model.nodes.first { $0.id == node.id }
+        let updatedNode = viewModel.model.nodes.first { $0.id == node.id }
         #expect(updatedNode?.contents.count == 3, "Node should store all three content items")
         #expect(updatedNode?.contents[0] == .string("Title"), "First content should match")
     }
@@ -149,10 +149,10 @@ struct EditContentSheetTests {
         // Create new model with same storage
         let storage = viewModel.model.storage
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 300, height: 300))
-        let newModel = await GraphModel(storage: storage, physicsEngine: physicsEngine)
+        let newModel = GraphModel(storage: storage, physicsEngine: physicsEngine)
         try? await newModel.loadGraph()
         
-        let loadedNode = await newModel.nodes.first { $0.id == node.id }
+        let loadedNode = newModel.nodes.first { $0.id == node.id }
         #expect(loadedNode?.contents == testContents, "Content should persist through save/load")
     }
     
@@ -162,7 +162,7 @@ struct EditContentSheetTests {
         let node = await viewModel.model.addNode(at: .zero)
         await viewModel.model.updateNodeContents(withID: node.id, newContents: [.string("Important")])
         
-        let updatedNode = await viewModel.model.nodes.first { $0.id == node.id }
+        let updatedNode = viewModel.model.nodes.first { $0.id == node.id }
         #expect(updatedNode != nil, "Node should exist")
         
         // The accessibility label is built in NodeView, so we verify the content is accessible

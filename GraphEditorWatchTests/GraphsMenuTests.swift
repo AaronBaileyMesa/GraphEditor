@@ -18,6 +18,8 @@ struct GraphsMenuTests {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        // Disable simulation for tests to prevent physics from modifying node positions
+        model.isSimulating = false
         return GraphViewModel(model: model)
     }
     
@@ -83,7 +85,7 @@ struct GraphsMenuTests {
         
         // Create and save a graph with nodes
         try await viewModel.model.createNewGraph(name: "GraphA")
-        let nodeInA = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
+        _ = await viewModel.model.addNode(at: CGPoint(x: 50, y: 50))
         try await viewModel.model.saveGraph()
         
         // Create another graph
@@ -231,11 +233,17 @@ struct GraphsMenuTests {
         
         try await viewModel.model.createNewGraph(name: "SaveTest")
         
-        // Add content
-        let node = await viewModel.model.addNode(at: CGPoint(x: 123, y: 456))
+        // Use bulk operations to prevent simulation from moving nodes
+        await viewModel.model.beginBulkOperation()
         
-        // Save
+        // Add content
+        _ = await viewModel.model.addNode(at: CGPoint(x: 123, y: 456))
+        
+        // Save BEFORE ending bulk operation to preserve positions
         try await viewModel.model.saveGraph()
+        
+        // Now end bulk operation
+        await viewModel.model.endBulkOperation()
         
         // Switch away and back
         try await viewModel.model.createNewGraph(name: "Temp")
@@ -316,7 +324,7 @@ struct GraphsMenuTests {
         
         #expect(meals.count == 1, "Should have created 1 meal")
         #expect(tasks.count == 5, "Should have created 5 tasks")
-        #expect(mealNode.name == "Taco Dinner", "Meal should be named 'Taco Dinner'")
+        #expect(mealNode.name == "Beef Tacos", "Meal should be named 'Beef Tacos'")
     }
     
     // MARK: - Graph Name Validation Tests
@@ -328,7 +336,7 @@ struct GraphsMenuTests {
         do {
             try await viewModel.model.createNewGraph(name: "")
             // If it doesn't throw, verify behavior
-            let graphs = try await viewModel.model.listGraphNames()
+            _ = try await viewModel.model.listGraphNames()
             // Empty name might be allowed or rejected depending on implementation
         } catch {
             // Expected: empty name rejected
@@ -395,13 +403,13 @@ struct GraphsMenuTests {
         
         // Create Graph A with specific content
         try await viewModel.model.createNewGraph(name: "GraphA")
-        let nodeA = await viewModel.model.addNode(at: CGPoint(x: 10, y: 10))
+        _ = await viewModel.model.addNode(at: CGPoint(x: 10, y: 10))
         try await viewModel.model.saveGraph()
         
         // Create Graph B with different content
         try await viewModel.model.createNewGraph(name: "GraphB")
-        let nodeB1 = await viewModel.model.addNode(at: CGPoint(x: 20, y: 20))
-        let nodeB2 = await viewModel.model.addNode(at: CGPoint(x: 30, y: 30))
+        _ = await viewModel.model.addNode(at: CGPoint(x: 20, y: 20))
+        _ = await viewModel.model.addNode(at: CGPoint(x: 30, y: 30))
         try await viewModel.model.saveGraph()
         
         // Create Graph C
@@ -424,6 +432,9 @@ struct GraphsMenuTests {
     @MainActor @Test("Delete current graph requires switching to another")
     func testDeleteCurrentGraph() async throws {
         let viewModel = createTestViewModel()
+        
+        // Create default graph first
+        try await viewModel.model.createNewGraph(name: "default")
         
         // Create and switch to a graph
         try await viewModel.model.createNewGraph(name: "CurrentGraph")

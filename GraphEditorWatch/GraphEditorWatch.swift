@@ -19,7 +19,9 @@ struct GraphEditorWatch: App {
             // For UI tests, create ViewModel immediately; otherwise use loader
             if CommandLine.arguments.contains("--uitest-skip-loading") {
                 let screenBounds = WKInterfaceDevice.current().screenBounds.size
-                let physicsEngine = PhysicsEngine(simulationBounds: screenBounds)
+                // Use larger simulation bounds (4x screen size) to avoid boundary constraints
+                let simulationBounds = CGSize(width: screenBounds.width * 4, height: screenBounds.height * 4)
+                let physicsEngine = PhysicsEngine(simulationBounds: simulationBounds)
                 let storage: any GraphStorage = MockGraphStorage()
                 let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
                 let viewModel = GraphViewModel(model: model)
@@ -58,7 +60,9 @@ struct ContentLoaderView: View {
                     let skipLoading = CommandLine.arguments.contains("--uitest-skip-loading")
 
                     let screenBounds = WKInterfaceDevice.current().screenBounds.size
-                    let physicsEngine = PhysicsEngine(simulationBounds: screenBounds)
+                    // Use larger simulation bounds (4x screen size) to avoid boundary constraints
+                    let simulationBounds = CGSize(width: screenBounds.width * 4, height: screenBounds.height * 4)
+                    let physicsEngine = PhysicsEngine(simulationBounds: simulationBounds)
 
                     // MODIFIED: Conditional storage
                     let storage: any GraphStorage = isUITest ? MockGraphStorage() : PersistenceManager()

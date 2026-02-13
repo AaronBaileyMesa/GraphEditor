@@ -91,7 +91,6 @@ extension GraphViewModel {
         
         let nodePos = node.position
         let centroid = effectiveCentroid
-        let viewCenter = CGPoint(x: viewSize.width / 2, y: viewSize.height / 2)
         
         // Calculate what offset would place the node at screen center
         // From modelToScreen: screenPos = viewCenter + (modelPos - centroid) * zoom + offset

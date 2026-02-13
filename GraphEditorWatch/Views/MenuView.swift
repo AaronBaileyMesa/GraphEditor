@@ -40,6 +40,30 @@ struct MenuView: View {
                         onDismiss: { showMenu = false },
                         selectedNodeID: $selectedNodeID
                     )
+                } else if node.unwrapped is DecisionNode {
+                    DecisionNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is PreferenceNode {
+                    PreferenceNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is PersonNode {
+                    PersonNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is TableNode {
+                    TableNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
                 } else {
                     NodeMenuView(
                         viewModel: viewModel,

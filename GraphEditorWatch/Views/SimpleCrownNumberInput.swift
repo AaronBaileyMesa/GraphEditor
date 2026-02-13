@@ -10,20 +10,22 @@ import SwiftUI
 @available(watchOS 10.0, *)
 struct SimpleCrownNumberInput: View {
     @Binding var value: Double
+    let minimumValue: Double
     @State private var workingValue: Double
     @State private var step: Double = 1.0
     @Environment(\.dismiss) private var dismiss
     
-    init(value: Binding<Double>) {
+    init(value: Binding<Double>, minimumValue: Double = -.infinity) {
         self._value = value
-        self._workingValue = State(initialValue: value.wrappedValue)
+        self.minimumValue = minimumValue
+        self._workingValue = State(initialValue: max(value.wrappedValue, minimumValue))
     }
     
     var body: some View {
         List {
             Section {
                 // Native stepper with value display
-                Stepper(value: $workingValue, step: step) {
+                Stepper(value: $workingValue, in: minimumValue...Double.greatestFiniteMagnitude, step: step) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Value")
                             .font(.caption)
@@ -52,7 +54,7 @@ struct SimpleCrownNumberInput: View {
                     // Toggle Sign
                     Button(action: {
                         workingValue = -workingValue
-                    }) {
+                    }, label: {
                         VStack(spacing: 2) {
                             Image(systemName: "plus.forwardslash.minus")
                                 .font(.system(size: 16))
@@ -60,13 +62,13 @@ struct SimpleCrownNumberInput: View {
                                 .font(.caption2)
                         }
                         .frame(maxWidth: .infinity)
-                    }
+                    })
                     .buttonStyle(.bordered)
                     
                     // Reset
                     Button(action: {
                         workingValue = 0
-                    }) {
+                    }, label: {
                         VStack(spacing: 2) {
                             Image(systemName: "arrow.counterclockwise")
                                 .font(.system(size: 16))
@@ -74,14 +76,14 @@ struct SimpleCrownNumberInput: View {
                                 .font(.caption2)
                         }
                         .frame(maxWidth: .infinity)
-                    }
+                    })
                     .buttonStyle(.bordered)
                 }
             }
             
             Section {
                 Button("Done") {
-                    value = workingValue
+                    value = max(workingValue, minimumValue)
                     dismiss()
                 }
                 .frame(maxWidth: .infinity)

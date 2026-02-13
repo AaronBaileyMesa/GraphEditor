@@ -131,7 +131,9 @@ struct MealNodeMenuTests {
         }
         
         // Stop workflow - reset all to pending
-        for task in tasks {
+        // Refetch tasks to get updated statuses
+        let tasksAfterUpdate = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
+        for task in tasksAfterUpdate {
             if task.status == .inProgress || task.status == .completed {
                 viewModel.model.updateTaskStatus(task.id, to: .pending)
             }

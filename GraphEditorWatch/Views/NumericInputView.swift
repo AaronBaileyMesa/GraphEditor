@@ -88,7 +88,7 @@ struct NumericInputView: View {
         Button(action: {
             editingMode = mode
             WKInterfaceDevice.current().play(.click)
-        }) {
+        }, label: {
             VStack(spacing: 1) {
                 Image(systemName: icon)
                     .font(.system(size: 8))
@@ -99,7 +99,7 @@ struct NumericInputView: View {
             .padding(.vertical, 4)
             .background(editingMode == mode ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15))
             .clipShape(RoundedRectangle(cornerRadius: 6))
-        }
+        })
         .buttonStyle(.plain)
     }
     

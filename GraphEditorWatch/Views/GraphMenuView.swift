@@ -27,8 +27,11 @@ struct GraphMenuView: View {
             VStack(spacing: 8) {
                 // Add Section (from AddSection, no edge/child since no selection)
                 Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                addNodeButton
-                    .padding(.horizontal, 8)
+                VStack(spacing: 8) {
+                    addNodeButton
+                    addPersonButton
+                }
+                .padding(.horizontal, 8)
                 
                 // View Section
                 Text("View").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
@@ -90,26 +93,62 @@ struct GraphMenuView: View {
             accessibilityIdentifier: "manageGraphsButton"
         )
         .sheet(isPresented: $showGraphsMenu) {
-            GraphsMenuView(
-                viewModel: viewModel,
-                onDismiss: {
-                    showGraphsMenu = false
-                    onDismiss()
-                }
-            )
+            NavigationStack {
+                GraphsMenuView(
+                    viewModel: viewModel,
+                    onDismiss: {
+                        showGraphsMenu = false
+                        onDismiss()
+                    }
+                )
+            }
         }
     }
     
     private var addNodeButton: some View {
         MenuButton(
             action: {
-                Task { await viewModel.model.addNode(at: CGPoint.zero) }
+                let centroid = viewModel.effectiveCentroid
+                // Add random offset to prevent overlap (larger range for visibility)
+                let offset = CGPoint(
+                    x: CGFloat.random(in: -80...80),
+                    y: CGFloat.random(in: -80...80)
+                )
+                let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+                Task { await viewModel.model.addNode(at: position) }
                 onDismiss()
             },
             label: {
                 Label("Add Node", systemImage: "plus.circle")
             },
             accessibilityIdentifier: "addNodeButton"
+        )
+    }
+    
+    private var addPersonButton: some View {
+        MenuButton(
+            action: {
+                let centroid = viewModel.effectiveCentroid
+                // Add random offset to prevent overlap (larger range for visibility)
+                let offset = CGPoint(
+                    x: CGFloat.random(in: -80...80),
+                    y: CGFloat.random(in: -80...80)
+                )
+                let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+                Task {
+                    _ = await viewModel.model.addPerson(
+                        name: "New Person",
+                        defaultSpiceLevel: nil,
+                        dietaryRestrictions: [],
+                        at: position
+                    )
+                }
+                onDismiss()
+            },
+            label: {
+                Label("Add Person", systemImage: "person.circle.fill")
+            },
+            accessibilityIdentifier: "addPersonButton"
         )
     }
     

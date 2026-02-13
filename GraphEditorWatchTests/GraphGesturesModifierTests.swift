@@ -126,7 +126,7 @@ struct GraphGesturesModifierTests {
             set: { panStartOffset = $0 }
         )
         
-        let modifier = GraphGesturesModifier(
+        _ = GraphGesturesModifier(
             viewModel: viewModel,
             renderContext: RenderContext(effectiveCentroid: .zero, zoomScale: 1.0, offset: .zero, viewSize: CGSize(width: 300, height: 300)),
             zoomScale: .constant(1.0),
