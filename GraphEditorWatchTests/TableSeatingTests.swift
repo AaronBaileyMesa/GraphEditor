@@ -56,16 +56,16 @@ struct TableSeatingTests {
         )
         model.nodes.append(AnyNode(person))
         
-        // Assign person to seat
+        // Assign person to seat (index 0 = head)
         await model.assignPersonToTable(
             personID: person.id,
             tableID: table.id,
-            seatPosition: SeatPosition.head
+            seatIndex: 0
         )
         
         // Verify assignment
         let updatedTable = model.nodes.first(where: { $0.id == table.id })?.unwrapped as? TableNode
-        #expect(updatedTable?.seatingAssignments[SeatPosition.head] == person.id)
+        #expect(updatedTable?.seatingAssignments[0] == person.id)
         
         // Verify person was positioned (physics may have moved it slightly)
         let updatedPerson = model.nodes.first(where: { $0.id == person.id })?.unwrapped as? PersonNode
@@ -93,24 +93,24 @@ struct TableSeatingTests {
         let person = PersonNode(label: 1, position: .zero, name: "Bob")
         model.nodes.append(AnyNode(person))
         
-        // Assign to head seat
+        // Assign to head seat (index 0)
         await model.assignPersonToTable(
             personID: person.id,
             tableID: table.id,
-            seatPosition: SeatPosition.head
+            seatIndex: 0
         )
         
-        // Reassign to leftFront seat
+        // Reassign to another seat (index 1)
         await model.assignPersonToTable(
             personID: person.id,
             tableID: table.id,
-            seatPosition: SeatPosition.leftFront
+            seatIndex: 1
         )
         
         // Verify person is only at new seat
         let updatedTable = model.nodes.first(where: { $0.id == table.id })?.unwrapped as? TableNode
-        #expect(updatedTable?.seatingAssignments[SeatPosition.head] == nil)
-        #expect(updatedTable?.seatingAssignments[SeatPosition.leftFront] == person.id)
+        #expect(updatedTable?.seatingAssignments[0] == nil)
+        #expect(updatedTable?.seatingAssignments[1] == person.id)
         #expect(updatedTable?.seatingAssignments.count == 1)
     }
     
@@ -129,11 +129,11 @@ struct TableSeatingTests {
         let person = PersonNode(label: 1, position: .zero, name: "Charlie")
         model.nodes.append(AnyNode(person))
         
-        // Assign person
+        // Assign person to seat 2
         await model.assignPersonToTable(
             personID: person.id,
             tableID: table.id,
-            seatPosition: SeatPosition.rightMiddle
+            seatIndex: 2
         )
         
         // Remove person
@@ -144,7 +144,7 @@ struct TableSeatingTests {
         
         // Verify removal
         let updatedTable = model.nodes.first(where: { $0.id == table.id })?.unwrapped as? TableNode
-        #expect(updatedTable?.seatingAssignments[SeatPosition.rightMiddle] == nil)
+        #expect(updatedTable?.seatingAssignments[2] == nil)
         #expect(updatedTable?.seatingAssignments.isEmpty == true)
         
         // Verify edge was removed
@@ -173,17 +173,17 @@ struct TableSeatingTests {
         let charlie = PersonNode(label: 3, position: .zero, name: "Charlie")
         model.nodes.append(contentsOf: [AnyNode(alice), AnyNode(bob), AnyNode(charlie)])
         
-        // Assign to different seats
-        await model.assignPersonToTable(personID: alice.id, tableID: table.id, seatPosition: SeatPosition.head)
-        await model.assignPersonToTable(personID: bob.id, tableID: table.id, seatPosition: SeatPosition.leftFront)
-        await model.assignPersonToTable(personID: charlie.id, tableID: table.id, seatPosition: SeatPosition.rightFront)
+        // Assign to different seats (0, 1, 2)
+        await model.assignPersonToTable(personID: alice.id, tableID: table.id, seatIndex: 0)
+        await model.assignPersonToTable(personID: bob.id, tableID: table.id, seatIndex: 1)
+        await model.assignPersonToTable(personID: charlie.id, tableID: table.id, seatIndex: 2)
         
         // Verify all assignments
         let updatedTable = model.nodes.first(where: { $0.id == table.id })?.unwrapped as? TableNode
         #expect(updatedTable?.seatingAssignments.count == 3)
-        #expect(updatedTable?.seatingAssignments[SeatPosition.head] == alice.id)
-        #expect(updatedTable?.seatingAssignments[SeatPosition.leftFront] == bob.id)
-        #expect(updatedTable?.seatingAssignments[SeatPosition.rightFront] == charlie.id)
+        #expect(updatedTable?.seatingAssignments[0] == alice.id)
+        #expect(updatedTable?.seatingAssignments[1] == bob.id)
+        #expect(updatedTable?.seatingAssignments[2] == charlie.id)
     }
     
     @Test("Arrange persons around table positions all assigned persons")
@@ -204,9 +204,9 @@ struct TableSeatingTests {
         let bob = PersonNode(label: 2, position: CGPoint(x: 300, y: 150), name: "Bob")
         model.nodes.append(contentsOf: [AnyNode(alice), AnyNode(bob)])
         
-        // Assign to seats
-        await model.assignPersonToTable(personID: alice.id, tableID: table.id, seatPosition: SeatPosition.head)
-        await model.assignPersonToTable(personID: bob.id, tableID: table.id, seatPosition: SeatPosition.leftFront)
+        // Assign to seats (0 = head, 1 = first side seat)
+        await model.assignPersonToTable(personID: alice.id, tableID: table.id, seatIndex: 0)
+        await model.assignPersonToTable(personID: bob.id, tableID: table.id, seatIndex: 1)
         
         // Arrange (this should reposition them)
         model.arrangePersonsAroundTable(tableID: table.id)
@@ -215,8 +215,8 @@ struct TableSeatingTests {
         let aliceNode = model.nodes.first(where: { $0.id == alice.id })?.unwrapped as? PersonNode
         let bobNode = model.nodes.first(where: { $0.id == bob.id })?.unwrapped as? PersonNode
         
-        let expectedAlicePos = table.seatPosition(for: SeatPosition.head)
-        let expectedBobPos = table.seatPosition(for: SeatPosition.leftFront)
+        let expectedAlicePos = table.seatPosition(for: 0)
+        let expectedBobPos = table.seatPosition(for: 1)
         
         let tolerance: CGFloat = 50.0  // Allow for physics movement
         #expect(abs((aliceNode?.position.x ?? 0) - expectedAlicePos.x) < tolerance)
@@ -250,13 +250,13 @@ struct TableSeatingTests {
         #expect(person.radius == 12.0)
         
         // Verify seat positions account for 12pt person radius - 4pt gap = 8pt offset
-        // Head/foot have Y-offset, so use tableLength/2 to clear the table in Y-direction
-        let headSeatOffset = table.seatOffset(for: SeatPosition.head)
+        // Head seat (index 0) has Y-offset, so use tableLength/2 to clear the table in Y-direction
+        let headSeatOffset = table.seatOffset(for: 0)
         let expectedHeadOffset = table.tableLength / 2 + 8.0
         #expect(headSeatOffset.y == -expectedHeadOffset)
         
-        // Left/right have X-offset, so use tableWidth/2 to clear the table in X-direction
-        let sideSeatOffset = table.seatOffset(for: SeatPosition.leftFront)
+        // First side seat (index 1) has X-offset, so use tableWidth/2 to clear the table in X-direction
+        let sideSeatOffset = table.seatOffset(for: 1)
         let expectedSideOffset = table.tableWidth / 2 + 8.0
         #expect(sideSeatOffset.x == -expectedSideOffset)
     }

@@ -8,6 +8,7 @@
 import SwiftUI
 import GraphEditorShared
 
+// swiftlint:disable type_body_length
 @available(watchOS 10.0, *)
 struct TableNodeMenuView: View {
     let viewModel: GraphViewModel
@@ -15,7 +16,7 @@ struct TableNodeMenuView: View {
     @Binding var selectedNodeID: NodeID?
 
     @State private var tableNode: TableNode?
-    @State private var selectedSeat: SeatPosition?
+    @State private var selectedSeat: Int?
     @State private var showPersonPicker = false
     @State private var showEditSheet = false
     @State private var editedName = ""
@@ -116,29 +117,29 @@ struct TableNodeMenuView: View {
     @ViewBuilder
     private func seatingList(table: TableNode) -> some View {
         VStack(spacing: 4) {
-            ForEach(SeatPosition.allCases, id: \.self) { position in
-                seatRow(table: table, position: position)
+            ForEach(0..<table.totalSeats, id: \.self) { seatIndex in
+                seatRow(table: table, seatIndex: seatIndex)
             }
         }
     }
 
     @ViewBuilder
-    private func seatRow(table: TableNode, position: SeatPosition) -> some View {
+    private func seatRow(table: TableNode, seatIndex: Int) -> some View {
         HStack {
-            Text(position.label)
+            Text("Seat \(seatIndex + 1)")
                 .font(.caption)
                 .foregroundColor(.gray)
 
             Spacer()
 
-            if let personID = table.seatingAssignments[position],
+            if let personID = table.seatingAssignments[seatIndex],
                let person = allPersons.first(where: { $0.id == personID }) {
                 Text(person.name)
                     .font(.caption)
                     .fontWeight(.semibold)
 
                 Button(action: {
-                    removePerson(personID: personID, from: position)
+                    removePerson(personID: personID, from: seatIndex)
                 }, label: {
                     Image(systemName: "xmark.circle.fill")
                         .font(.caption)
@@ -147,7 +148,7 @@ struct TableNodeMenuView: View {
                 .buttonStyle(.plain)
             } else {
                 Button(action: {
-                    selectedSeat = position
+                    selectedSeat = seatIndex
                     showPersonPicker = true
                 }, label: {
                     Text("Assign")
@@ -161,14 +162,14 @@ struct TableNodeMenuView: View {
             }
         }
         .padding(6)
-        .background(table.seatingAssignments[position] != nil ? Color.blue.opacity(0.1) : Color.clear)
+        .background(table.seatingAssignments[seatIndex] != nil ? Color.blue.opacity(0.1) : Color.clear)
         .cornerRadius(6)
     }
 
     // MARK: - Person Picker Sheet
 
     @ViewBuilder
-    private func personPickerSheet(for seat: SeatPosition) -> some View {
+    private func personPickerSheet(for seat: Int) -> some View {
         NavigationView {
             List {
                 Section("Available People") {
@@ -243,14 +244,14 @@ struct TableNodeMenuView: View {
         allPersons = viewModel.model.nodes.compactMap { $0.unwrapped as? PersonNode }
     }
 
-    private func assignPerson(_ person: PersonNode, to position: SeatPosition) {
+    private func assignPerson(_ person: PersonNode, to seatIndex: Int) {
         guard let tableID = selectedNodeID else { return }
 
         Task {
             await viewModel.model.assignPersonToTable(
                 personID: person.id,
                 tableID: tableID,
-                seatPosition: position
+                seatIndex: seatIndex
             )
 
             // Reload
@@ -260,7 +261,7 @@ struct TableNodeMenuView: View {
         }
     }
 
-    private func removePerson(personID: NodeID, from position: SeatPosition) {
+    private func removePerson(personID: NodeID, from seatIndex: Int) {
         guard let tableID = selectedNodeID else { return }
 
         Task {

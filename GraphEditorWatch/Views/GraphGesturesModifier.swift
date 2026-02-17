@@ -10,7 +10,7 @@ import WatchKit
 import GraphEditorShared
 import os
 
-// swiftlint:disable:next type_body_length
+// swiftlint:disable file_length type_body_length
 struct GraphGesturesModifier: ViewModifier {
     let viewModel: GraphViewModel
     let renderContext: RenderContext
@@ -74,7 +74,7 @@ struct GraphGesturesModifier: ViewModifier {
     
     // MARK: - Drag Gesture Handlers
     
-    // swiftlint:disable:next function_body_length
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
     private func handleDragChanged(_ value: DragGesture.Value) {
         // Log EVERY change to diagnose tap detection issues
         let isFirstChange = currentDragLocation == nil
@@ -113,14 +113,17 @@ struct GraphGesturesModifier: ViewModifier {
                 selectedNodeID = hitNode.id
                 viewModel.draggedNodeID = hitNode.id
                 viewModel.model.draggedNodeID = hitNode.id  // Sync to model for physics exclusion
-                
+
                 // CRITICAL: Pause simulation BEFORE repositioning to prevent race condition
                 // Must be synchronous to ensure no physics steps occur during drag
                 viewModel.model.physicsEngine.isPaused = true
-                
+
                 // Reposition controls immediately to ensure correct distance
                 viewModel.repositionEphemerals(for: hitNode.id, to: initialModelPos)
-                
+
+                // Play haptic feedback for drag start
+                HapticManager.shared.playDragStart(for: hitNode)
+
                 Self.logger.debug("Started dragging node \(hitNode.id.uuidString.prefix(8)) - paused physics")
             } else if let hitEdge = HitTestHelper.closestEdge(at: screenPos, visibleEdges: viewModel.model.visibleEdges, visibleNodes: viewModel.model.visibleNodes, renderContext: renderContext) {
                 selectedEdgeID = hitEdge.id
@@ -252,7 +255,12 @@ struct GraphGesturesModifier: ViewModifier {
             Self.logger.debug("Table was dragged - rearranging seated persons")
             viewModel.model.arrangePersonsAroundTable(tableID: table.id)
         }
-        
+
+        // Play haptic feedback for drag end if we were dragging a node
+        if let dragged = draggedNode, moved {
+            HapticManager.shared.playDragEnd(for: dragged)
+        }
+
         // Clear the flag after first drag-end
         if justEnteredEdgeMode {
             justEnteredEdgeMode = false
@@ -260,7 +268,7 @@ struct GraphGesturesModifier: ViewModifier {
             Self.logger.debug("Skipping resetGestureState because we just entered edge mode")
             return
         }
-        
+
         resetGestureState()
     }
     
@@ -463,7 +471,7 @@ struct GraphGesturesModifier: ViewModifier {
                 Task {
                     await viewModel.model.selectChoice(choiceNode.id, in: decisionNode.id)
                 }
-                WKInterfaceDevice.current().play(.click)
+                HapticManager.shared.playNodeTap(for: choiceNode)
                 return true
             }
         }
@@ -495,7 +503,7 @@ struct GraphGesturesModifier: ViewModifier {
                 await viewModel.clearControls()
             }
         }
-        WKInterfaceDevice.current().play(.click)
+        HapticManager.shared.playNodeTap(for: node)
         return true
     }
     

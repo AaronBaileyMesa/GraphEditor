@@ -64,6 +64,12 @@ struct MenuView: View {
                         onDismiss: { showMenu = false },
                         selectedNodeID: $selectedNodeID
                     )
+                } else if node.unwrapped is TacoNode {
+                    TacoNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
                 } else {
                     NodeMenuView(
                         viewModel: viewModel,

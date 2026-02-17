@@ -228,6 +228,7 @@ struct AnimatedCanvasContent: View {
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
+    // swiftlint:disable:next function_body_length
     private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext, visibleNodes: [any NodeProtocol]) {
         // FIXED: Only draw drag preview if the node is actually being dragged with an offset
         // This prevents duplicate rendering when a node is selected but not dragged
@@ -412,6 +413,7 @@ struct ControlNodesOverlayWrapper: View {
             controlNodes: viewModel.model.ephemeralControlNodes,
             controlEdges: viewModel.model.ephemeralControlEdges,
             visibleNodes: viewModel.model.visibleNodes,
+            allNodes: viewModel.model.nodes,
             effectiveCentroid: viewModel.effectiveCentroid,
             zoomScale: zoomScale,
             offset: offset,
@@ -426,6 +428,7 @@ struct ControlNodesOverlay: View {
     let controlNodes: [ControlNode]
     let controlEdges: [GraphEdge]
     let visibleNodes: [any NodeProtocol]
+    let allNodes: [AnyNode]
     let effectiveCentroid: CGPoint
     let zoomScale: CGFloat
     let offset: CGSize
@@ -495,7 +498,8 @@ struct ControlNodesOverlay: View {
                     control: control,
                     zoomScale: zoomScale,
                     ownerScreenPos: ownerScreenPos ?? screenPos,
-                    ownerNode: ownerNode
+                    ownerNode: ownerNode,
+                    allNodes: allNodes
                 )
                     .position(screenPos)
             }
@@ -572,6 +576,7 @@ struct ControlNodeView: View {
     let zoomScale: CGFloat
     let ownerScreenPos: CGPoint
     let ownerNode: (any NodeProtocol)?
+    let allNodes: [AnyNode]
     @State private var isPressed: Bool = false
     @State private var scale: CGFloat = 0.1
     @State private var opacity: Double = 0.0
@@ -609,6 +614,30 @@ struct ControlNodeView: View {
             case .addCookTask: return "flame.fill"
             case .addRecipe: return "book.fill"
             case .scaleRecipe: return "person.2.fill"
+            case .createTacoOrder: return "takeoutbag.and.cup.and.straw.fill"
+            
+            // Taco category controls
+            case .selectProtein: return "fork.knife"
+            case .selectShell: return "circlebadge.fill"
+            case .selectToppings: return "list.bullet"
+            case .backToCategories: return "chevron.left.circle.fill"
+            
+            // Taco configuration controls
+            case .toggleBeef: return "circle.fill"
+            case .toggleChicken: return "circle.fill"
+            case .toggleCrunchyShell: return "circle.fill"
+            case .toggleSoftFlourShell: return "circle.fill"
+            case .toggleSoftCornShell: return "circle.fill"
+            case .toggleLettuce: return "circle.fill"
+            case .toggleTomatoes: return "circle.fill"
+            case .toggleCheese: return "circle.fill"
+            case .toggleSourCream: return "circle.fill"
+            case .toggleGuacamole: return "circle.fill"
+            case .toggleSalsa: return "circle.fill"
+            case .toggleOnions: return "circle.fill"
+            case .toggleCilantro: return "circle.fill"
+            case .toggleJalapeños: return "circle.fill"
+            case .toggleHotSauce: return "circle.fill"
             }
         }()
         
@@ -622,29 +651,44 @@ struct ControlNodeView: View {
                 )
                 .contentShape(Circle())
             
-            // Outer glow for depth
+            // Determine if this control is selected
+            let isSelected = control.isSelected(in: allNodes)
+            
+            // Outer glow for depth - brighter for selected
             Circle()
-                .fill(control.fillColor.opacity(0.3))
+                .fill(control.fillColor.opacity(isSelected ? 0.5 : 0.15))
                 .frame(
-                    width: control.radius * 2 * zoomScale + 4,
-                    height: control.radius * 2 * zoomScale + 4
+                    width: control.radius * 2 * zoomScale + (isSelected ? 6 : 4),
+                    height: control.radius * 2 * zoomScale + (isSelected ? 6 : 4)
                 )
-                .blur(radius: 3)
+                .blur(radius: isSelected ? 4 : 3)
                 .allowsHitTesting(false)  // Don't intercept touches
             
-            // Main circle with shadow
+            // Main circle with shadow - full opacity for selected, dimmed for unselected
             Circle()
-                .fill(control.fillColor.opacity(0.95))
+                .fill(control.fillColor.opacity(isSelected ? 1.0 : 0.25))
                 .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
-                .shadow(color: .black.opacity(0.4), radius: 2 * zoomScale, x: 0, y: 1 * zoomScale)
+                .shadow(color: .black.opacity(isSelected ? 0.5 : 0.15), radius: 2 * zoomScale, x: 0, y: 1 * zoomScale)
                 .allowsHitTesting(false)  // Don't intercept touches
             
-            // Icon (scaled proportionally with control size)
-            Image(systemName: iconName)
-                .font(.system(size: 18 * zoomScale, weight: .medium))  // Increased from 16 to 18
-                .foregroundColor(.white)
-                .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
-                .allowsHitTesting(false)  // Don't intercept touches
+            // Icon or text label (scaled proportionally with control size)
+            if let textLabel = control.kind.textLabel {
+                // Show text label for controls that need it (taco options)
+                Text(textLabel)
+                    .font(.system(size: 10 * zoomScale, weight: .bold))
+                    .foregroundColor(.white)
+                    .minimumScaleFactor(0.5)
+                    .lineLimit(1)
+                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                    .allowsHitTesting(false)
+            } else {
+                // Show icon for standard controls
+                Image(systemName: iconName)
+                    .font(.system(size: 18 * zoomScale, weight: .medium))  // Increased from 16 to 18
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                    .allowsHitTesting(false)  // Don't intercept touches
+            }
         }
         .scaleEffect(scale)
         .opacity(opacity)
@@ -691,7 +735,8 @@ struct ControlNodeView: View {
                             ),
                             zoomScale: 1.0,
                             ownerScreenPos: .zero,
-                            ownerNode: nil
+                            ownerNode: nil,
+                            allNodes: []
                         )
                         .offset(x: xOffset, y: yOffset)
                         .transition(

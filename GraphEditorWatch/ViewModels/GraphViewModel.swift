@@ -178,7 +178,27 @@ extension ControlKind {
             .addPrepTask: Self.handleAddPrepTask,
             .addCookTask: Self.handleAddCookTask,
             .addRecipe: Self.handleAddRecipe,
-            .scaleRecipe: Self.handleScaleRecipe
+            .scaleRecipe: Self.handleScaleRecipe,
+            .createTacoOrder: Self.handleCreateTacoOrder,
+            .selectProtein: Self.handleSelectProtein,
+            .selectShell: Self.handleSelectShell,
+            .selectToppings: Self.handleSelectToppings,
+            .backToCategories: Self.handleBackToCategories,
+            .toggleBeef: Self.handleToggleBeef,
+            .toggleChicken: Self.handleToggleChicken,
+            .toggleCrunchyShell: Self.handleToggleCrunchyShell,
+            .toggleSoftFlourShell: Self.handleToggleSoftFlourShell,
+            .toggleSoftCornShell: Self.handleToggleSoftCornShell,
+            .toggleLettuce: Self.handleToggleTopping("Lettuce"),
+            .toggleTomatoes: Self.handleToggleTopping("Tomatoes"),
+            .toggleCheese: Self.handleToggleTopping("Cheese"),
+            .toggleSourCream: Self.handleToggleTopping("Sour Cream"),
+            .toggleGuacamole: Self.handleToggleTopping("Guacamole"),
+            .toggleSalsa: Self.handleToggleTopping("Salsa"),
+            .toggleOnions: Self.handleToggleTopping("Onions"),
+            .toggleCilantro: Self.handleToggleTopping("Cilantro"),
+            .toggleJalapeños: Self.handleToggleTopping("Jalapeños"),
+            .toggleHotSauce: Self.handleToggleTopping("Hot Sauce")
         ]
         
         return actionHandlers[self] ?? { _, _ in
@@ -378,6 +398,7 @@ extension ControlKind {
     
     @MainActor
     private static func handleAddRecipe(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // swiftlint:disable:next todo
         // FIXME: Implement recipe addition flow
         WKInterfaceDevice.current().play(.click)
         logger.debug("Add recipe to meal \(nodeID.uuidString.prefix(8)) - not yet implemented")
@@ -385,8 +406,225 @@ extension ControlKind {
     
     @MainActor
     private static func handleScaleRecipe(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // swiftlint:disable:next todo
         // FIXME: Implement recipe scaling flow
         WKInterfaceDevice.current().play(.click)
         logger.debug("Scale recipe \(nodeID.uuidString.prefix(8)) - not yet implemented")
+    }
+    
+    @MainActor
+    private static func handleCreateTacoOrder(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Find the PersonNode
+        guard let personNode = viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped as? PersonNode else {
+            logger.error("Could not find PersonNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Create a TacoNode
+        let tacoPosition = CGPoint(
+            x: personNode.position.x + 60,  // Offset to the right
+            y: personNode.position.y
+        )
+        
+        let tacoNode = TacoNode(
+            label: viewModel.model.nextNodeLabel,
+            position: tacoPosition
+        )
+        
+        viewModel.model.nextNodeLabel += 1
+        
+        // Add the taco node to the model
+        viewModel.model.nodes.append(AnyNode(tacoNode))
+        
+        // Create an edge from person to taco
+        await viewModel.model.addEdge(from: nodeID, target: tacoNode.id, type: .association)
+        
+        WKInterfaceDevice.current().play(.success)
+        logger.debug("Created taco order \(tacoNode.id.uuidString.prefix(8)) for person \(personNode.name)")
+        
+        // Select the new taco node
+        viewModel.selectedNodeID = tacoNode.id
+    }
+    
+    // MARK: - Taco Category Controls
+    
+    @MainActor
+    private static func handleSelectProtein(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Set active category to protein
+        viewModel.model.activeTacoCategory[nodeID] = .selectProtein
+        
+        // Regenerate controls to show protein options
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Opened protein selection for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleSelectShell(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Set active category to shell
+        viewModel.model.activeTacoCategory[nodeID] = .selectShell
+        
+        // Regenerate controls to show shell options
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Opened shell selection for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleSelectToppings(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Set active category to toppings
+        viewModel.model.activeTacoCategory[nodeID] = .selectToppings
+        
+        // Regenerate controls to show topping options
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Opened toppings selection for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleBackToCategories(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Clear active category to return to category selection
+        viewModel.model.activeTacoCategory.removeValue(forKey: nodeID)
+        
+        // Regenerate controls to show category options
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Returned to categories for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    // MARK: - Taco Configuration Controls
+    
+    @MainActor
+    private static func handleToggleBeef(viewModel: GraphViewModel, nodeID: NodeID) async {
+        guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+              var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+            logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Toggle beef selection (exclusive with chicken)
+        tacoNode = tacoNode.with(protein: tacoNode.protein == .beef ? nil : .beef)
+        viewModel.model.nodes[index] = AnyNode(tacoNode)
+        
+        // Refresh control nodes to update selection state
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Toggled beef for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleToggleChicken(viewModel: GraphViewModel, nodeID: NodeID) async {
+        guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+              var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+            logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Toggle chicken selection (exclusive with beef)
+        tacoNode = tacoNode.with(protein: tacoNode.protein == .chicken ? nil : .chicken)
+        viewModel.model.nodes[index] = AnyNode(tacoNode)
+        
+        // Refresh control nodes to update selection state
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Toggled chicken for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleToggleCrunchyShell(viewModel: GraphViewModel, nodeID: NodeID) async {
+        guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+              var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+            logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Toggle crunchy shell selection (exclusive with other shells)
+        tacoNode = tacoNode.with(shell: tacoNode.shell == .crunchy ? nil : .crunchy)
+        viewModel.model.nodes[index] = AnyNode(tacoNode)
+        
+        // Refresh control nodes to update selection state
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Toggled crunchy shell for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleToggleSoftFlourShell(viewModel: GraphViewModel, nodeID: NodeID) async {
+        guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+              var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+            logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Toggle soft flour shell selection (exclusive with other shells)
+        tacoNode = tacoNode.with(shell: tacoNode.shell == .softFlour ? nil : .softFlour)
+        viewModel.model.nodes[index] = AnyNode(tacoNode)
+        
+        // Refresh control nodes to update selection state
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Toggled soft flour shell for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    @MainActor
+    private static func handleToggleSoftCornShell(viewModel: GraphViewModel, nodeID: NodeID) async {
+        guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+              var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+            logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Toggle soft corn shell selection (exclusive with other shells)
+        tacoNode = tacoNode.with(shell: tacoNode.shell == .softCorn ? nil : .softCorn)
+        viewModel.model.nodes[index] = AnyNode(tacoNode)
+        
+        // Refresh control nodes to update selection state
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Toggled soft corn shell for taco \(nodeID.uuidString.prefix(8))")
+    }
+    
+    private static func handleToggleTopping(_ topping: String) -> @MainActor (GraphViewModel, NodeID) async -> Void {
+        return { @MainActor viewModel, nodeID in
+            guard let index = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }),
+                  var tacoNode = viewModel.model.nodes[index].unwrapped as? TacoNode else {
+                logger.error("Could not find TacoNode for \(nodeID.uuidString.prefix(8))")
+                WKInterfaceDevice.current().play(.failure)
+                return
+            }
+            
+            var toppings = tacoNode.toppings
+            if let existingIndex = toppings.firstIndex(of: topping) {
+                // Remove topping
+                toppings.remove(at: existingIndex)
+            } else {
+                // Add topping
+                toppings.append(topping)
+            }
+            
+            tacoNode = tacoNode.with(toppings: toppings)
+            viewModel.model.nodes[index] = AnyNode(tacoNode)
+            
+            // Refresh control nodes to update selection state
+            await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+            
+            WKInterfaceDevice.current().play(.click)
+            logger.debug("Toggled \(topping) for taco \(nodeID.uuidString.prefix(8))")
+        }
     }
 }

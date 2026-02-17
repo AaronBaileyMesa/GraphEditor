@@ -97,15 +97,13 @@ struct GraphsMenuView: View {
             }
         }
         .sheet(isPresented: $showTacoSheet) {
-            NavigationStack {
-                MealDefinitionSheet(
-                    viewModel: viewModel,
-                    onDismiss: {
-                        showTacoSheet = false
-                        onDismiss()
-                    }
-                )
-            }
+            TacoNightWizard(
+                viewModel: viewModel,
+                onDismiss: {
+                    showTacoSheet = false
+                    onDismiss()
+                }
+            )
         }
         .onAppear {
             graphName = viewModel.currentGraphName

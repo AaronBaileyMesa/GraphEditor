@@ -100,14 +100,31 @@ struct NodeView: View {
                     .font(.system(size: max(7.0, 11.0 * zoomScale)))
                     .offset(y: -(preferenceNode.radius * 1.4 + 10) * zoomScale)
             } else if let personNode = node as? PersonNode {
-                // PersonNode: Circle with person icon
-                Circle()
-                    .fill(personNode.fillColor)
-                    .frame(width: personNode.radius * 2 * zoomScale, height: personNode.radius * 2 * zoomScale)
+                // PersonNode: Circle with contact thumbnail or person icon
+                ZStack {
+                    if let thumbnailData = personNode.thumbnailImageData,
+                       let uiImage = UIImage(data: thumbnailData) {
+                        // Display contact thumbnail with border
+                        Image(uiImage: uiImage)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: personNode.radius * 2 * zoomScale, height: personNode.radius * 2 * zoomScale)
+                            .clipShape(Circle())
+                            .overlay(
+                                Circle()
+                                    .strokeBorder(Color.white.opacity(0.3), lineWidth: 2 * zoomScale)
+                            )
+                    } else {
+                        // Default rendering with person icon
+                        Circle()
+                            .fill(personNode.fillColor)
+                            .frame(width: personNode.radius * 2 * zoomScale, height: personNode.radius * 2 * zoomScale)
 
-                Image(systemName: "person.fill")
-                    .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .medium))
-                    .foregroundColor(.white)
+                        Image(systemName: "person.fill")
+                            .font(.system(size: max(8.0, 12.0 * zoomScale), weight: .medium))
+                            .foregroundColor(.white)
+                    }
+                }
 
                 Text("\(personNode.label)")
                     .foregroundColor(.white)
@@ -120,6 +137,18 @@ struct NodeView: View {
                         .font(.system(size: max(6.0, 9.0 * zoomScale)))
                         .offset(y: (personNode.radius + 8) * zoomScale)
                 }
+            } else if let tacoNode = node as? TacoNode {
+                // TacoNode: Custom taco icon based on protein and shell
+                TacoIconView(
+                    protein: tacoNode.protein,
+                    shell: tacoNode.shell,
+                    size: tacoNode.radius * 2.4 * zoomScale
+                )
+                
+                Text("\(tacoNode.label)")
+                    .foregroundColor(.white)
+                    .font(.system(size: max(6.0, 10.0 * zoomScale)))
+                    .offset(y: -(tacoNode.radius * 1.4 + 10) * zoomScale)
             } else if let control = node as? ControlNode {
                 // Distinct rendering for controls: smaller, with icon
                 Circle()
@@ -156,12 +185,26 @@ struct NodeView: View {
 
     private func taskTypeIcon(_ taskType: TaskType) -> String {
         switch taskType {
+        // Top-level tasks
         case .plan: return "list.clipboard"
         case .shop: return "cart.fill"
-        case .prep: return "takeoutbag.and.cup.and.straw.fill"
+        case .prep: return "fork.knife.circle"
         case .cook: return "flame.fill"
+        case .assemble: return "rectangle.3.group"
         case .serve: return "fork.knife"
         case .cleanup: return "paintbrush.fill"
+
+        // Prep subtasks
+        case .prepMeat: return "flame.circle"
+        case .prepVegetables: return "leaf.circle"
+        case .prepSauces: return "drop.circle"
+        case .prepShells: return "circle.grid.2x2"
+        case .prepToppings: return "square.stack.3d.up"
+
+        // Assembly subtasks
+        case .assemblySetup: return "square.grid.3x3"
+        case .assemblyBuild: return "hands.sparkles"
+        case .assemblyPlate: return "checkmark.circle"
         }
     }
 }

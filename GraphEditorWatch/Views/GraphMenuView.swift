@@ -18,18 +18,20 @@ struct GraphMenuView: View {
     let onDismiss: () -> Void  // For consistency
     
     @FocusState private var isMenuFocused: Bool
-    @State private var showGraphsMenu: Bool = false  // Added this @State as per comment
+    @State private var showGraphsMenu: Bool = false
+    @State private var showTacoWizard: Bool = false
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "graphmenuview")
     
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                // Add Section (from AddSection, no edge/child since no selection)
+                // Add Section - Icon-only buttons in HStack
                 Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
-                VStack(spacing: 8) {
+                HStack(spacing: 8) {
                     addNodeButton
                     addPersonButton
+                    addTacoButton
                 }
                 .padding(.horizontal, 8)
                 
@@ -106,50 +108,74 @@ struct GraphMenuView: View {
     }
     
     private var addNodeButton: some View {
-        MenuButton(
-            action: {
-                let centroid = viewModel.effectiveCentroid
-                // Add random offset to prevent overlap (larger range for visibility)
-                let offset = CGPoint(
-                    x: CGFloat.random(in: -80...80),
-                    y: CGFloat.random(in: -80...80)
-                )
-                let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
-                Task { await viewModel.model.addNode(at: position) }
-                onDismiss()
-            },
-            label: {
-                Label("Add Node", systemImage: "plus.circle")
-            },
-            accessibilityIdentifier: "addNodeButton"
-        )
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task { await viewModel.model.addNode(at: position) }
+            onDismiss()
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Node")
+        .accessibilityIdentifier("addNodeButton")
     }
     
     private var addPersonButton: some View {
-        MenuButton(
-            action: {
-                let centroid = viewModel.effectiveCentroid
-                // Add random offset to prevent overlap (larger range for visibility)
-                let offset = CGPoint(
-                    x: CGFloat.random(in: -80...80),
-                    y: CGFloat.random(in: -80...80)
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task {
+                _ = await viewModel.model.addPerson(
+                    name: "New Person",
+                    defaultSpiceLevel: nil,
+                    dietaryRestrictions: [],
+                    at: position
                 )
-                let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
-                Task {
-                    _ = await viewModel.model.addPerson(
-                        name: "New Person",
-                        defaultSpiceLevel: nil,
-                        dietaryRestrictions: [],
-                        at: position
-                    )
-                }
-                onDismiss()
-            },
-            label: {
-                Label("Add Person", systemImage: "person.circle.fill")
-            },
-            accessibilityIdentifier: "addPersonButton"
-        )
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "person.circle.fill")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Person")
+        .accessibilityIdentifier("addPersonButton")
+    }
+    
+    private var addTacoButton: some View {
+        Button {
+            showTacoWizard = true
+        } label: {
+            Image(systemName: "takeoutbag.and.cup.and.straw")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Taco Night")
+        .accessibilityIdentifier("addTacoButton")
+        .sheet(isPresented: $showTacoWizard) {
+            NavigationStack {
+                TacoNightWizard(
+                    viewModel: viewModel,
+                    onDismiss: {
+                        showTacoWizard = false
+                        onDismiss()
+                    }
+                )
+            }
+        }
     }
     
     private var overlaysToggle: some View {

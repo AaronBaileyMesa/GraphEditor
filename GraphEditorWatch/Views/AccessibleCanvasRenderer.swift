@@ -79,6 +79,7 @@ struct AccessibleCanvasRenderer {
     }
     
     // MARK: - Node Shape Rendering
+    // swiftlint:disable:next function_parameter_count
     private static func drawNodeShape(
         context: GraphicsContext,
         node: any NodeProtocol,
@@ -89,158 +90,18 @@ struct AccessibleCanvasRenderer {
         borderColor: Color,
         zoomScale: CGFloat
     ) {
-        if let table = node as? TableNode {
-            let tableRect = CGRect(
-                x: screenPos.x - (table.tableWidth * zoomScale) / 2,
-                y: screenPos.y - (table.tableLength * zoomScale) / 2,
-                width: table.tableWidth * zoomScale,
-                height: table.tableLength * zoomScale
-            )
-            let cornerRadius = 8 * zoomScale
-            let tablePath = RoundedRectangle(cornerRadius: cornerRadius).path(in: tableRect)
-            context.fill(tablePath, with: .color(fill))
-            context.stroke(tablePath, with: .color(borderColor), lineWidth: borderWidth)
-        } else {
-            let nodeRect = CGRect(
-                x: screenPos.x - scaledRadius,
-                y: screenPos.y - scaledRadius,
-                width: scaledRadius * 2,
-                height: scaledRadius * 2
-            ).insetBy(dx: borderWidth / 2, dy: borderWidth / 2)
-            let nodePath = Circle().path(in: nodeRect)
-            context.fill(nodePath, with: .color(fill))
-            context.stroke(nodePath, with: .color(borderColor), lineWidth: borderWidth)
-        }
-    }
-    
-    // MARK: - Node Label Rendering
-    private static func drawNodeLabels(
-        context: GraphicsContext,
-        node: any NodeProtocol,
-        screenPos: CGPoint,
-        zoomScale: CGFloat,
-        tablePosition: CGPoint?,
-        logger: Logger?
-    ) {
-        if let control = node as? ControlNode {
-            drawControlIcon(context: context, control: control, screenPos: screenPos, zoomScale: zoomScale, logger: logger)
-        } else if let person = node as? PersonNode {
-            drawPersonLabel(context: context, person: person, node: node, screenPos: screenPos, zoomScale: zoomScale, tablePosition: tablePosition)
-        } else if let table = node as? TableNode {
-            drawTableLabel(context: context, table: table, node: node, screenPos: screenPos, zoomScale: zoomScale)
-        } else {
-            drawRegularNodeLabels(context: context, node: node, screenPos: screenPos, zoomScale: zoomScale)
-        }
-    }
-    
-    private static func drawControlIcon(
-        context: GraphicsContext,
-        control: ControlNode,
-        screenPos: CGPoint,
-        zoomScale: CGFloat,
-        logger: Logger?
-    ) {
-        let iconSize = max(8.0, 12.0 * zoomScale)
-        let iconRect = CGRect(
-            x: screenPos.x - iconSize / 2,
-            y: screenPos.y - iconSize / 2,
-            width: iconSize,
-            height: iconSize
+        // NEW: Use node's type descriptor renderer for shape drawing
+        // This eliminates type-casting and enables declarative rendering configuration
+        var mutableContext = context
+        node.typeDescriptor.renderer.renderShape(
+            context: &mutableContext,
+            node: node,
+            screenPosition: screenPos,
+            zoomScale: zoomScale,
+            isSelected: false  // Selection is handled separately via border
         )
-        
-        let icon = Image(systemName: control.kind.systemImage)
-        context.drawLayer { layer in
-            layer.addFilter(.colorMultiply(.white))
-            layer.draw(icon, in: iconRect)
-        }
-        
-        #if DEBUG
-        logger?.debug("Drew control node icon '\(control.kind.systemImage)' at (x: \(screenPos.x, privacy: .public), y: \(screenPos.y, privacy: .public))")
-        #endif
     }
-    
-    private static func drawPersonLabel(
-        context: GraphicsContext,
-        person: PersonNode,
-        node: any NodeProtocol,
-        screenPos: CGPoint,
-        zoomScale: CGFloat,
-        tablePosition: CGPoint?
-    ) {
-        guard !node.contents.isEmpty, zoomScale >= 0.5 else { return }
-        
-        let contentText = node.contents[0].displayText
-        let contentLabel = Text(contentText)
-            .font(.system(size: max(6, 9 * zoomScale)))
-            .foregroundColor(.white.opacity(0.8))
-        
-        let contentPos: CGPoint
-        if let tablePos = tablePosition {
-            let dx = person.position.x - tablePos.x
-            let dy = person.position.y - tablePos.y
-            let distance = sqrt(dx * dx + dy * dy)
-            
-            #if DEBUG
-            print("🧍 Person '\(contentText)' at model(\(person.position.x),\(person.position.y)) near table at model(\(tablePos.x),\(tablePos.y))")
-            print("   Distance from table center: \(distance)pt, dx=\(dx), dy=\(dy)")
-            print("   Screen position: (\(screenPos.x),\(screenPos.y)), zoom=\(zoomScale)")
-            #endif
-            if distance > 0.1 {
-                let dirX = dx / distance
-                let dirY = dy / distance
-                let labelOffset = (node.radius + 10) * zoomScale
-                contentPos = CGPoint(
-                    x: screenPos.x + dirX * labelOffset,
-                    y: screenPos.y + dirY * labelOffset
-                )
-            } else {
-                contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * zoomScale)
-            }
-        } else {
-            contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * zoomScale)
-        }
-        context.draw(contentLabel, at: contentPos, anchor: .center)
-    }
-    
-    private static func drawTableLabel(
-        context: GraphicsContext,
-        table: TableNode,
-        node: any NodeProtocol,
-        screenPos: CGPoint,
-        zoomScale: CGFloat
-    ) {
-        guard !node.contents.isEmpty, zoomScale >= 0.5 else { return }
-        
-        let contentText = node.contents[0].displayText
-        let contentLabel = Text(contentText)
-            .font(.system(size: max(6, 9 * zoomScale)))
-            .foregroundColor(.white.opacity(0.8))
-        let contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (table.tableLength / 2 + 10) * zoomScale)
-        context.draw(contentLabel, at: contentPos, anchor: .center)
-    }
-    
-    private static func drawRegularNodeLabels(
-        context: GraphicsContext,
-        node: any NodeProtocol,
-        screenPos: CGPoint,
-        zoomScale: CGFloat
-    ) {
-        let labelText = Text("\(node.label)")
-            .font(.system(size: max(8, 12 * zoomScale), weight: .bold))
-            .foregroundColor(.white)
-        let labelPos = CGPoint(x: screenPos.x, y: screenPos.y - (node.radius + 12) * zoomScale)
-        context.draw(labelText, at: labelPos, anchor: .center)
-        
-        if !node.contents.isEmpty, zoomScale >= 0.5 {
-            let contentText = node.contents[0].displayText
-            let contentLabel = Text(contentText)
-                .font(.system(size: max(6, 9 * zoomScale)))
-                .foregroundColor(.white.opacity(0.8))
-            let contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * zoomScale)
-            context.draw(contentLabel, at: contentPos, anchor: .center)
-        }
-    }
-    
+
     // MARK: - Single Node
     static func drawSingleNode(
         renderContext: RenderContext,
@@ -258,7 +119,7 @@ struct AccessibleCanvasRenderer {
         // For seated person nodes, scale to 24 inches (2 feet) in model space
         // For unattached person nodes, keep original radius of 12 inches
         let effectiveRadius: CGFloat
-        if let person = node as? PersonNode, tablePosition != nil {
+        if node is PersonNode, tablePosition != nil {
             // Seated person: 24 inches diameter = 12 inches radius, scaled to table
             effectiveRadius = 12.0
         } else {

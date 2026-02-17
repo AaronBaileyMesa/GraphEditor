@@ -456,10 +456,12 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = YES;
 				ENABLE_TESTING_SEARCH_PATHS = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
+				INFOPLIST_KEY_NSContactsUsageDescription = "This app needs access to your contacts to link people to your graphs and display their photos.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -488,11 +490,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X2UG4373KC;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CONTACTS = YES;
 				ENABLE_TESTABILITY = YES;
 				ENABLE_TESTING_SEARCH_PATHS = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = GraphEditorWatch;
+				INFOPLIST_KEY_NSContactsUsageDescription = "This app needs access to your contacts to link people to your graphs and display their photos.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
