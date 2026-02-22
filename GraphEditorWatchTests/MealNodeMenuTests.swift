@@ -1,4 +1,3 @@
-//
 //  MealNodeMenuTests.swift
 //  GraphEditorWatchTests
 //
@@ -19,6 +18,7 @@ struct MealNodeMenuTests {
         let storage = MockGraphStorage()
         let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
         let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
+        model.isSimulating = false  // Prevent physics engine from running during tests
         return GraphViewModel(model: model)
     }
     
@@ -27,13 +27,19 @@ struct MealNodeMenuTests {
         let calendar = Calendar.current
         let dinnerTime = calendar.date(bySettingHour: 18, minute: 30, second: 0, of: Date()) ?? Date()
         
-        return await TacoTemplateBuilder.buildGraph(
+        let meal = await TacoTemplateBuilder.buildGraph(
             in: viewModel.model,
             guests: 4,
             dinnerTime: dinnerTime,
             protein: .beef,
             at: CGPoint(x: 20, y: 125)
         )
+        
+        // Ensure simulation is stopped after template construction (endBulkOperation may restart it)
+        await viewModel.model.stopSimulation()
+        viewModel.model.isSimulating = false
+        
+        return meal
     }
     
     // MARK: - Meal Loading Tests
@@ -54,34 +60,20 @@ struct MealNodeMenuTests {
         let viewModel = createTestViewModel()
         let meal = await createTacoDinner(in: viewModel)
         
-        // Get tasks via hierarchy edges (same logic as MealNodeMenuView)
-        var orderedTasks: [TaskNode] = []
-        var visited: Set<NodeID> = [meal.id]
-        var currentID: NodeID? = meal.id
+        // Use orderedTasks to get the workflow sequence
+        let allOrderedTasks = viewModel.model.orderedTasks(for: meal.id)
         
-        while let nodeID = currentID {
-            if let edge = viewModel.model.edges.first(where: {
-                $0.from == nodeID && $0.type == .hierarchy && !visited.contains($0.target)
-            }) {
-                visited.insert(edge.target)
-                if let taskNode = viewModel.model.nodes.first(where: { $0.id == edge.target })?.unwrapped as? TaskNode {
-                    orderedTasks.append(taskNode)
-                    currentID = edge.target
-                } else {
-                    currentID = nil
-                }
-            } else {
-                currentID = nil
-            }
-        }
+        // Extract top-level task types in order (shop→prep→cook→assemble→serve→cleanup)
+        let topLevelTypes: [TaskType] = [.shop, .prep, .cook, .assemble, .serve, .cleanup]
+        let topLevelTasks = allOrderedTasks.filter { topLevelTypes.contains($0.taskType) }
         
-        // Verify tasks are in correct order
-        #expect(orderedTasks.count == 5, "Should have 5 tasks")
-        #expect(orderedTasks[0].taskType == .plan, "First task should be plan")
-        #expect(orderedTasks[1].taskType == .shop, "Second task should be shop")
-        #expect(orderedTasks[2].taskType == .prep, "Third task should be prep")
-        #expect(orderedTasks[3].taskType == .cook, "Fourth task should be cook")
-        #expect(orderedTasks[4].taskType == .serve, "Fifth task should be serve")
+        #expect(topLevelTasks.count == 6, "Should have 6 top-level tasks")
+        #expect(topLevelTasks[0].taskType == .shop, "First task should be shop")
+        #expect(topLevelTasks[1].taskType == .prep, "Second task should be prep")
+        #expect(topLevelTasks[2].taskType == .cook, "Third task should be cook")
+        #expect(topLevelTasks[3].taskType == .assemble, "Fourth task should be assemble")
+        #expect(topLevelTasks[4].taskType == .serve, "Fifth task should be serve")
+        #expect(topLevelTasks[5].taskType == .cleanup, "Sixth task should be cleanup")
     }
     
     // MARK: - Workflow State Tests
@@ -104,7 +96,7 @@ struct MealNodeMenuTests {
         _ = await createTacoDinner(in: viewModel)
         
         let tasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
-        guard let firstTask = tasks.first(where: { $0.taskType == .plan }) else {
+        guard let firstTask = tasks.first(where: { $0.taskType == .shop }) else {
             Issue.record("First task not found")
             return
         }
@@ -154,7 +146,7 @@ struct MealNodeMenuTests {
         
         let tasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
         
-        // Complete 3 out of 5 tasks
+        // Complete 3 out of tasks.count tasks
         for i in 0..<3 {
             viewModel.model.updateTaskStatus(tasks[i].id, to: .completed)
         }
@@ -165,7 +157,8 @@ struct MealNodeMenuTests {
         #expect(completedCount == 3, "Should have 3 completed tasks")
         
         let progress = Double(completedCount) / Double(tasks.count)
-        #expect(progress == 0.6, "Progress should be 60% (3/5)")
+        let expectedProgress = 3.0 / Double(tasks.count)
+        #expect(progress == expectedProgress, "Progress should be 3/\(tasks.count)")
     }
     
     @MainActor @Test("Workflow detects if started")
@@ -208,19 +201,23 @@ struct MealNodeMenuTests {
     @MainActor @Test("Next pending task is identified correctly")
     func testNextPendingTaskIdentification() async {
         let viewModel = createTestViewModel()
-        _ = await createTacoDinner(in: viewModel)
+        let meal = await createTacoDinner(in: viewModel)
         
-        let tasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
+        // Find shop and prep tasks by type, then complete them
+        let allTasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
+        guard let shopTask = allTasks.first(where: { $0.taskType == .shop }),
+              let prepTask = allTasks.first(where: { $0.taskType == .prep }) else {
+            Issue.record("Could not find shop or prep tasks")
+            return
+        }
         
-        // Complete first two tasks
-        viewModel.model.updateTaskStatus(tasks[0].id, to: .completed)
-        viewModel.model.updateTaskStatus(tasks[1].id, to: .completed)
+        viewModel.model.updateTaskStatus(shopTask.id, to: .completed)
+        viewModel.model.updateTaskStatus(prepTask.id, to: .completed)
         
-        // Find next pending task
+        // The next top-level task after shop+prep should be cook
         let updatedTasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
-        let nextTask = updatedTasks.first { $0.status == .pending }
-        
-        #expect(nextTask?.taskType == .prep, "Next pending task should be prep")
+        let cookTask = updatedTasks.first(where: { $0.taskType == .cook })
+        #expect(cookTask?.status == .pending, "Cook task should still be pending after completing shop and prep")
     }
     
     // MARK: - Edge Cases
@@ -242,30 +239,46 @@ struct MealNodeMenuTests {
         #expect(allCompleted, "All tasks should be completed")
         
         let completedCount = updatedTasks.filter { $0.status == .completed }.count
-        #expect(completedCount == 5, "Should have 5 completed tasks")
+        #expect(completedCount == tasks.count, "All \(tasks.count) tasks should be completed")
     }
     
     @MainActor @Test("Workflow handles mixed task states")
     func testMixedTaskStates() async {
         let viewModel = createTestViewModel()
-        _ = await createTacoDinner(in: viewModel)
+        let meal = await createTacoDinner(in: viewModel)
         
-        let tasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
+        // Use orderedTasks for stable ordering, then pick specific top-level tasks by type
+        let allTasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
+        guard let shopTask = allTasks.first(where: { $0.taskType == .shop }),
+              let prepTask = allTasks.first(where: { $0.taskType == .prep }),
+              let cookTask = allTasks.first(where: { $0.taskType == .cook }),
+              let assembleTask = allTasks.first(where: { $0.taskType == .assemble }),
+              let serveTask = allTasks.first(where: { $0.taskType == .serve }) else {
+            Issue.record("Could not find expected task types")
+            return
+        }
+        _ = meal  // suppress warning
         
-        // Set mixed states
-        viewModel.model.updateTaskStatus(tasks[0].id, to: .completed)
-        viewModel.model.updateTaskStatus(tasks[1].id, to: .inProgress)
-        viewModel.model.updateTaskStatus(tasks[2].id, to: .blocked)
-        viewModel.model.updateTaskStatus(tasks[3].id, to: .pending)
-        viewModel.model.updateTaskStatus(tasks[4].id, to: .declined)
+        // Set mixed states on stable top-level tasks
+        viewModel.model.updateTaskStatus(shopTask.id, to: .completed)
+        viewModel.model.updateTaskStatus(prepTask.id, to: .inProgress)
+        viewModel.model.updateTaskStatus(cookTask.id, to: .blocked)
+        viewModel.model.updateTaskStatus(assembleTask.id, to: .pending)
+        viewModel.model.updateTaskStatus(serveTask.id, to: .declined)
         
         let updatedTasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
         
-        #expect(updatedTasks[0].status == .completed, "First task should be completed")
-        #expect(updatedTasks[1].status == .inProgress, "Second task should be in progress")
-        #expect(updatedTasks[2].status == .blocked, "Third task should be blocked")
-        #expect(updatedTasks[3].status == .pending, "Fourth task should be pending")
-        #expect(updatedTasks[4].status == .declined, "Fifth task should be declined")
+        let updatedShop = updatedTasks.first(where: { $0.taskType == .shop })
+        let updatedPrep = updatedTasks.first(where: { $0.taskType == .prep })
+        let updatedCook = updatedTasks.first(where: { $0.taskType == .cook })
+        let updatedAssemble = updatedTasks.first(where: { $0.taskType == .assemble })
+        let updatedServe = updatedTasks.first(where: { $0.taskType == .serve })
+        
+        #expect(updatedShop?.status == .completed, "Shop task should be completed")
+        #expect(updatedPrep?.status == .inProgress, "Prep task should be in progress")
+        #expect(updatedCook?.status == .blocked, "Cook task should be blocked")
+        #expect(updatedAssemble?.status == .pending, "Assemble task should be pending")
+        #expect(updatedServe?.status == .declined, "Serve task should be declined")
     }
     
     // MARK: - Auto-Advance Tests
@@ -280,18 +293,18 @@ struct MealNodeMenuTests {
         
         // Verify first task is in progress
         let current1 = viewModel.model.currentTask(for: meal.id)
-        #expect(current1?.taskType == .plan, "First task should be plan")
+        #expect(current1?.taskType == .shop, "First task should be shop")
         
         // Complete current task with auto-advance
         let nextTask = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
         
-        // Verify plan task is completed
+        // Verify shop task is completed
         let tasks = viewModel.model.orderedTasks(for: meal.id)
-        #expect(tasks[0].status == .completed, "Plan task should be completed")
+        #expect(tasks[0].status == .completed, "Shop task should be completed")
         
-        // Verify shop task is now in progress
-        #expect(nextTask?.taskType == .shop, "Next task should be shop")
-        #expect(tasks[1].status == .inProgress, "Shop task should be in progress")
+        // Verify prep task is now in progress
+        #expect(nextTask?.taskType == .prep, "Next task should be prep")
+        #expect(tasks[1].status == .inProgress, "Prep task should be in progress")
     }
     
     @MainActor @Test("Complete current task without auto-advance")
@@ -307,10 +320,10 @@ struct MealNodeMenuTests {
         
         #expect(nextTask == nil, "Should not return next task when auto-advance is false")
         
-        // Verify plan task is completed but shop is still pending
+        // Verify shop task is completed but prep is still pending
         let tasks = viewModel.model.orderedTasks(for: meal.id)
-        #expect(tasks[0].status == .completed, "Plan task should be completed")
-        #expect(tasks[1].status == .pending, "Shop task should still be pending")
+        #expect(tasks[0].status == .completed, "Shop task should be completed")
+        #expect(tasks[1].status == .pending, "Prep task should still be pending")
     }
     
     @MainActor @Test("Auto-advance through entire workflow")
@@ -321,8 +334,9 @@ struct MealNodeMenuTests {
         // Start workflow
         viewModel.model.startWorkflow(for: meal.id)
         
-        // Complete all tasks with auto-advance
-        for i in 0..<5 {
+        // Complete all tasks with auto-advance (6 top-level tasks: shop, prep, cook, assemble, serve, cleanup)
+        let taskCount = viewModel.model.orderedTasks(for: meal.id).count
+        for i in 0..<taskCount {
             let current = viewModel.model.currentTask(for: meal.id)
             #expect(current != nil, "Should have current task at step \(i)")
             
@@ -349,20 +363,22 @@ struct MealNodeMenuTests {
         var progress = viewModel.model.workflowProgress(for: meal.id)
         #expect(progress == 0.0, "Progress should be 0% initially")
         
-        // Complete first task - 20% (1/5)
-        _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
-        progress = viewModel.model.workflowProgress(for: meal.id)
-        #expect(progress == 0.2, "Progress should be 20% after first task")
+        let totalTasks = viewModel.model.orderedTasks(for: meal.id).count
         
-        // Complete second task - 40% (2/5)
+        // Complete first task
         _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
         progress = viewModel.model.workflowProgress(for: meal.id)
-        #expect(progress == 0.4, "Progress should be 40% after second task")
+        #expect(progress == 1.0 / Double(totalTasks), "Progress should be 1/\(totalTasks) after first task")
+        
+        // Complete second task
+        _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
+        progress = viewModel.model.workflowProgress(for: meal.id)
+        #expect(progress == 2.0 / Double(totalTasks), "Progress should be 2/\(totalTasks) after second task")
         
         // Complete remaining tasks
-        _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
-        _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
-        _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
+        for _ in 2..<totalTasks {
+            _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
+        }
         
         // 100% complete
         progress = viewModel.model.workflowProgress(for: meal.id)
@@ -385,7 +401,8 @@ struct MealNodeMenuTests {
         #expect(!viewModel.model.isWorkflowComplete(for: meal.id), "Workflow should not be complete yet")
         
         // Complete all tasks
-        for _ in 0..<5 {
+        let taskCount = viewModel.model.orderedTasks(for: meal.id).count
+        for _ in 0..<taskCount {
             _ = viewModel.model.completeCurrentTask(for: meal.id, autoAdvance: true)
         }
         

@@ -30,7 +30,7 @@ struct AnimatedCanvasContent: View {
     let dragStartNode: (any NodeProtocol)?
     
     var body: some View {
-        Canvas { graphicsContext, _ in
+        Canvas(renderer: { graphicsContext, _ in
             var context = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
             let allVisibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
             let allVisibleEdges = viewModel.model.visibleEdges
@@ -42,8 +42,17 @@ struct AnimatedCanvasContent: View {
             
             // Filter out control edges (spring edges to control nodes)
             let controlNodeIDs = Set(viewModel.model.ephemeralControlNodes.map { $0.id })
+            // Build a set of table node IDs so seating edges can be suppressed
+            let tableNodeIDs = Set(allVisibleNodes.compactMap { ($0 as? TableNode)?.id })
             let visibleEdges = allVisibleEdges.filter { edge in
-                !controlNodeIDs.contains(edge.from) && !controlNodeIDs.contains(edge.target)
+                guard !controlNodeIDs.contains(edge.from) && !controlNodeIDs.contains(edge.target) else {
+                    return false
+                }
+                // Suppress seating association edges (table → person); position makes them redundant
+                if tableNodeIDs.contains(edge.from) && edge.type == .association {
+                    return false
+                }
+                return true
             }
             
             let effectiveCentroid = viewModel.effectiveCentroid
@@ -80,13 +89,35 @@ struct AnimatedCanvasContent: View {
                 saturation: saturation
             )
             
+            // MARK: - Grid Backgrounds (for expanded PeopleListNodes)
+            AccessibleCanvasRenderer.drawGridBackgrounds(
+                renderContext: renderContext,
+                graphicsContext: context,
+                nodes: visibleNodes,
+                selectedNodeID: viewModel.selectedNodeID
+            )
+            
             // MARK: - Nodes (non-selected)
             // Separate person nodes and table nodes for proper z-ordering
-            let personNodes = nonSelectedNodes.filter { $0 is PersonNode }
+            // Seated persons are rendered as seat indicators on the table, not as standalone nodes
+            let seatedPersonIDs = Set(
+                allVisibleNodes.compactMap { $0 as? TableNode }
+                    .flatMap { $0.seatingAssignments.values }
+            )
+            let personNodes = nonSelectedNodes.filter { ($0 is PersonNode) && !seatedPersonIDs.contains($0.id) }
             let tableNodes = nonSelectedNodes.filter { $0 is TableNode }
             let otherNodes = nonSelectedNodes.filter { !($0 is PersonNode) && !($0 is TableNode) }
             
-            // Draw in order: other nodes, person nodes, then tables on top
+            // Build set of PersonNode IDs that are in expanded PeopleListNode tables
+            var tablePersonIDs = Set<NodeID>()
+            
+            for peopleList in allVisibleNodes.compactMap({ $0 as? PeopleListNode }).filter({ $0.isExpanded }) {
+                for childID in peopleList.children {
+                    tablePersonIDs.insert(childID)
+                }
+            }
+            
+            // Draw in order: other nodes, unseated person nodes, then tables on top
             for node in otherNodes + personNodes {
                 // Determine if this node is a potential edge target
                 let isTarget: Bool
@@ -117,6 +148,9 @@ struct AnimatedCanvasContent: View {
                 
                 // Find if this person is seated at a table (fast O(1) lookup)
                 let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+                
+                // Check if this person is in a table
+                let isInTable = (node is PersonNode) && tablePersonIDs.contains(node.id)
 
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
@@ -126,7 +160,9 @@ struct AnimatedCanvasContent: View {
                     isSelected: false,
                     isEdgeCreationSource: false,
                     isEdgeCreationTarget: isTarget,
-                    tablePosition: tablePos
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
                 )
             }
             
@@ -163,8 +199,19 @@ struct AnimatedCanvasContent: View {
                     isSelected: false,
                     isEdgeCreationSource: false,
                     isEdgeCreationTarget: isTarget,
-                    tablePosition: nil  // Tables don't have tablePosition
+                    tablePosition: nil,  // Tables don't have tablePosition
+                    isInGrid: false  // Tables are never in grid
                 )
+
+                // Draw seat indicators over the table surface
+                if let table = node as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: table,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
             }
             
             // NEW: Draw selected edge (if any) – was missing in animatedCanvas
@@ -200,6 +247,9 @@ struct AnimatedCanvasContent: View {
 
                 // Find if this person is seated at a table (fast O(1) lookup)
                 let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+                
+                // Check if this selected person is in a table
+                let isInTable = (node is PersonNode) && tablePersonIDs.contains(node.id)
 
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
@@ -209,8 +259,20 @@ struct AnimatedCanvasContent: View {
                     isSelected: true,
                     isEdgeCreationSource: isSource,
                     isEdgeCreationTarget: false,
-                    tablePosition: tablePos
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
                 )
+
+                // Draw seat indicators for selected table
+                if let table = node as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: table,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
             }
             
             // MARK: - Overlays (unchanged)
@@ -222,14 +284,31 @@ struct AnimatedCanvasContent: View {
                 )
             }
             
-            // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
-            drawDragPreview(in: &context, renderContext: renderContext, visibleNodes: visibleNodes)
-        }
+            // MARK: - Drag Preview
+            drawDragPreview(in: &context, renderContext: renderContext, visibleNodes: visibleNodes, tablePersonIDs: tablePersonIDs)
+        }, symbols: {
+            // Provide Text symbols for count badges on PeopleListNode
+            ForEach(viewModel.model.visibleNodes.compactMap { $0 as? PeopleListNode }, id: \.id) { peopleList in
+                let count = peopleList.children.count
+                // Larger font for counts > 9 (shown alone), smaller for <= 9 (shown with icon)
+                let fontSize: CGFloat = count > 9 ? 24 : 18
+                Text("\(count)")
+                    .font(.system(size: fontSize, weight: .bold))
+                    .foregroundColor(.white)
+                    .tag("count-\(count)")
+            }
+            
+            // Provide SF Symbol for person icon (white to show on blue background)
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.white)
+                .tag("person.3.fill")
+        })
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
     // swiftlint:disable:next function_body_length
-    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext, visibleNodes: [any NodeProtocol]) {
+    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext, visibleNodes: [any NodeProtocol], tablePersonIDs: Set<NodeID>) {
         // FIXED: Only draw drag preview if the node is actually being dragged with an offset
         // This prevents duplicate rendering when a node is selected but not dragged
         if let dragged = draggedNode, dragOffset != .zero {
@@ -237,28 +316,11 @@ struct AnimatedCanvasContent: View {
             var draggedCopy = dragged
             draggedCopy.position = dragged.position + dragOffset
             
-            // If dragging a table, draw seated persons first, then the table on top
+            // If dragging a table, draw it with seat indicators
             if let table = dragged as? TableNode {
-                _ = table.position + dragOffset
-                for (_, personID) in table.seatingAssignments {
-                    if let person = viewModel.model.nodes.first(where: { $0.id == personID })?.unwrapped as? PersonNode {
-                        var personCopy = person
-                        personCopy.position = person.position + dragOffset
+                _ = table
 
-                        AccessibleCanvasRenderer.drawSingleNode(
-                            renderContext: renderContext,
-                            graphicsContext: context,
-                            node: personCopy,
-                            saturation: saturation,
-                            isSelected: false,
-                            isEdgeCreationSource: false,
-                            isEdgeCreationTarget: false,
-                            tablePosition: table.position  // Pass table position for proper scaling
-                        )
-                    }
-                }
-                
-                // Draw the table on top of person nodes
+                // Draw the table
                 let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
@@ -268,12 +330,26 @@ struct AnimatedCanvasContent: View {
                     isSelected: true,
                     isEdgeCreationSource: isSource,
                     isEdgeCreationTarget: false,
-                    tablePosition: nil  // Tables don't have tablePosition
+                    tablePosition: nil,
+                    isInGrid: false  // Tables are never in grid
                 )
+
+                // Draw seat indicators using the copy's position (offset matches drag)
+                if let tableCopy = draggedCopy as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: tableCopy,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
             } else {
                 // For non-table nodes, draw as before
                 let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
                 let tablePos = (draggedCopy is PersonNode) ? viewModel.model.tablePosition(for: draggedCopy.id) : nil
+                
+                // Use tablePersonIDs passed from parent (already calculated from allVisibleNodes)
+                let isInTable = (draggedCopy is PersonNode) && tablePersonIDs.contains(draggedCopy.id)
 
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
@@ -283,7 +359,9 @@ struct AnimatedCanvasContent: View {
                     isSelected: true,
                     isEdgeCreationSource: isSource,
                     isEdgeCreationTarget: false,
-                    tablePosition: tablePos
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
                 )
             }
         }
@@ -585,9 +663,8 @@ struct ControlNodeView: View {
         // Determine icon based on control kind and owner state
         let iconName: String = {
             if control.kind == .toggleExpand {
-                // Check if owner is expanded
-                let isExpanded = (ownerNode as? Node)?.isExpanded ?? false
-                return isExpanded ? "chevron.down" : "chevron.right"
+                // Use the ownerIsExpanded property that was set when control was created
+                return control.ownerIsExpanded ? "chevron.down" : "chevron.right"
             }
             
             switch control.kind {
@@ -615,13 +692,27 @@ struct ControlNodeView: View {
             case .addRecipe: return "book.fill"
             case .scaleRecipe: return "person.2.fill"
             case .createTacoOrder: return "takeoutbag.and.cup.and.straw.fill"
+
+            // PersonNode controls
+            case .linkContact: return "person.crop.circle.badge.plus"
+            case .editPreferences: return "pencil.circle.fill"
+
+            // RootNode creation controls
+            case .addPersonNode: return "person.circle.fill"
+            case .addMealNode: return "fork.knife.circle.fill"
+            case .addTacoNight: return "takeoutbag.and.cup.and.straw.fill"
+            case .viewDashboard: return "chart.bar.fill"
             
             // Taco category controls
             case .selectProtein: return "fork.knife"
             case .selectShell: return "circlebadge.fill"
-            case .selectToppings: return "list.bullet"
+            case .selectToppings: return "leaf.fill"
+            case .selectVeggies: return "leaf.fill"
+            case .selectCreamy: return "drop.fill"
+            case .selectHerbsZest: return "sparkles"
+            case .selectFireKick: return "flame.fill"
             case .backToCategories: return "chevron.left.circle.fill"
-            
+
             // Taco configuration controls
             case .toggleBeef: return "circle.fill"
             case .toggleChicken: return "circle.fill"
@@ -638,6 +729,9 @@ struct ControlNodeView: View {
             case .toggleCilantro: return "circle.fill"
             case .toggleJalapeños: return "circle.fill"
             case .toggleHotSauce: return "circle.fill"
+            case .toggleRadishes: return "circle.fill"
+            case .toggleLime: return "circle.fill"
+            case .togglePickledJalapeños: return "circle.fill"
             }
         }()
         
@@ -673,14 +767,21 @@ struct ControlNodeView: View {
             
             // Icon or text label (scaled proportionally with control size)
             if let textLabel = control.kind.textLabel {
-                // Show text label for controls that need it (taco options)
-                Text(textLabel)
-                    .font(.system(size: 10 * zoomScale, weight: .bold))
-                    .foregroundColor(.white)
-                    .minimumScaleFactor(0.5)
-                    .lineLimit(1)
-                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
-                    .allowsHitTesting(false)
+                // Show emoji + short word label for taco topping controls
+                VStack(spacing: 0) {
+                    Text(textLabel)
+                        .font(.system(size: 11 * zoomScale))
+                        .lineLimit(1)
+                    if let short = control.kind.shortLabel {
+                        Text(short)
+                            .font(.system(size: max(5, 6 * zoomScale), weight: .semibold))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.4)
+                    }
+                }
+                .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 0.5)
+                .allowsHitTesting(false)
             } else {
                 // Show icon for standard controls
                 Image(systemName: iconName)

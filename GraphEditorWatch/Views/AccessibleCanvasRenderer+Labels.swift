@@ -19,6 +19,8 @@ extension AccessibleCanvasRenderer {
         screenPos: CGPoint,
         zoomScale: CGFloat,
         tablePosition: CGPoint?,
+        isInGrid: Bool = false,
+        gridPosition: (row: Int, col: Int)? = nil,
         logger: Logger?
     ) {
         // NOTE: Label rendering still uses type-checking for now
@@ -27,7 +29,7 @@ extension AccessibleCanvasRenderer {
         if let control = node as? ControlNode {
             drawControlIcon(context: context, control: control, screenPos: screenPos, zoomScale: zoomScale, logger: logger)
         } else if let person = node as? PersonNode {
-            drawPersonLabel(context: context, person: person, node: node, screenPos: screenPos, zoomScale: zoomScale, tablePosition: tablePosition)
+            drawPersonLabel(context: context, person: person, node: node, screenPos: screenPos, zoomScale: zoomScale, tablePosition: tablePosition, isInGrid: isInGrid, gridPosition: gridPosition)
         } else if let table = node as? TableNode {
             drawTableLabel(context: context, table: table, node: node, screenPos: screenPos, zoomScale: zoomScale)
         } else {
@@ -68,17 +70,24 @@ extension AccessibleCanvasRenderer {
         node: any NodeProtocol,
         screenPos: CGPoint,
         zoomScale: CGFloat,
-        tablePosition: CGPoint?
+        tablePosition: CGPoint?,
+        isInGrid: Bool = false,
+        gridPosition: (row: Int, col: Int)? = nil
     ) {
         guard !node.contents.isEmpty, zoomScale >= 0.5 else { return }
 
         let contentText = node.contents[0].displayText
+        // Use larger font and higher contrast for grid labels
+        let fontSize = isInGrid ? max(7, 11 * zoomScale) : max(6, 9 * zoomScale)
+        let opacity = isInGrid ? 1.0 : 0.8
+        
         let contentLabel = Text(contentText)
-            .font(.system(size: max(6, 9 * zoomScale)))
-            .foregroundColor(.white.opacity(0.8))
+            .font(.system(size: fontSize))
+            .foregroundColor(.white.opacity(opacity))
 
         let contentPos: CGPoint
         if let tablePos = tablePosition {
+            // Seated at table: radial label positioning
             // swiftlint:disable:next identifier_name
             let dx = person.position.x - tablePos.x
             // swiftlint:disable:next identifier_name
@@ -101,10 +110,22 @@ extension AccessibleCanvasRenderer {
             } else {
                 contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * zoomScale)
             }
+        } else if isInGrid {
+            // In table: labels inline to the right of nodes
+            let labelOffset = (node.radius + 10) * zoomScale
+            contentPos = CGPoint(
+                x: screenPos.x + labelOffset,
+                y: screenPos.y
+            )
         } else {
+            // Standalone: vertical label positioning (below)
             contentPos = CGPoint(x: screenPos.x, y: screenPos.y + (node.radius + 10) * zoomScale)
         }
-        context.draw(contentLabel, at: contentPos, anchor: .center)
+        
+        // Anchor depends on position: table labels use .leading, others use .center
+        let anchor: UnitPoint = isInGrid ? .leading : .center
+        
+        context.draw(contentLabel, at: contentPos, anchor: anchor)
     }
 
     static func drawTableLabel(

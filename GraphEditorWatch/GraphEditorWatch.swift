@@ -47,10 +47,9 @@ struct ContentLoaderView: View {
     
     var body: some View {
         if let viewModel = viewModel {
-            ContentView(
-                viewModel: viewModel
-            )
-            .debugViewHierarchy()
+            // Always start in the graph view
+            ContentView(viewModel: viewModel)
+                .debugViewHierarchy()
         } else {
             Text("Loading...")
                 .accessibilityIdentifier("LoadingView")

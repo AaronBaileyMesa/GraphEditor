@@ -185,7 +185,7 @@ struct TacoFillingShape: Shape {
         case .softFlour:
             // Soft flour filling: Smaller circle inside, leaving shell border visible
             let shellRadius = width * 0.48
-            let fillRadius = shellRadius * 0.7  // 70% of shell radius
+            let fillRadius = shellRadius * 0.56  // 56% of shell radius
             path.addEllipse(in: CGRect(x: centerX - fillRadius, y: centerY - fillRadius, width: fillRadius * 2, height: fillRadius * 2))
             
         case .softCorn:

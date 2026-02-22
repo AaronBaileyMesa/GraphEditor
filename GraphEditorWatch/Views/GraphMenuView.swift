@@ -31,6 +31,7 @@ struct GraphMenuView: View {
                 HStack(spacing: 8) {
                     addNodeButton
                     addPersonButton
+                    addTableButton
                     addTacoButton
                 }
                 .padding(.horizontal, 8)
@@ -59,6 +60,11 @@ struct GraphMenuView: View {
                 HStack(spacing: 8) {
                     resetGraphButton  // Example from GraphSection
                     manageGraphsButton
+                }
+                .padding(.horizontal, 8)
+                
+                HStack(spacing: 8) {
+                    homeButton
                 }
                 .padding(.horizontal, 8)
             }
@@ -154,6 +160,31 @@ struct GraphMenuView: View {
         .accessibilityIdentifier("addPersonButton")
     }
     
+    private var addTableButton: some View {
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task {
+                _ = await viewModel.model.addTable(
+                    name: "Table",
+                    at: position
+                )
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "rectangle.fill")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Table")
+        .accessibilityIdentifier("addTableButton")
+    }
+
     private var addTacoButton: some View {
         Button {
             showTacoWizard = true
@@ -261,6 +292,19 @@ struct GraphMenuView: View {
                 Label("Redo", systemImage: "arrow.uturn.right")
             },
             accessibilityIdentifier: "redoButton"
+        )
+    }
+    
+    private var homeButton: some View {
+        MenuButton(
+            action: {
+                viewModel.resetViewToRootNode(viewSize: viewModel.viewSize)
+                onDismiss()
+            },
+            label: {
+                Label("Home", systemImage: "house.fill")
+            },
+            accessibilityIdentifier: "homeButton"
         )
     }
 }

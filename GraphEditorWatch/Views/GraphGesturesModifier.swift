@@ -39,6 +39,7 @@ struct GraphGesturesModifier: ViewModifier {
     @State private var hasCheckedForNodeThisGesture = false  // Prevents repeated hit tests during pan
     @State private var justEnteredEdgeMode = false  // Prevents immediate drag-end from trying to complete edge
     @State private var longPressSucceeded = false  // Prevents drag-end from interfering after long press menu
+    @State private var justProgrammaticallySelected = false  // Prevents immediate deselection after programmatic selection
     
     private let dragStartThreshold: CGFloat = 5.0  // Balanced for tap detection and drag responsiveness
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "gestures")
@@ -368,7 +369,25 @@ struct GraphGesturesModifier: ViewModifier {
     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
         Self.logger.debug("handleTap: location=\(location.x, format: .fixed(precision: 1)),\(location.y, format: .fixed(precision: 1)) visibleNodes=\(visibleNodes.count)")
         
+        #if DEBUG
+        print("🎯 Tap Debug:")
+        print("  Screen tap location: (\(location.x), \(location.y))")
+        let modelPos = CoordinateTransformer.screenToModel(location, renderContext)
+        print("  Converted to model: (\(modelPos.x), \(modelPos.y))")
+        print("  RenderContext:")
+        print("    Centroid: (\(renderContext.effectiveCentroid.x), \(renderContext.effectiveCentroid.y))")
+        print("    ZoomScale: \(renderContext.zoomScale)")
+        print("    Offset: (\(renderContext.offset.width), \(renderContext.offset.height))")
+        print("    ViewSize: (\(renderContext.viewSize.width), \(renderContext.viewSize.height))")
+        #endif
+        
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
+            #if DEBUG
+            print("  Hit node at model position: (\(node.position.x), \(node.position.y))")
+            if let person = node as? PersonNode {
+                print("  Node name: \(person.name)")
+            }
+            #endif
             return handleNodeTap(node: node)
         }
         
@@ -386,6 +405,17 @@ struct GraphGesturesModifier: ViewModifier {
         if controlNode.kind == .addEdge {
             justEnteredEdgeMode = true
             Self.logger.debug("Set justEnteredEdgeMode=true for addEdge control")
+        }
+        
+        // Set flag for controls that will programmatically select a new node
+        // This prevents the newly selected node from being immediately deselected
+        let createsAndSelectsNode: [ControlKind] = [
+            .addPersonNode, .addMealNode, .addTacoNight, .duplicate,
+            .addChild, .addToggleChild
+        ]
+        if createsAndSelectsNode.contains(controlNode.kind) {
+            justProgrammaticallySelected = true
+            Self.logger.debug("Set justProgrammaticallySelected=true for \(controlNode.kind.rawValue) control")
         }
         
         // Handle openMenu control specially - it needs to show the menu
@@ -477,8 +507,17 @@ struct GraphGesturesModifier: ViewModifier {
         }
         
         // Regular node tap - toggle selection
-        let newID = selectedNodeID == node.id ? nil : node.id
-        Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
+        // But don't allow immediate deselection if this was just programmatically selected
+        let newID: NodeID?
+        if justProgrammaticallySelected && selectedNodeID == node.id {
+            // This node was just programmatically selected, don't toggle it off
+            newID = node.id
+            justProgrammaticallySelected = false
+            Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) - ignoring toggle (just programmatically selected)")
+        } else {
+            newID = selectedNodeID == node.id ? nil : node.id
+            Self.logger.debug("Hit node: \(node.label) id=\(node.id.uuidString.prefix(8)) newSelection=\(newID?.uuidString.prefix(8) ?? "nil")")
+        }
         selectedNodeID = newID
         selectedEdgeID = nil
         if let id = newID {

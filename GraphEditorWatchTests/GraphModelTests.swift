@@ -43,8 +43,10 @@ struct GraphModelTests {
         
         try await model.loadGraph()
         
-        #expect(model.nodes.count == 2, "Nodes loaded")
+        // loadGraph() adds RootNode via ensureRootNode(), so expect 3 nodes (2 saved + 1 RootNode)
+        #expect(model.nodes.count == 3, "Nodes loaded (2 saved + RootNode)")
         #expect(model.edges.count == 1, "Edges loaded")
+        #expect(model.nodes.contains(where: { $0.unwrapped is RootNode }), "RootNode exists")
     }
     
     @MainActor @Test func testClear() async throws {
@@ -54,7 +56,9 @@ struct GraphModelTests {
         
         await model.resetGraph()
         
-        #expect(model.nodes.isEmpty, "Nodes cleared")
+        // resetGraph() preserves or creates RootNode, so expect 1 node
+        #expect(model.nodes.count == 1, "Only RootNode remains after reset")
+        #expect(model.nodes.first?.unwrapped is RootNode, "Remaining node is RootNode")
         #expect(model.edges.isEmpty, "Edges cleared")
     }
     
@@ -75,11 +79,11 @@ struct GraphModelTests {
         )
         try await model.storage.saveGraphState(defaultState, for: "default")
         
-        // Create and switch to new graph
+        // Create and switch to new graph (createNewGraph adds RootNode)
         try await model.createNewGraph(name: "testGraph")
         try await model.switchToGraph(named: "testGraph")
         _ = await model.addNode(at: .zero)
-        #expect(model.nodes.count == 1, "Switched to testGraph – 1 node")
+        #expect(model.nodes.count == 2, "Switched to testGraph – 1 node + RootNode")
         
         // Delete the graph
         try await model.deleteGraph(named: "testGraph")
@@ -87,7 +91,8 @@ struct GraphModelTests {
         // Attempt to load the deleted graph – expect fallback to default without throw
         try await model.loadGraph()
         #expect(model.currentGraphName == "default", "Falls back to default after deleting current")
-        #expect(model.nodes.count == 2, "Loads default graph with previous nodes")
+        // loadGraph() adds RootNode, so expect 3 nodes (2 saved + RootNode)
+        #expect(model.nodes.count == 3, "Loads default graph with previous nodes + RootNode")
     }
     
     @MainActor @Test func testAddAndDeleteEdge() async {

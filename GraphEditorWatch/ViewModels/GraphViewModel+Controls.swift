@@ -75,4 +75,5 @@ extension GraphViewModel {
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
             .debug("Entered add edge mode from node \(nodeID.uuidString.prefix(8))")
     }
+
 }

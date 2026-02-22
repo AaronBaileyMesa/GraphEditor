@@ -143,7 +143,9 @@ struct ViewModelTests {
         // Clear
         await viewModel.clearGraph()
         
-        #expect(viewModel.model.nodes.isEmpty, "All nodes should be removed")
+        // clearGraph() calls resetGraph() which preserves RootNode
+        #expect(viewModel.model.nodes.count == 1, "Only RootNode should remain")
+        #expect(viewModel.model.nodes.first?.unwrapped is RootNode, "Remaining node is RootNode")
         #expect(viewModel.model.edges.isEmpty, "All edges should be removed")
     }
     

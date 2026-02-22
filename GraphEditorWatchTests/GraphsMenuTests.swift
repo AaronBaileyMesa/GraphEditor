@@ -135,8 +135,8 @@ struct GraphsMenuTests {
         // Switch back
         try await viewModel.model.switchToGraph(named: "ContentGraph")
         
-        // Verify content is restored
-        #expect(viewModel.model.nodes.count == savedNodeCount, "Node count should match")
+        // Verify content is restored (counts should match exactly because both save and load include RootNode)
+        #expect(viewModel.model.nodes.count == savedNodeCount, "Node count should match (including RootNode)")
         #expect(viewModel.model.edges.count == savedEdgeCount, "Edge count should match")
     }
     
@@ -249,12 +249,15 @@ struct GraphsMenuTests {
         try await viewModel.model.createNewGraph(name: "Temp")
         try await viewModel.model.switchToGraph(named: "SaveTest")
         
-        // Verify content was saved
-        #expect(viewModel.model.nodes.count >= 1, "Saved node should be present")
+        // Verify content was saved (should have RootNode + the added node)
+        #expect(viewModel.model.nodes.count >= 2, "Should have RootNode + saved node")
         
-        if let savedNode = viewModel.model.nodes.first {
+        // Find the non-root node (the one we added at 123, 456)
+        if let savedNode = viewModel.model.nodes.first(where: { !($0.unwrapped is RootNode) }) {
             #expect(savedNode.position.x == 123, "Node x position should be preserved")
             #expect(savedNode.position.y == 456, "Node y position should be preserved")
+        } else {
+            Issue.record("Could not find saved node (non-RootNode)")
         }
     }
     
@@ -289,8 +292,8 @@ struct GraphsMenuTests {
         try await viewModel.model.createNewGraph(name: "Temp2")
         try await viewModel.model.switchToGraph(named: "ComplexGraph")
         
-        // Verify structure preserved
-        #expect(viewModel.model.nodes.count == nodeCount, "Node count should match")
+        // Verify structure preserved (counts match because both save and load include RootNode)
+        #expect(viewModel.model.nodes.count == nodeCount, "Node count should match (including RootNode)")
         #expect(viewModel.model.edges.count == edgeCount, "Edge count should match")
         
         let meals = viewModel.model.nodes.compactMap { $0.unwrapped as? MealNode }
@@ -323,7 +326,7 @@ struct GraphsMenuTests {
         let tasks = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
         
         #expect(meals.count == 1, "Should have created 1 meal")
-        #expect(tasks.count == 5, "Should have created 5 tasks")
+        #expect(tasks.count == 14, "Should have created 14 tasks (6 top-level + 8 subtasks)")
         #expect(mealNode.name == "Beef Tacos", "Meal should be named 'Beef Tacos'")
     }
     
@@ -401,7 +404,7 @@ struct GraphsMenuTests {
     func testSwitchBetweenMultipleGraphs() async throws {
         let viewModel = createTestViewModel()
         
-        // Create Graph A with specific content
+        // Create Graph A with specific content (createNewGraph adds RootNode)
         try await viewModel.model.createNewGraph(name: "GraphA")
         _ = await viewModel.model.addNode(at: CGPoint(x: 10, y: 10))
         try await viewModel.model.saveGraph()
@@ -412,21 +415,21 @@ struct GraphsMenuTests {
         _ = await viewModel.model.addNode(at: CGPoint(x: 30, y: 30))
         try await viewModel.model.saveGraph()
         
-        // Create Graph C
+        // Create Graph C (empty except for RootNode)
         try await viewModel.model.createNewGraph(name: "GraphC")
         try await viewModel.model.saveGraph()
         
-        // Switch to GraphA
+        // Switch to GraphA (1 added node + RootNode)
         try await viewModel.model.switchToGraph(named: "GraphA")
-        #expect(viewModel.model.nodes.count == 1, "GraphA should have 1 node")
+        #expect(viewModel.model.nodes.count == 2, "GraphA should have 1 node + RootNode")
         
-        // Switch to GraphB
+        // Switch to GraphB (2 added nodes + RootNode)
         try await viewModel.model.switchToGraph(named: "GraphB")
-        #expect(viewModel.model.nodes.count == 2, "GraphB should have 2 nodes")
+        #expect(viewModel.model.nodes.count == 3, "GraphB should have 2 nodes + RootNode")
         
-        // Switch to GraphC
+        // Switch to GraphC (only RootNode)
         try await viewModel.model.switchToGraph(named: "GraphC")
-        #expect(viewModel.model.nodes.count == 0, "GraphC should be empty")
+        #expect(viewModel.model.nodes.count == 1, "GraphC should have only RootNode")
     }
     
     @MainActor @Test("Delete current graph requires switching to another")

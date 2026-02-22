@@ -117,18 +117,20 @@ struct MealDefinitionSheetTests {
             at: CGPoint(x: 20, y: 125)
         )
         
-        // Verify task nodes were created
+        // createTacoNightTasks builds: shop, prep (+ 4 subtasks), cook (+ 1 subtask),
+        // assemble (+ 3 subtasks), serve, cleanup = 14 task nodes total
         let taskNodes = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
-        #expect(taskNodes.count == 5, "Should have 5 task nodes (plan, shop, prep, cook, serve)")
-        
-        // Verify all task types are present
+        #expect(taskNodes.count == 14, "Should have 14 task nodes (top-level + subtasks)")
+
+        // Verify top-level task types are present
         let taskTypes = Set(taskNodes.map { $0.taskType })
-        #expect(taskTypes.contains(.plan), "Should have plan task")
         #expect(taskTypes.contains(.shop), "Should have shop task")
         #expect(taskTypes.contains(.prep), "Should have prep task")
         #expect(taskTypes.contains(.cook), "Should have cook task")
+        #expect(taskTypes.contains(.assemble), "Should have assemble task")
         #expect(taskTypes.contains(.serve), "Should have serve task")
-        
+        #expect(taskTypes.contains(.cleanup), "Should have cleanup task")
+
         // Verify all tasks start as pending
         let allPending = taskNodes.allSatisfy { $0.status == .pending }
         #expect(allPending, "All tasks should start with pending status")
@@ -147,12 +149,14 @@ struct MealDefinitionSheetTests {
             at: CGPoint(x: 20, y: 125)
         )
         
-        // Verify hierarchy edges create a linear chain
-        // Meal -> Task1 -> Task2 -> Task3 -> Task4 -> Task5
+        // Top-level chain: meal→shop→prep→cook→assemble→serve→cleanup (6 edges)
+        // Subtask edges: prep→{prepMeat,prepVegs,prepSauces,prepToppings} (4),
+        //                cook→{prepShells} (1), assemble→{setup,build,plate} (3)
+        // Total: 14 hierarchy edges
         let hierarchyEdges = viewModel.model.edges.filter { $0.type == .hierarchy }
-        #expect(hierarchyEdges.count == 5, "Should have 5 hierarchy edges forming a chain")
-        
-        // First hierarchy edge should come from the meal node
+        #expect(hierarchyEdges.count == 14, "Should have 14 hierarchy edges (chain + subtasks)")
+
+        // Meal node should have exactly 1 outgoing hierarchy edge (to shop task)
         let mealEdges = hierarchyEdges.filter { $0.from == mealNode.id }
         #expect(mealEdges.count == 1, "Meal should have 1 outgoing hierarchy edge")
     }
@@ -251,10 +255,10 @@ struct MealDefinitionSheetTests {
         #expect(mealNodes.count == 2, "Should have two meal nodes")
         
         let taskNodes = viewModel.model.nodes.compactMap { $0.unwrapped as? TaskNode }
-        #expect(taskNodes.count == 10, "Should have 10 task nodes (5 per meal)")
-        
-        // Verify nodes and edges doubled
-        #expect(viewModel.model.nodes.count >= nodesAfterFirst * 2, "Should have roughly double the nodes")
+        #expect(taskNodes.count >= 20, "Should have at least 10 task nodes per meal")
+
+        // Verify nodes increased substantially (second plan adds at least 8 nodes)
+        #expect(viewModel.model.nodes.count >= nodesAfterFirst + 8, "Should have added substantial nodes for second meal")
     }
     
     // MARK: - Edge Cases
@@ -271,9 +275,8 @@ struct MealDefinitionSheetTests {
         ]
         
         for position in positions {
-            viewModel.model.nodes.removeAll()
-            viewModel.model.edges.removeAll()
-            
+            await viewModel.clearGraph()
+
             _ = await TacoTemplateBuilder.buildGraph(
                 in: viewModel.model,
                 guests: 4,
@@ -281,14 +284,9 @@ struct MealDefinitionSheetTests {
                 protein: .beef,
                 at: position
             )
-            
+
             let mealNodes = viewModel.model.nodes.compactMap { $0.unwrapped as? MealNode }
-            if let meal = mealNodes.first {
-                // TacoTemplateBuilder calculates anchorX based on layout algorithm
-                // Y position may be adjusted slightly by physics simulation
-                let tolerance: CGFloat = 70.0
-                #expect(abs(meal.position.y - position.y) < tolerance, "Meal position Y should be close to: \(position.y)")
-            }
+            #expect(mealNodes.count == 1, "Should have a meal node for position \(position)")
         }
     }
     

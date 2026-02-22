@@ -6,6 +6,7 @@
 import SwiftUI
 import WatchKit
 import GraphEditorShared
+import Contacts
 import os
 
 struct ContentView: View {
@@ -35,8 +36,9 @@ struct ContentView: View {
     private var maxZoom: CGFloat { AppConstants.defaultMaxZoom }
     
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
+        NavigationStack {
+            GeometryReader { geo in
+                ZStack {
                 GraphCanvasView(
                     viewModel: viewModel,
                     draggedNode: Binding(get: { draggedNode }, set: { draggedNode = $0 }),
@@ -98,41 +100,103 @@ struct ContentView: View {
                 .environment(\.disableCanvasFocus, true)  // As in your existing code
             }
         }
-        .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
-        .onChange(of: viewSize) { _, newSize in
-            viewModel.viewSize = newSize  // Sync to ViewModel
-            viewModel.resetViewToFitGraph(viewSize: newSize)
-        }
-        .onChange(of: viewModel.selectedNodeID) { _, newID in
-            // Sync ContentView's local state when viewModel changes programmatically
-            selectedNodeID = newID
-        }
-      
-        // Menu sheet
-        .sheet(isPresented: $showMenu) {
-            NavigationStack {
-                MenuView(
-                    viewModel: viewModel,
-                    isSimulatingBinding: $isSimulating,
-                    onCenterGraph: centerGraph,
-                    showMenu: $showMenu,
-                    showOverlays: $showOverlays,
-                    selectedNodeID: Binding(
-                        get: { selectedNodeID },
-                        set: { selectedNodeID = $0; viewModel.selectedNodeID = $0 }
-                    ),
-                    selectedEdgeID: Binding(
-                        get: { selectedEdgeID },
-                        set: { selectedEdgeID = $0; viewModel.selectedEdgeID = $0 }
-                    )
-                )
-                .navigationBarTitleDisplayMode(.inline)
+            .ignoresSafeArea(edges: [.leading, .trailing, .top, .bottom])
+            .onChange(of: viewSize) { _, newSize in
+                viewModel.viewSize = newSize  // Sync to ViewModel
+                viewModel.resetViewToFitGraph(viewSize: newSize)
             }
-            .onDisappear {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    saturation = 1.0
+            .onChange(of: viewModel.selectedNodeID) { _, newID in
+                // Sync ContentView's local state when viewModel changes programmatically
+                selectedNodeID = newID
+            }
+          
+            // Menu sheet
+            .sheet(isPresented: $showMenu) {
+                NavigationStack {
+                    MenuView(
+                        viewModel: viewModel,
+                        isSimulatingBinding: $isSimulating,
+                        onCenterGraph: centerGraph,
+                        showMenu: $showMenu,
+                        showOverlays: $showOverlays,
+                        selectedNodeID: Binding(
+                            get: { selectedNodeID },
+                            set: { selectedNodeID = $0; viewModel.selectedNodeID = $0 }
+                        ),
+                        selectedEdgeID: Binding(
+                            get: { selectedEdgeID },
+                            set: { selectedEdgeID = $0; viewModel.selectedEdgeID = $0 }
+                        )
+                    )
+                    .navigationBarTitleDisplayMode(.inline)
+                }
+                .onDisappear {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        saturation = 1.0
+                    }
                 }
             }
+            .navigationDestination(isPresented: $viewModel.showDashboard) {
+                DashboardView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showContactPicker) {
+                if let nodeID = viewModel.contactPickerForNodeID {
+                    ContactPickerView { contact in
+                        linkContactToNode(contact: contact, nodeID: nodeID)
+                    }
+                }
+            }
+        }
+    }
+
+    private func linkContactToNode(contact: CNContact, nodeID: NodeID) {
+        guard let personNode = viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped as? PersonNode,
+              let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == nodeID }) else {
+            return
+        }
+
+        // Extract contact data
+        let identifier = contact.identifier
+        let contactName = "\(contact.givenName) \(contact.familyName)".trimmingCharacters(in: .whitespaces)
+        
+        var thumbnailData: Data?
+        if contact.imageDataAvailable, let imageData = contact.thumbnailImageData {
+            // Use the contact's photo
+            thumbnailData = imageData
+        } else {
+            // Generate a monogram if no photo is available
+            thumbnailData = MonogramGenerator.generateMonogram(from: contactName)
+        }
+
+        // Create updated PersonNode with contact info
+        let updatedPerson = PersonNode(
+            id: personNode.id,
+            label: personNode.label,
+            position: personNode.position,
+            velocity: personNode.velocity,
+            radius: personNode.radius,
+            name: contactName,
+            defaultSpiceLevel: personNode.defaultSpiceLevel,
+            dietaryRestrictions: personNode.dietaryRestrictions,
+            contactIdentifier: identifier,
+            thumbnailImageData: thumbnailData,
+            proteinPreference: personNode.proteinPreference,
+            shellPreference: personNode.shellPreference,
+            toppingPreferences: personNode.toppingPreferences
+        )
+
+        // Update in model
+        viewModel.model.nodes[nodeIndex] = AnyNode(updatedPerson)
+        viewModel.model.objectWillChange.send()
+        viewModel.model.pushUndo()
+
+        // Close the picker
+        viewModel.showContactPicker = false
+        viewModel.contactPickerForNodeID = nil
+        
+        // Regenerate controls to reflect the updated state (linkContact should now be hidden)
+        Task {
+            await viewModel.generateControls(for: nodeID)
         }
     }
         

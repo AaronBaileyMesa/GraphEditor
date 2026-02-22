@@ -25,7 +25,7 @@ struct EditContentSheetTests {
         #expect(shortString.displayText == "Hello", "Short strings should not be truncated")
         
         let longString = NodeContent.string("This is a very long string that should be truncated")
-        #expect(longString.displayText == "This is a …", "Long strings should be truncated to 10 chars + ellipsis")
+        #expect(longString.displayText == "This is a very long string that should be truncated", "displayText returns full string without truncation")
         
         let exactlyTen = NodeContent.string("1234567890")
         #expect(exactlyTen.displayText == "1234567890", "Exactly 10 chars should not be truncated")

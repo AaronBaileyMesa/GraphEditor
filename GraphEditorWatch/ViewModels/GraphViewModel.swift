@@ -12,6 +12,7 @@
 //  - GraphViewModel+Controls.swift: Control node management
 //  - GraphViewModel+ViewState.swift: Zoom, offset, selection, tap handling
 
+// swiftlint:disable file_length
 import Combine
 import GraphEditorShared
 import WatchKit
@@ -35,7 +36,10 @@ import os
     @Published public var lastFrameTime: Date?  // For calculating elapsed time per frame
     @Published public var isAddingEdge: Bool = false  // FIXED: Added missing property
     @Published public var viewSize: CGSize = .zero  // Current viewport size for centering nodes
-    
+    @Published public var showDashboard: Bool = false  // True when dashboard should be shown
+    @Published public var showContactPicker: Bool = false  // True when contact picker should be shown
+    @Published public var contactPickerForNodeID: UUID?  // NodeID for which contact picker is shown
+
     // MARK: Private Properties
     
     private var inactiveObserver: NSObjectProtocol?
@@ -180,9 +184,19 @@ extension ControlKind {
             .addRecipe: Self.handleAddRecipe,
             .scaleRecipe: Self.handleScaleRecipe,
             .createTacoOrder: Self.handleCreateTacoOrder,
+            .linkContact: Self.handleLinkContact,
+            .editPreferences: Self.handleEditPreferences,
+            .addPersonNode: Self.handleAddPersonNode,
+            .addMealNode: Self.handleAddMealNode,
+            .addTacoNight: Self.handleAddTacoNight,
+            .viewDashboard: Self.handleViewDashboard,
             .selectProtein: Self.handleSelectProtein,
             .selectShell: Self.handleSelectShell,
             .selectToppings: Self.handleSelectToppings,
+            .selectVeggies: Self.handleSelectVeggies,
+            .selectCreamy: Self.handleSelectCreamy,
+            .selectHerbsZest: Self.handleSelectHerbsZest,
+            .selectFireKick: Self.handleSelectFireKick,
             .backToCategories: Self.handleBackToCategories,
             .toggleBeef: Self.handleToggleBeef,
             .toggleChicken: Self.handleToggleChicken,
@@ -198,7 +212,10 @@ extension ControlKind {
             .toggleOnions: Self.handleToggleTopping("Onions"),
             .toggleCilantro: Self.handleToggleTopping("Cilantro"),
             .toggleJalapeños: Self.handleToggleTopping("Jalapeños"),
-            .toggleHotSauce: Self.handleToggleTopping("Hot Sauce")
+            .toggleHotSauce: Self.handleToggleTopping("Hot Sauce"),
+            .toggleRadishes: Self.handleToggleTopping("Radishes"),
+            .toggleLime: Self.handleToggleTopping("Lime"),
+            .togglePickledJalapeños: Self.handleToggleTopping("Pickled Jalapeños")
         ]
         
         return actionHandlers[self] ?? { _, _ in
@@ -256,8 +273,14 @@ extension ControlKind {
             // Give SwiftUI time to render the new node while paused
             try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
             
-            // Select the duplicate - this triggers control generation via subscription
+            // Select the duplicate
             viewModel.selectedNodeID = newID
+            
+            // Center the view on the duplicated node
+            viewModel.centerNode(newID, viewSize: viewModel.viewSize)
+            
+            // Explicitly generate controls for the duplicated node
+            await viewModel.generateControls(for: newID)
         }
     }
     
@@ -446,56 +469,198 @@ extension ControlKind {
         // Select the new taco node
         viewModel.selectedNodeID = tacoNode.id
     }
+
+    @MainActor
+    private static func handleLinkContact(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is a PersonNode
+        guard viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped is PersonNode else {
+            logger.error("linkContact called on non-PersonNode: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+
+        // Set a flag to show contact picker - the view will handle this
+        viewModel.showContactPicker = true
+        viewModel.contactPickerForNodeID = nodeID
+
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Showing contact picker for PersonNode \(nodeID.uuidString.prefix(8))")
+    }
+
+    @MainActor
+    private static func handleEditPreferences(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is a PersonNode
+        guard viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped is PersonNode else {
+            logger.error("editPreferences called on non-PersonNode: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+
+        // Open the edit sheet for this node
+        viewModel.model.editingNodeID = nodeID
+
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Opening edit preferences for PersonNode \(nodeID.uuidString.prefix(8))")
+    }
+
+    // MARK: - RootNode Creation Controls
+    
+    @MainActor
+    private static func handleAddPersonNode(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is RootNode or PeopleListNode
+        let ownerNode = viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped
+        guard ownerNode is RootNode || ownerNode is PeopleListNode else {
+            logger.error("addPersonNode called on invalid node type: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+
+        // Both RootNode and PeopleListNode use the same method
+        // addPersonFromRoot() delegates to addPersonToPeopleList()
+        let person = await viewModel.model.addPersonFromRoot()
+
+        WKInterfaceDevice.current().play(.success)
+        logger.debug("Created PersonNode \(person.id.uuidString.prefix(8)) from \(type(of: ownerNode))")
+
+        // Give SwiftUI time to render the new node and PeopleListNode (if created)
+        try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
+
+        // Select the new person node
+        viewModel.selectedNodeID = person.id
+        
+        // Center the view on the newly created PersonNode
+        viewModel.centerNode(person.id, viewSize: viewModel.viewSize)
+        
+        // Explicitly generate controls for the new PersonNode
+        await viewModel.generateControls(for: person.id)
+    }
+    
+    @MainActor
+    private static func handleAddMealNode(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is RootNode
+        guard viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped is RootNode else {
+            logger.error("addMealNode called on non-RootNode: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        let meal = await viewModel.model.addMealFromRoot()
+        
+        WKInterfaceDevice.current().play(.success)
+        logger.debug("Created MealNode \(meal.id.uuidString.prefix(8)) from RootNode")
+        
+        // Give SwiftUI time to render the new node
+        try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
+        
+        // Select the new meal node
+        viewModel.selectedNodeID = meal.id
+        
+        // Center the view on the newly created MealNode
+        viewModel.centerNode(meal.id, viewSize: viewModel.viewSize)
+        
+        // Explicitly generate controls for the new MealNode
+        await viewModel.generateControls(for: meal.id)
+    }
+    
+    @MainActor
+    private static func handleAddTacoNight(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is RootNode
+        guard viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped is RootNode else {
+            logger.error("addTacoNight called on non-RootNode: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // TODO: Launch TacoNightWizard modal
+        // For now, just provide haptic feedback
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("TacoNight wizard requested from RootNode (not yet implemented)")
+    }
+    
+    @MainActor
+    private static func handleViewDashboard(viewModel: GraphViewModel, nodeID: NodeID) async {
+        // Verify this is RootNode
+        guard viewModel.model.nodes.first(where: { $0.id == nodeID })?.unwrapped is RootNode else {
+            logger.error("viewDashboard called on non-RootNode: \(nodeID.uuidString.prefix(8))")
+            WKInterfaceDevice.current().play(.failure)
+            return
+        }
+        
+        // Set flag to show dashboard
+        viewModel.showDashboard = true
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Dashboard view requested from RootNode")
+    }
     
     // MARK: - Taco Category Controls
     
     @MainActor
     private static func handleSelectProtein(viewModel: GraphViewModel, nodeID: NodeID) async {
-        // Set active category to protein
-        viewModel.model.activeTacoCategory[nodeID] = .selectProtein
-        
-        // Regenerate controls to show protein options
-        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
-        
-        WKInterfaceDevice.current().play(.click)
-        logger.debug("Opened protein selection for taco \(nodeID.uuidString.prefix(8))")
+        await setTacoCategory(.selectProtein, viewModel: viewModel, nodeID: nodeID)
     }
-    
+
     @MainActor
     private static func handleSelectShell(viewModel: GraphViewModel, nodeID: NodeID) async {
-        // Set active category to shell
-        viewModel.model.activeTacoCategory[nodeID] = .selectShell
-        
-        // Regenerate controls to show shell options
-        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
-        
-        WKInterfaceDevice.current().play(.click)
-        logger.debug("Opened shell selection for taco \(nodeID.uuidString.prefix(8))")
+        await setTacoCategory(.selectShell, viewModel: viewModel, nodeID: nodeID)
     }
-    
+
     @MainActor
     private static func handleSelectToppings(viewModel: GraphViewModel, nodeID: NodeID) async {
-        // Set active category to toppings
-        viewModel.model.activeTacoCategory[nodeID] = .selectToppings
-        
-        // Regenerate controls to show topping options
+        await setTacoCategory(.selectToppings, viewModel: viewModel, nodeID: nodeID)
+    }
+
+    @MainActor
+    private static func setTacoCategory(_ kind: ControlKind, viewModel: GraphViewModel, nodeID: NodeID) async {
+        viewModel.model.activeTacoCategory[nodeID] = kind
         await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
-        
         WKInterfaceDevice.current().play(.click)
-        logger.debug("Opened toppings selection for taco \(nodeID.uuidString.prefix(8))")
+    }
+
+    @MainActor
+    private static func handleSelectVeggies(viewModel: GraphViewModel, nodeID: NodeID) async {
+        await setToppingSubCategory(.selectVeggies, viewModel: viewModel, nodeID: nodeID)
+    }
+
+    @MainActor
+    private static func handleSelectCreamy(viewModel: GraphViewModel, nodeID: NodeID) async {
+        await setToppingSubCategory(.selectCreamy, viewModel: viewModel, nodeID: nodeID)
+    }
+
+    @MainActor
+    private static func handleSelectHerbsZest(viewModel: GraphViewModel, nodeID: NodeID) async {
+        await setToppingSubCategory(.selectHerbsZest, viewModel: viewModel, nodeID: nodeID)
+    }
+
+    @MainActor
+    private static func handleSelectFireKick(viewModel: GraphViewModel, nodeID: NodeID) async {
+        await setToppingSubCategory(.selectFireKick, viewModel: viewModel, nodeID: nodeID)
+    }
+
+    @MainActor
+    private static func setToppingSubCategory(_ kind: ControlKind, viewModel: GraphViewModel, nodeID: NodeID) async {
+        viewModel.model.activeToppingSubCategory[nodeID] = kind
+        await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
+        WKInterfaceDevice.current().play(.click)
     }
     
     @MainActor
     private static func handleBackToCategories(viewModel: GraphViewModel, nodeID: NodeID) async {
-        // Clear active category to return to category selection
-        viewModel.model.activeTacoCategory.removeValue(forKey: nodeID)
-        
-        // Regenerate controls to show category options
+        // Navigate back one level at a time:
+        // sub-category level → toppings sub-category menu → top-level categories
+        if viewModel.model.activeToppingSubCategory[nodeID] != nil {
+            viewModel.model.activeToppingSubCategory.removeValue(forKey: nodeID)
+            // Stay in selectToppings so sub-category nodes remain visible
+        } else {
+            viewModel.model.activeTacoCategory.removeValue(forKey: nodeID)
+        }
+
         await viewModel.model.updateEphemerals(selectedNodeID: nodeID)
-        
+
         WKInterfaceDevice.current().play(.click)
-        logger.debug("Returned to categories for taco \(nodeID.uuidString.prefix(8))")
+        logger.debug("Navigated back for taco \(nodeID.uuidString.prefix(8))")
     }
+
+
     
     // MARK: - Taco Configuration Controls
     
