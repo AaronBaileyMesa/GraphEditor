@@ -25,14 +25,59 @@ struct MenuView: View {
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "menuview")
     
     var body: some View {
-        if let id = selectedNodeID, selectedEdgeID == nil {
-            if viewModel.model.nodes.first(where: { $0.id == id })?.unwrapped is ToggleNode {
-                ToggleNodeMenuView(
-                    viewModel: viewModel,
-                    onDismiss: { showMenu = false },
-                    selectedNodeID: $selectedNodeID,
-                    isAddingEdge: $isAddingEdge
-                )
+        if selectedNodeID != nil, selectedEdgeID == nil {
+            // Check node type and route to appropriate menu
+            if let node = viewModel.model.nodes.first(where: { $0.id == selectedNodeID }) {
+                if node.unwrapped is TaskNode {
+                    TaskNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is MealNode {
+                    MealNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is DecisionNode {
+                    DecisionNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is PreferenceNode {
+                    PreferenceNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is PersonNode {
+                    PersonNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is TableNode {
+                    TableNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else if node.unwrapped is TacoNode {
+                    TacoNodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID
+                    )
+                } else {
+                    NodeMenuView(
+                        viewModel: viewModel,
+                        onDismiss: { showMenu = false },
+                        selectedNodeID: $selectedNodeID,
+                        isAddingEdge: $isAddingEdge
+                    )
+                }
             } else {
                 NodeMenuView(
                     viewModel: viewModel,

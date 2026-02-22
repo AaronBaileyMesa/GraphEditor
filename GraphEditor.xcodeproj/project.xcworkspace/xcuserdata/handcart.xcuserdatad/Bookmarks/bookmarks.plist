@@ -12,13 +12,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>156</string>
+					<string>159</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>156</string>
+					<string>159</string>
 					<key>Timestamp</key>
-					<string>786590179.385444</string>
+					<string>792125936.1782809</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -36,11 +36,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>        #endif
+    }
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>}
+
+// Keep the clamped helper (used elsewhere too)
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: 'loadViewState' is inaccessible due to 'private' protection level</string>
@@ -55,13 +58,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>156</string>
+					<string>159</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>156</string>
+					<string>159</string>
 					<key>Timestamp</key>
-					<string>786590179.385788</string>
+					<string>792125936.178256</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -79,11 +82,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>        #endif
+    }
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>}
+
+// Keep the clamped helper (used elsewhere too)
+</string>
 			</dict>
 			<key>title</key>
 			<string>Error: Missing argument for parameter 'viewModel' in call</string>
@@ -98,13 +104,13 @@
 					<key>EndingColumnNumber</key>
 					<string>0</string>
 					<key>EndingLineNumber</key>
-					<string>65</string>
+					<string>69</string>
 					<key>StartingColumnNumber</key>
 					<string>0</string>
 					<key>StartingLineNumber</key>
-					<string>65</string>
+					<string>69</string>
 					<key>Timestamp</key>
-					<string>786691686.606125</string>
+					<string>792009326.8334219</string>
 				</dict>
 				<key>rebasable-url</key>
 				<dict>
@@ -122,11 +128,14 @@
 				<key>focused</key>
 				<string></string>
 				<key>leading</key>
-				<string>    }
-}
+				<string>                    if isUITest &amp;&amp; skipLoading {
+                        await MainActor.run {
 </string>
 				<key>trailing</key>
-				<string></string>
+				<string>                            self.viewModel = GraphViewModel(model: model)
+                        }
+                    } else {
+</string>
 			</dict>
 			<key>title</key>
 			<string>Missing argument for parameter 'viewModel' in call</string>

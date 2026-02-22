@@ -25,7 +25,6 @@ struct FocusableView<Content: View>: View {
     var body: some View {
         content
             .id("GraphCanvasCrownTarget")
-            .focusable(!disableCanvasFocus)  // Use legacy .focusable for watchOS crown compatibility; conditional
             .onAppear {
                 #if DEBUG
                 Self.logger.debug("FocusableView appeared. Disable flag: \(disableCanvasFocus)")

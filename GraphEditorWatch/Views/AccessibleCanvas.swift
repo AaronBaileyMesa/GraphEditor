@@ -7,6 +7,10 @@ import SwiftUI
 import GraphEditorShared
 import os
 
+// swiftlint:disable file_length
+// Rationale: Complex canvas rendering with accessibility support requires extensive view logic.
+// This file handles TimelineView scheduling, coordinate transformation, and accessible rendering.
+
 // NEW: Subview for Canvas content to force updates by depending on context.date
 struct AnimatedCanvasContent: View {
     let contextDate: Date  // Changes every tick (animated) or fixed (static), for logging and .id if needed
@@ -26,12 +30,31 @@ struct AnimatedCanvasContent: View {
     let dragStartNode: (any NodeProtocol)?
     
     var body: some View {
-        let _ = print("AnimatedCanvasContent recomputed at \(contextDate.timeIntervalSinceReferenceDate), visibleNodes count: \(viewModel.model.visibleNodes.count)")  // DEBUG: Confirm fresh recomputes
-        
-        Canvas { graphicsContext, _ in
-            var gc = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
-            let visibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
-            let visibleEdges = viewModel.model.visibleEdges
+        Canvas(renderer: { graphicsContext, _ in
+            var context = graphicsContext  // Single var for mutable GraphicsContext (use this for all draws)
+            let allVisibleNodes = viewModel.model.visibleNodes  // Fresh capture every recompute
+            let allVisibleEdges = viewModel.model.visibleEdges
+            
+            // Filter out control nodes - they're rendered by SwiftUI overlay for immediate display
+            let visibleNodes = allVisibleNodes.filter { node in
+                !(node is ControlNode)
+            }
+            
+            // Filter out control edges (spring edges to control nodes)
+            let controlNodeIDs = Set(viewModel.model.ephemeralControlNodes.map { $0.id })
+            // Build a set of table node IDs so seating edges can be suppressed
+            let tableNodeIDs = Set(allVisibleNodes.compactMap { ($0 as? TableNode)?.id })
+            let visibleEdges = allVisibleEdges.filter { edge in
+                guard !controlNodeIDs.contains(edge.from) && !controlNodeIDs.contains(edge.target) else {
+                    return false
+                }
+                // Suppress seating association edges (table → person); position makes them redundant
+                if tableNodeIDs.contains(edge.from) && edge.type == .association {
+                    return false
+                }
+                return true
+            }
+            
             let effectiveCentroid = viewModel.effectiveCentroid
             
             // ONE source of truth – used by every drawing function and hit-testing
@@ -51,7 +74,7 @@ struct AnimatedCanvasContent: View {
             // MARK: - Edges (non-selected)
             AccessibleCanvasRenderer.drawEdges(
                 renderContext: renderContext,
-                graphicsContext: gc,  // Change to gc
+                graphicsContext: context,
                 visibleEdges: nonSelectedEdges,
                 visibleNodes: visibleNodes,
                 saturation: saturation
@@ -60,21 +83,135 @@ struct AnimatedCanvasContent: View {
             // MARK: - Arrows (non-selected)
             AccessibleCanvasRenderer.drawArrows(
                 renderContext: renderContext,
-                graphicsContext: gc,  // Change to gc
+                graphicsContext: context,
                 visibleEdges: nonSelectedEdges,
                 visibleNodes: visibleNodes,
                 saturation: saturation
             )
             
+            // MARK: - Grid Backgrounds (for expanded PeopleListNodes)
+            AccessibleCanvasRenderer.drawGridBackgrounds(
+                renderContext: renderContext,
+                graphicsContext: context,
+                nodes: visibleNodes,
+                selectedNodeID: viewModel.selectedNodeID
+            )
+            
             // MARK: - Nodes (non-selected)
-            for node in nonSelectedNodes {
+            // Separate person nodes and table nodes for proper z-ordering
+            // Seated persons are rendered as seat indicators on the table, not as standalone nodes
+            let seatedPersonIDs = Set(
+                allVisibleNodes.compactMap { $0 as? TableNode }
+                    .flatMap { $0.seatingAssignments.values }
+            )
+            let personNodes = nonSelectedNodes.filter { ($0 is PersonNode) && !seatedPersonIDs.contains($0.id) }
+            let tableNodes = nonSelectedNodes.filter { $0 is TableNode }
+            let otherNodes = nonSelectedNodes.filter { !($0 is PersonNode) && !($0 is TableNode) }
+            
+            // Build set of PersonNode IDs that are in expanded PeopleListNode tables
+            var tablePersonIDs = Set<NodeID>()
+            
+            for peopleList in allVisibleNodes.compactMap({ $0 as? PeopleListNode }).filter({ $0.isExpanded }) {
+                for childID in peopleList.children {
+                    tablePersonIDs.insert(childID)
+                }
+            }
+            
+            // Draw in order: other nodes, unseated person nodes, then tables on top
+            for node in otherNodes + personNodes {
+                // Determine if this node is a potential edge target
+                let isTarget: Bool
+                if isAddingEdge,
+                   let sourceID = viewModel.draggedNodeID,
+                   node.id != sourceID,
+                   !(node is ControlNode) {
+                    // Check if edge already exists (in either direction for undirected graphs)
+                    // NOTE: Must check model.edges, not allVisibleEdges, because visibleEdges
+                    // is filtered by layout mode and won't include all edge types
+                    let edgeExists = viewModel.model.edges.contains { edge in
+                        (edge.from == sourceID && edge.target == node.id) ||
+                        (edge.from == node.id && edge.target == sourceID)
+                    }
+                    
+                    // Check if edge would create a cycle (only for hierarchy edges)
+                    let wouldCycle = viewModel.pendingEdgeType == .hierarchy &&
+                                    viewModel.model.wouldCreateCycle(
+                                        withNewEdgeFrom: sourceID,
+                                        target: node.id,
+                                        type: viewModel.pendingEdgeType
+                                    )
+                    
+                    isTarget = !edgeExists && !wouldCycle
+                } else {
+                    isTarget = false
+                }
+                
+                // Find if this person is seated at a table (fast O(1) lookup)
+                let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+                
+                // Check if this person is in a table
+                let isInTable = (node is PersonNode) && tablePersonIDs.contains(node.id)
+
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
-                    graphicsContext: gc,
+                    graphicsContext: context,
                     node: node,  // Draw using actual model position
                     saturation: saturation,
-                    isSelected: false
+                    isSelected: false,
+                    isEdgeCreationSource: false,
+                    isEdgeCreationTarget: isTarget,
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
                 )
+            }
+            
+            // Draw table nodes last so they appear on top of person nodes
+            for node in tableNodes {
+                // Determine if this node is a potential edge target
+                let isTarget: Bool
+                if isAddingEdge,
+                   let sourceID = viewModel.draggedNodeID,
+                   node.id != sourceID,
+                   !(node is ControlNode) {
+                    let edgeExists = viewModel.model.edges.contains { edge in
+                        (edge.from == sourceID && edge.target == node.id) ||
+                        (edge.from == node.id && edge.target == sourceID)
+                    }
+                    
+                    let wouldCycle = viewModel.pendingEdgeType == .hierarchy &&
+                                    viewModel.model.wouldCreateCycle(
+                                        withNewEdgeFrom: sourceID,
+                                        target: node.id,
+                                        type: viewModel.pendingEdgeType
+                                    )
+                    
+                    isTarget = !edgeExists && !wouldCycle
+                } else {
+                    isTarget = false
+                }
+
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: node,
+                    saturation: saturation,
+                    isSelected: false,
+                    isEdgeCreationSource: false,
+                    isEdgeCreationTarget: isTarget,
+                    tablePosition: nil,  // Tables don't have tablePosition
+                    isInGrid: false  // Tables are never in grid
+                )
+
+                // Draw seat indicators over the table surface
+                if let table = node as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: table,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
             }
             
             // NEW: Draw selected edge (if any) – was missing in animatedCanvas
@@ -82,7 +219,7 @@ struct AnimatedCanvasContent: View {
                 AccessibleCanvasRenderer.drawSingleEdgeLine(
                     config: EdgeDrawingConfig(
                         renderContext: renderContext,
-                        graphicsContext: gc,
+                        graphicsContext: context,
                         saturation: saturation,
                         isSelected: true,
                         logger: AccessibleCanvas.logger
@@ -93,7 +230,7 @@ struct AnimatedCanvasContent: View {
                 AccessibleCanvasRenderer.drawSingleArrow(
                     config: EdgeDrawingConfig(
                         renderContext: renderContext,
-                        graphicsContext: gc,
+                        graphicsContext: context,
                         saturation: saturation,
                         isSelected: true,
                         logger: AccessibleCanvas.logger
@@ -105,48 +242,164 @@ struct AnimatedCanvasContent: View {
             
             // MARK: - Selected Node (if any)
             if let node = selectedNode {
+                // Check if this selected node is the source of edge creation
+                let isSource = isAddingEdge && viewModel.draggedNodeID == node.id
+
+                // Find if this person is seated at a table (fast O(1) lookup)
+                let tablePos = (node is PersonNode) ? viewModel.model.tablePosition(for: node.id) : nil
+                
+                // Check if this selected person is in a table
+                let isInTable = (node is PersonNode) && tablePersonIDs.contains(node.id)
+
                 AccessibleCanvasRenderer.drawSingleNode(
                     renderContext: renderContext,
-                    graphicsContext: gc,
+                    graphicsContext: context,
                     node: node,
                     saturation: saturation,
-                    isSelected: true
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false,
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
                 )
+
+                // Draw seat indicators for selected table
+                if let table = node as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: table,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
             }
             
             // MARK: - Overlays (unchanged)
             if showOverlays {
                 AccessibleCanvasRenderer.drawBoundingBox(
                     nodes: visibleNodes,
-                    in: &gc,  // Change to &gc for inout
+                    in: &context,
                     renderContext: renderContext
                 )
             }
             
-            // MARK: - Drag Preview (assuming this is the truncated part; adjust as needed)
-            drawDragPreview(in: &gc, renderContext: renderContext)
-        }
+            // MARK: - Drag Preview
+            drawDragPreview(in: &context, renderContext: renderContext, visibleNodes: visibleNodes, tablePersonIDs: tablePersonIDs)
+        }, symbols: {
+            // Provide Text symbols for count badges on PeopleListNode
+            ForEach(viewModel.model.visibleNodes.compactMap { $0 as? PeopleListNode }, id: \.id) { peopleList in
+                let count = peopleList.children.count
+                // Larger font for counts > 9 (shown alone), smaller for <= 9 (shown with icon)
+                let fontSize: CGFloat = count > 9 ? 24 : 18
+                Text("\(count)")
+                    .font(.system(size: fontSize, weight: .bold))
+                    .foregroundColor(.white)
+                    .tag("count-\(count)")
+            }
+            
+            // Provide SF Symbol for person icon (white to show on blue background)
+            Image(systemName: "person.3.fill")
+                .font(.system(size: 20))
+                .foregroundColor(.white)
+                .tag("person.3.fill")
+        })
     }
     
     // Shared drawDragPreview (now inside AnimatedCanvasContent since it's the only user)
-    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext) {
-        // Your existing implementation here (e.g., drawing draggedNode, potential edge, etc.)
-        // Example placeholder:
-        if let dragged = draggedNode {
-            AccessibleCanvasRenderer.drawSingleNode(
-                renderContext: renderContext,
-                graphicsContext: context,
-                node: dragged,
-                saturation: saturation,
-                isSelected: true
-            )
+    // swiftlint:disable:next function_body_length
+    private func drawDragPreview(in context: inout GraphicsContext, renderContext: RenderContext, visibleNodes: [any NodeProtocol], tablePersonIDs: Set<NodeID>) {
+        // FIXED: Only draw drag preview if the node is actually being dragged with an offset
+        // This prevents duplicate rendering when a node is selected but not dragged
+        if let dragged = draggedNode, dragOffset != .zero {
+            // Create a temporary node at the dragged position for rendering
+            var draggedCopy = dragged
+            draggedCopy.position = dragged.position + dragOffset
+            
+            // If dragging a table, draw it with seat indicators
+            if let table = dragged as? TableNode {
+                _ = table
+
+                // Draw the table
+                let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: draggedCopy,
+                    saturation: saturation,
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false,
+                    tablePosition: nil,
+                    isInGrid: false  // Tables are never in grid
+                )
+
+                // Draw seat indicators using the copy's position (offset matches drag)
+                if let tableCopy = draggedCopy as? TableNode {
+                    AccessibleCanvasRenderer.drawTableSeatIndicators(
+                        renderContext: renderContext,
+                        graphicsContext: context,
+                        table: tableCopy,
+                        allNodes: viewModel.model.nodes
+                    )
+                }
+            } else {
+                // For non-table nodes, draw as before
+                let isSource = isAddingEdge && viewModel.draggedNodeID == dragged.id
+                let tablePos = (draggedCopy is PersonNode) ? viewModel.model.tablePosition(for: draggedCopy.id) : nil
+                
+                // Use tablePersonIDs passed from parent (already calculated from allVisibleNodes)
+                let isInTable = (draggedCopy is PersonNode) && tablePersonIDs.contains(draggedCopy.id)
+
+                AccessibleCanvasRenderer.drawSingleNode(
+                    renderContext: renderContext,
+                    graphicsContext: context,
+                    node: draggedCopy,
+                    saturation: saturation,
+                    isSelected: true,
+                    isEdgeCreationSource: isSource,
+                    isEdgeCreationTarget: false,
+                    tablePosition: tablePos,
+                    isInGrid: isInTable,
+                    gridPosition: nil
+                )
+            }
         }
-        // Add logic for currentDragLocation, isAddingEdge, etc., as in your original code
+        
+        // Draw edge preview line when adding an edge
+        if isAddingEdge,
+           let dragLoc = currentDragLocation {
+            // Find the source node from viewModel.draggedNodeID (set when addEdge was tapped)
+            let sourceNode = visibleNodes.first { $0.id == viewModel.draggedNodeID } ?? dragStartNode ?? draggedNode
+            
+            guard let source = sourceNode else { return }
+            let sourceScreen = CoordinateTransformer.modelToScreen(source.position, in: renderContext)
+            
+            // Draw line from source to current drag location
+            var path = Path()
+            path.move(to: sourceScreen)
+            path.addLine(to: dragLoc)
+            
+            context.stroke(
+                path,
+                with: .color(.yellow.opacity(0.6)),
+                lineWidth: 2.0
+            )
+            
+            // Draw a small circle at the drag location
+            let circlePath = Path(ellipseIn: CGRect(
+                x: dragLoc.x - 4,
+                y: dragLoc.y - 4,
+                width: 8,
+                height: 8
+            ))
+            context.fill(circlePath, with: .color(.yellow.opacity(0.8)))
+        }
     }
 }
 
 struct AccessibleCanvas: View {
-    let viewModel: GraphViewModel
+    @ObservedObject var viewModel: GraphViewModel
     let zoomScale: CGFloat
     let offset: CGSize
     let draggedNode: (any NodeProtocol)?
@@ -165,16 +418,32 @@ struct AccessibleCanvas: View {
     static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "accessiblecanvas")
     
     var body: some View {
-        let bounds = viewModel.model.physicsEngine.boundingBox(nodes: viewModel.model.visibleNodes)
-            .insetBy(dx: -40, dy: -40)
-        let minZoom = min(viewSize.width / bounds.width, viewSize.height / bounds.height).clamped(to: 0.2...1.0)
-        let maxZoom = max(1.0, minZoom * 8.0).clamped(to: 1.0...5.0)
-        
-        Group {
-            if viewModel.model.isSimulating {
-                TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+        ZStack {
+            // Canvas layer (draws regular nodes and edges)
+            Group {
+                if viewModel.model.isSimulating {
+                    TimelineView(.periodic(from: .now, by: 1.0 / 30.0)) { context in
+                        AnimatedCanvasContent(
+                            contextDate: context.date,
+                            viewModel: viewModel,
+                            zoomScale: zoomScale,
+                            offset: offset,
+                            draggedNode: draggedNode,
+                            dragOffset: dragOffset,
+                            potentialEdgeTarget: potentialEdgeTarget,
+                            selectedNodeID: selectedNodeID,
+                            viewSize: viewSize,
+                            selectedEdgeID: selectedEdgeID,
+                            showOverlays: showOverlays,
+                            saturation: saturation,
+                            currentDragLocation: currentDragLocation,
+                            isAddingEdge: isAddingEdge,
+                            dragStartNode: dragStartNode
+                        )
+                    }
+                } else {
                     AnimatedCanvasContent(
-                        contextDate: context.date,
+                        contextDate: Date(),
                         viewModel: viewModel,
                         zoomScale: zoomScale,
                         offset: offset,
@@ -191,34 +460,412 @@ struct AccessibleCanvas: View {
                         dragStartNode: dragStartNode
                     )
                 }
-            } else {
-                // Static fallback: Use same content view with fixed date → immediate recomputes on model changes
-                AnimatedCanvasContent(
-                    contextDate: Date(),  // Fixed for logging; could use .now for timestamp accuracy
-                    viewModel: viewModel,
-                    zoomScale: zoomScale,
-                    offset: offset,
-                    draggedNode: draggedNode,
-                    dragOffset: dragOffset,
-                    potentialEdgeTarget: potentialEdgeTarget,
-                    selectedNodeID: selectedNodeID,
-                    viewSize: viewSize,
-                    selectedEdgeID: selectedEdgeID,
-                    showOverlays: showOverlays,
-                    saturation: saturation,
-                    currentDragLocation: currentDragLocation,
-                    isAddingEdge: isAddingEdge,
-                    dragStartNode: dragStartNode
-                )
             }
+            
+            // SwiftUI overlay for control nodes (immediate rendering)
+            // Use @ObservedObject to ensure immediate updates
+            // IMPORTANT: Don't use .id() modifier here - it breaks animations
+            ControlNodesOverlayWrapper(
+                viewModel: viewModel,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: viewSize
+            )
         }
-        .id(viewModel.redrawTrigger)  // Apply at top level for full container recreation on trigger changes
         .accessibilityIdentifier("graphCanvas")
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .background(Color.black)
-        .onChange(of: bounds) { _ in
-            onUpdateZoomRanges(minZoom, maxZoom)
+    }
+}
+
+// Wrapper that observes ViewModel for immediate updates
+struct ControlNodesOverlayWrapper: View {
+    @ObservedObject var viewModel: GraphViewModel
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
+    
+    var body: some View {
+        ControlNodesOverlay(
+            controlNodes: viewModel.model.ephemeralControlNodes,
+            controlEdges: viewModel.model.ephemeralControlEdges,
+            visibleNodes: viewModel.model.visibleNodes,
+            allNodes: viewModel.model.nodes,
+            effectiveCentroid: viewModel.effectiveCentroid,
+            zoomScale: zoomScale,
+            offset: offset,
+            viewSize: viewSize
+        )
+        .animation(.spring(response: 0.35, dampingFraction: 0.75), value: viewModel.model.ephemeralControlNodes.count)
+    }
+}
+
+// NEW: SwiftUI overlay for control nodes to bypass Canvas rendering lag
+struct ControlNodesOverlay: View {
+    let controlNodes: [ControlNode]
+    let controlEdges: [GraphEdge]
+    let visibleNodes: [any NodeProtocol]
+    let allNodes: [AnyNode]
+    let effectiveCentroid: CGPoint
+    let zoomScale: CGFloat
+    let offset: CGSize
+    let viewSize: CGSize
+    
+    var body: some View {
+        // Find owner node position for animation anchor
+        let ownerScreenPos: CGPoint? = {
+            guard let ownerID = controlNodes.first?.ownerID,
+                  let owner = visibleNodes.first(where: { $0.id == ownerID }) else {
+                return nil
+            }
+            return worldToScreen(
+                worldPos: owner.position,
+                effectiveCentroid: effectiveCentroid,
+                zoomScale: zoomScale,
+                offset: offset,
+                viewSize: viewSize
+            )
+        }()
+        
+        return ZStack {
+            // Draw control edges first (behind the control nodes)
+            ForEach(controlEdges, id: \.id) { edge in
+                if let fromNode = visibleNodes.first(where: { $0.id == edge.from }),
+                   let toNode = visibleNodes.first(where: { $0.id == edge.target }) {
+                    let fromScreen = worldToScreen(
+                        worldPos: fromNode.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    let toScreen = worldToScreen(
+                        worldPos: toNode.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    
+                    Path { path in
+                        path.move(to: fromScreen)
+                        path.addLine(to: toScreen)
+                    }
+                    .stroke(Color.gray.opacity(0.3), lineWidth: 1.0)
+                    .transition(.opacity)
+                }
+            }
+            
+            // Draw control nodes on top
+            ForEach(controlNodes, id: \.id) { control in
+                let screenPos = worldToScreen(
+                    worldPos: control.position,
+                    effectiveCentroid: effectiveCentroid,
+                    zoomScale: zoomScale,
+                    offset: offset,
+                    viewSize: viewSize
+                )
+                
+                // Find owner node to get its expanded state
+                let ownerNode = control.ownerID.flatMap { ownerID in
+                    visibleNodes.first(where: { $0.id == ownerID })
+                }
+                
+                ControlNodeView(
+                    control: control,
+                    zoomScale: zoomScale,
+                    ownerScreenPos: ownerScreenPos ?? screenPos,
+                    ownerNode: ownerNode,
+                    allNodes: allNodes
+                )
+                    .position(screenPos)
+            }
         }
     }
+    
+    private func logControlRendering() {
+        #if DEBUG
+        if !controlNodes.isEmpty {
+            AccessibleCanvas.logger.debug("=== Control Rendering ===")
+            AccessibleCanvas.logger.debug("Centroid: (\(effectiveCentroid.x, format: .fixed(precision: 1)), \(effectiveCentroid.y, format: .fixed(precision: 1)))")
+            AccessibleCanvas.logger.debug("ZoomScale: \(zoomScale, format: .fixed(precision: 2))")
+            AccessibleCanvas.logger.debug("Offset: (\(offset.width, format: .fixed(precision: 1)), \(offset.height, format: .fixed(precision: 1)))")
+            
+            // Find owner node to calculate actual distances
+            if let ownerID = controlNodes.first?.ownerID,
+               let owner = visibleNodes.first(where: { $0.id == ownerID }) {
+                AccessibleCanvas.logger.debug("Owner position: (\(owner.position.x, format: .fixed(precision: 1)), \(owner.position.y, format: .fixed(precision: 1)))")
+                
+                for control in controlNodes {
+                    let modelDx = control.position.x - owner.position.x
+                    let modelDy = control.position.y - owner.position.y
+                    let modelDistance = hypot(modelDx, modelDy)
+                    
+                    let screenPos = worldToScreen(
+                        worldPos: control.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    let ownerScreenPos = worldToScreen(
+                        worldPos: owner.position,
+                        effectiveCentroid: effectiveCentroid,
+                        zoomScale: zoomScale,
+                        offset: offset,
+                        viewSize: viewSize
+                    )
+                    
+                    let screenDx = screenPos.x - ownerScreenPos.x
+                    let screenDy = screenPos.y - ownerScreenPos.y
+                    let screenDistance = hypot(screenDx, screenDy)
+                    
+                    AccessibleCanvas.logger.debug("Control \(control.kind.rawValue): model=(\(control.position.x, format: .fixed(precision: 1)), \(control.position.y, format: .fixed(precision: 1))) dist=\(modelDistance, format: .fixed(precision: 1))pt → screen=(\(screenPos.x, format: .fixed(precision: 1)), \(screenPos.y, format: .fixed(precision: 1))) dist=\(screenDistance, format: .fixed(precision: 1))px")
+                }
+            }
+        }
+        #endif
+    }
+    
+    private func worldToScreen(
+        worldPos: CGPoint,
+        effectiveCentroid: CGPoint,
+        zoomScale: CGFloat,
+        offset: CGSize,
+        viewSize: CGSize
+    ) -> CGPoint {
+        let canvasCenterX = viewSize.width / 2
+        let canvasCenterY = viewSize.height / 2
+        
+        let relativeX = (worldPos.x - effectiveCentroid.x) * zoomScale
+        let relativeY = (worldPos.y - effectiveCentroid.y) * zoomScale
+        
+        let screenX = canvasCenterX + relativeX + offset.width
+        let screenY = canvasCenterY + relativeY + offset.height
+        
+        return CGPoint(x: screenX, y: screenY)
+    }
+}
+
+// NEW: SwiftUI view for individual control node
+struct ControlNodeView: View {
+    let control: ControlNode
+    let zoomScale: CGFloat
+    let ownerScreenPos: CGPoint
+    let ownerNode: (any NodeProtocol)?
+    let allNodes: [AnyNode]
+    @State private var isPressed: Bool = false
+    @State private var scale: CGFloat = 0.1
+    @State private var opacity: Double = 0.0
+    
+    var body: some View {
+        // Determine icon based on control kind and owner state
+        let iconName: String = {
+            if control.kind == .toggleExpand {
+                // Use the ownerIsExpanded property that was set when control was created
+                return control.ownerIsExpanded ? "chevron.down" : "chevron.right"
+            }
+            
+            switch control.kind {
+            case .addChild: return "plus.circle.fill"
+            case .addEdge: return "arrow.right.circle.fill"
+            case .edit: return "pencil"
+            case .delete: return "trash.fill"
+            case .duplicate: return "doc.on.doc.fill"
+            case .addToggleChild: return "checklist"
+            case .toggleExpand: return "chevron.right"  // Fallback, handled above
+            case .openMenu: return "list.bullet.circle.fill"
+            
+            // Workflow controls
+            case .startWorkflow: return "play.fill"
+            case .stopWorkflow: return "stop.fill"
+            case .completeTask: return "checkmark.circle.fill"
+            case .startTask: return "play.circle.fill"
+            case .blockTask: return "exclamationmark.triangle.fill"
+            case .unblockTask: return "play.circle.fill"
+            case .declineTask: return "xmark.circle.fill"
+            case .resetTask: return "arrow.counterclockwise"
+            case .addShopTask: return "cart.fill"
+            case .addPrepTask: return "fork.knife"
+            case .addCookTask: return "flame.fill"
+            case .addRecipe: return "book.fill"
+            case .scaleRecipe: return "person.2.fill"
+            case .createTacoOrder: return "takeoutbag.and.cup.and.straw.fill"
+
+            // PersonNode controls
+            case .linkContact: return "person.crop.circle.badge.plus"
+            case .editPreferences: return "pencil.circle.fill"
+
+            // RootNode creation controls
+            case .addPersonNode: return "person.circle.fill"
+            case .addMealNode: return "fork.knife.circle.fill"
+            case .addTacoNight: return "takeoutbag.and.cup.and.straw.fill"
+            case .viewDashboard: return "chart.bar.fill"
+            
+            // Taco category controls
+            case .selectProtein: return "fork.knife"
+            case .selectShell: return "circlebadge.fill"
+            case .selectToppings: return "leaf.fill"
+            case .selectVeggies: return "leaf.fill"
+            case .selectCreamy: return "drop.fill"
+            case .selectHerbsZest: return "sparkles"
+            case .selectFireKick: return "flame.fill"
+            case .backToCategories: return "chevron.left.circle.fill"
+
+            // Taco configuration controls
+            case .toggleBeef: return "circle.fill"
+            case .toggleChicken: return "circle.fill"
+            case .toggleCrunchyShell: return "circle.fill"
+            case .toggleSoftFlourShell: return "circle.fill"
+            case .toggleSoftCornShell: return "circle.fill"
+            case .toggleLettuce: return "circle.fill"
+            case .toggleTomatoes: return "circle.fill"
+            case .toggleCheese: return "circle.fill"
+            case .toggleSourCream: return "circle.fill"
+            case .toggleGuacamole: return "circle.fill"
+            case .toggleSalsa: return "circle.fill"
+            case .toggleOnions: return "circle.fill"
+            case .toggleCilantro: return "circle.fill"
+            case .toggleJalapeños: return "circle.fill"
+            case .toggleHotSauce: return "circle.fill"
+            case .toggleRadishes: return "circle.fill"
+            case .toggleLime: return "circle.fill"
+            case .togglePickledJalapeños: return "circle.fill"
+            }
+        }()
+        
+        ZStack {
+            // Invisible larger hit testing area (1.5x the visual size)
+            Circle()
+                .fill(Color.clear)
+                .frame(
+                    width: control.radius * 2 * zoomScale * 1.5,
+                    height: control.radius * 2 * zoomScale * 1.5
+                )
+                .contentShape(Circle())
+            
+            // Determine if this control is selected
+            let isSelected = control.isSelected(in: allNodes)
+            
+            // Outer glow for depth - brighter for selected
+            Circle()
+                .fill(control.fillColor.opacity(isSelected ? 0.5 : 0.15))
+                .frame(
+                    width: control.radius * 2 * zoomScale + (isSelected ? 6 : 4),
+                    height: control.radius * 2 * zoomScale + (isSelected ? 6 : 4)
+                )
+                .blur(radius: isSelected ? 4 : 3)
+                .allowsHitTesting(false)  // Don't intercept touches
+            
+            // Main circle with shadow - full opacity for selected, dimmed for unselected
+            Circle()
+                .fill(control.fillColor.opacity(isSelected ? 1.0 : 0.25))
+                .frame(width: control.radius * 2 * zoomScale, height: control.radius * 2 * zoomScale)
+                .shadow(color: .black.opacity(isSelected ? 0.5 : 0.15), radius: 2 * zoomScale, x: 0, y: 1 * zoomScale)
+                .allowsHitTesting(false)  // Don't intercept touches
+            
+            // Icon or text label (scaled proportionally with control size)
+            if let textLabel = control.kind.textLabel {
+                // Show emoji + short word label for taco topping controls
+                VStack(spacing: 0) {
+                    Text(textLabel)
+                        .font(.system(size: 11 * zoomScale))
+                        .lineLimit(1)
+                    if let short = control.kind.shortLabel {
+                        Text(short)
+                            .font(.system(size: max(5, 6 * zoomScale), weight: .semibold))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.4)
+                    }
+                }
+                .shadow(color: .black.opacity(0.4), radius: 1, x: 0, y: 0.5)
+                .allowsHitTesting(false)
+            } else {
+                // Show icon for standard controls
+                Image(systemName: iconName)
+                    .font(.system(size: 18 * zoomScale, weight: .medium))  // Increased from 16 to 18
+                    .foregroundColor(.white)
+                    .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 0.5)
+                    .allowsHitTesting(false)  // Don't intercept touches
+            }
+        }
+        .scaleEffect(scale)
+        .opacity(opacity)
+        .scaleEffect(isPressed ? 0.9 : 1.0)
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
+                scale = 1.0
+                opacity = 1.0
+            }
+        }
+        .onDisappear {
+            scale = 0.1
+            opacity = 0.0
+        }
+    }
+}
+
+#Preview("Control Node Animations") {
+    struct AnimationPreview: View {
+        @State private var showControls = false
+        
+        var body: some View {
+            ZStack {
+                Color.black.ignoresSafeArea()
+                
+                // Simulated owner node
+                Circle()
+                    .fill(Color.blue)
+                    .frame(width: 40, height: 40)
+                
+                if showControls {
+                    // Simulated control nodes in a circle
+                    ForEach(Array(ControlKind.allCases.enumerated()), id: \.element) { index, kind in
+                        let angle = CGFloat(index) * (360.0 / CGFloat(ControlKind.allCases.count))
+                        let radius: CGFloat = 50.0
+                        let xOffset = cos(angle * .pi / 180) * radius
+                        let yOffset = sin(angle * .pi / 180) * radius
+                        
+                        ControlNodeView(
+                            control: ControlNode(
+                                position: CGPoint(x: xOffset, y: yOffset),
+                                ownerID: nil,
+                                kind: kind
+                            ),
+                            zoomScale: 1.0,
+                            ownerScreenPos: .zero,
+                            ownerNode: nil,
+                            allNodes: []
+                        )
+                        .offset(x: xOffset, y: yOffset)
+                        .transition(
+                            .asymmetric(
+                                insertion: .scale(scale: 0.1).combined(with: .opacity),
+                                removal: .scale(scale: 0.1).combined(with: .opacity)
+                            )
+                        )
+                        .animation(
+                            .spring(response: 0.3, dampingFraction: 0.7)
+                                .delay(Double(index) * 0.05),
+                            value: showControls
+                        )
+                    }
+                }
+                
+                VStack {
+                    Spacer()
+                    Button(showControls ? "Hide Controls" : "Show Controls") {
+                        withAnimation {
+                            showControls.toggle()
+                        }
+                    }
+                    .padding()
+                }
+            }
+        }
+    }
+    
+    return AnimationPreview()
 }

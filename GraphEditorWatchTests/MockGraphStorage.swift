@@ -1,4 +1,3 @@
-
 //
 //  MockGraphStorage.swift
 //  GraphEditorShared
@@ -25,7 +24,7 @@ class MockGraphStorage: GraphStorage {
         get { graphs[defaultName]?.nodes ?? [] }  // This returns [AnyNode], which is fine → [any NodeProtocol]
         set {
             let currentState = graphs[defaultName]
-                ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white))
+            ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
             
             // Critical: Convert [any NodeProtocol] → [AnyNode]
             let wrappedNodes: [AnyNode] = newValue.map { node in
@@ -40,7 +39,9 @@ class MockGraphStorage: GraphStorage {
                 nodes: wrappedNodes,
                 edges: currentState.edges,
                 hierarchyEdgeColor: currentState.hierarchyEdgeColor,
-                associationEdgeColor: currentState.associationEdgeColor
+                associationEdgeColor: currentState.associationEdgeColor,
+                isSimulating: currentState.isSimulating,
+                nextNodeLabel: currentState.nextNodeLabel
             )
             graphs[defaultName] = updatedState
         }
@@ -48,8 +49,8 @@ class MockGraphStorage: GraphStorage {
     var edges: [GraphEdge] {
         get { graphs[defaultName]?.edges ?? [] }
         set {
-            let currentState = graphs[defaultName] ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white))
-            let updatedState = GraphState(nodes: currentState.nodes, edges: newValue, hierarchyEdgeColor: currentState.hierarchyEdgeColor, associationEdgeColor: currentState.associationEdgeColor)
+            let currentState = graphs[defaultName] ?? GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
+            let updatedState = GraphState(nodes: currentState.nodes, edges: newValue, hierarchyEdgeColor: currentState.hierarchyEdgeColor, associationEdgeColor: currentState.associationEdgeColor, isSimulating: currentState.isSimulating, nextNodeLabel: currentState.nextNodeLabel)
             graphs[defaultName] = updatedState
         }
     }
@@ -84,7 +85,7 @@ class MockGraphStorage: GraphStorage {
         if graphs[name] != nil {
             throw GraphStorageError.graphExists(name)
         }
-        graphs[name] = GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white))
+        graphs[name] = GraphState(nodes: [], edges: [], hierarchyEdgeColor: CodableColor(.blue), associationEdgeColor: CodableColor(.white), isSimulating: false, nextNodeLabel: 1)
         viewStates.removeValue(forKey: name)
     }
     
@@ -119,24 +120,33 @@ class MockGraphStorage: GraphStorage {
     }
 }
 
-@MainActor @Test func testUndoRedoRoundTrip() async {
+@MainActor @Test func testUndoRedoRoundTrip() async throws {
     let storage = MockGraphStorage()
     let physicsEngine = PhysicsEngine(simulationBounds: CGSize(width: 500, height: 500))
     let model = GraphModel(storage: storage, physicsEngine: physicsEngine)
-    await model.loadGraph()  // Explicit load to start empty
+    try await model.loadGraph()  // Explicit load to start empty (assume no push)
+    
+    model.undoStack.removeAll()
+    model.redoStack.removeAll()
+    model.nodes.removeAll()
+    model.edges.removeAll()
+    
     let initialNode = AnyNode(Node(id: UUID(), label: 1, position: .zero))
-    await model.snapshot()  // Pre-add initial (appends empty)
+    model.pushUndo()  // Manually snapshot before direct mutation to match method behavior
     model.nodes = [initialNode]  // "Add" initial
+    
     let newNode = AnyNode(Node(id: UUID(), label: 2, position: .zero))
     await model.snapshot()  // Pre-add new (appends [initial])
     model.nodes.append(newNode)  // Add new
+    
     await model.undo()  // Back to 1 node
     #expect(model.nodes.count == 1, "Undo removes node")
     #expect(model.nodes[0].id == initialNode.id, "Initial state restored")
     #expect(model.redoStack.count == 1, "Redo stack populated")
+    
     await model.redo()  // Forward to 2 nodes
     #expect(model.nodes.count == 2, "Redo adds node")
-    #expect(model.undoStack.count == 2, "Undo stack updated")
+    #expect(model.undoStack.count == 2, "Undo stack updated")  // Adjusted expectation if impl removes extra pushes
 }
 
 private extension MockGraphStorage {

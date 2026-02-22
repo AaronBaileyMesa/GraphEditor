@@ -17,9 +17,12 @@ struct DataTypeSegmentedControl: View {
         HStack(spacing: 4) {  // Compact spacing for watchOS
             ForEach(DataType.allCases) { type in
                 Button {
+                    print("🎛️ Button tapped for type: \(type.rawValue)")
                     if selectedType == type {
+                        print("🎛️ Deselecting \(type.rawValue)")
                         selectedType = nil  // Deselect and hide inputs
                     } else {
+                        print("🎛️ Selecting \(type.rawValue)")
                         selectedType = type  // Select and show inputs
                     }
                 } label: {

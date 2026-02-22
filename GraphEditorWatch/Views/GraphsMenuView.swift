@@ -18,6 +18,7 @@ struct GraphsMenuView: View {
     @State private var newGraphName: String = ""
     @State private var graphs: [String] = []
     @State private var errorMessage: String?
+    @State private var showTacoSheet: Bool = false
     
     var body: some View {
         ScrollView {  // Scrollable for long lists
@@ -29,16 +30,27 @@ struct GraphsMenuView: View {
                     .font(.caption)
                     .accessibilityIdentifier("graphNameTextField")
                 
-                // Buttons for save/load/delete current graph
-                HStack(spacing: 8) {
-                    saveGraphButton
-                    loadGraphButton
-                    deleteGraphButton
+                // Buttons arranged in 2x2 grid
+                VStack(spacing: 4) {
+                    HStack(spacing: 8) {
+                        saveGraphButton
+                        loadGraphButton
+                    }
+                    HStack(spacing: 8) {
+                        deleteGraphButton
+                        newGraphButton
+                    }
                 }
-                
-                // New graph button
-                newGraphButton
-                
+
+                // Templates Section (Home Economics)
+                if AppConstants.homeEconomicsEnabled {
+                    Text("Templates").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 8)
+
+                    tacoTemplateButton
+                    decisionTreeTestButton
+                }
+
                 // List graphs button and dynamic list
                 listGraphsButton
                 ForEach(graphs, id: \.self) { name in
@@ -52,6 +64,14 @@ struct GraphsMenuView: View {
             .padding(4)
         }
         .navigationTitle("Manage Graphs")  // Clear title
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                }
+                .accessibilityLabel("Close")
+            }
+        }
         .sheet(isPresented: $showNewSheet) {
             // Same as GraphSection's new graph sheet
             VStack(spacing: 4) {
@@ -76,6 +96,15 @@ struct GraphsMenuView: View {
                 }
             }
         }
+        .sheet(isPresented: $showTacoSheet) {
+            TacoNightWizard(
+                viewModel: viewModel,
+                onDismiss: {
+                    showTacoSheet = false
+                    onDismiss()
+                }
+            )
+        }
         .onAppear {
             graphName = viewModel.currentGraphName
             // Optionally auto-list graphs here: Task { graphs = try await viewModel.model.listGraphNames() }
@@ -92,6 +121,37 @@ struct GraphsMenuView: View {
                 Label("New", systemImage: "doc.badge.plus")
             },
             accessibilityIdentifier: "newGraphButton"
+        )
+        .labelStyle(.iconOnly)
+    }
+
+    private var tacoTemplateButton: some View {
+        MenuButton(
+            action: {
+                showTacoSheet = true
+            },
+            label: {
+                Label("New Taco Dinner", systemImage: "fork.knife")
+            },
+            accessibilityIdentifier: "tacoTemplateButton"
+        )
+    }
+    
+    private var decisionTreeTestButton: some View {
+        MenuButton(
+            action: {
+                Task {
+                    _ = await TacoTemplateBuilder.buildDecisionTree(
+                        in: viewModel.model,
+                        at: CGPoint(x: 100, y: 100)
+                    )
+                    onDismiss()
+                }
+            },
+            label: {
+                Label("Test Decision Tree", systemImage: "questionmark.circle")
+            },
+            accessibilityIdentifier: "decisionTreeTestButton"
         )
     }
     
@@ -113,6 +173,7 @@ struct GraphsMenuView: View {
             },
             accessibilityIdentifier: "saveButton"
         )
+        .labelStyle(.iconOnly)
     }
     
     private var loadGraphButton: some View {
@@ -138,6 +199,7 @@ struct GraphsMenuView: View {
             },
             accessibilityIdentifier: "loadButton"
         )
+        .labelStyle(.iconOnly)
     }
     
     private var listGraphsButton: some View {
@@ -196,10 +258,11 @@ struct GraphsMenuView: View {
                 }
             },
             label: {
-                Label("Del", systemImage: "trash")
+                Label("Delete", systemImage: "trash")
             },
             accessibilityIdentifier: "deleteGraphButton",
             role: .destructive
         )
+        .labelStyle(.iconOnly)
     }
 }

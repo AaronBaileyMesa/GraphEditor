@@ -21,4 +21,12 @@ public struct AppConstants {
     public static let zoomPaddingFactor: CGFloat = 0.8  // Fit with some margin
     public static let crownZoomSteps: Int = 20  // Smooth steps for crown
     
+    // MARK: - Home Economics Feature Flag
+    public static let homeEconomicsEnabled: Bool = true  // Toggle for development
+
+    // MARK: - Debug Logging
+    /// Controls verbose debug logging in the Watch app
+    /// Set to false to reduce console noise during development
+    public static let verboseDebugLogging: Bool = false
+
 }

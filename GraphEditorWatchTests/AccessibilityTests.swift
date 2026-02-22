@@ -22,8 +22,8 @@ struct AccessibilityTests {
         storage.nodes = [Node(label: 0, position: .zero)]
         let model = await GraphModel(storage: storage, physicsEngine: mockPhysicsEngine())
         await MainActor.run { model.nextNodeLabel = 1 }
-        await model.addNode(at: .zero)
-        await model.addNode(at: CGPoint(x: 10, y: 10))
+        _ = await model.addNode(at: .zero)
+        _ = await model.addNode(at: CGPoint(x: 10, y: 10))
         
         await MainActor.run { model.edges.append(GraphEdge(from: model.nodes[0].id, target: model.nodes[1].id)) }
         

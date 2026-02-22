@@ -14,45 +14,51 @@ struct EditContentSheet: View {
     let viewModel: GraphViewModel
     let onSave: ([NodeContent]) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var contents: [NodeContent] = []
     @State private var selectedType: DataType?
     @State private var selectedComponent: DateField?
     @State private var stringValue: String = ""
     @State private var dateValue: Date = Date()
     @State private var numberString: String = ""  // Changed to string for custom input
-    @FocusState private var isSheetFocused: Bool
     @State private var editingIndex: Int?  // NEW: Track item being edited inline
     @State private var dateChanged: Bool = false  // NEW: Track if date was modified
+    @State private var hasNavigated: Bool = false  // Track if we've navigated away
     
     var body: some View {
         ScrollViewReader { proxy in
             List {
                 contentsSection(proxy: proxy)
             }
-            .navigationTitle("Contents")  // Changed to "Contents" as requested
+            .navigationTitle("Contents")
             .navigationBarTitleDisplayMode(.inline)
-            .focused($isSheetFocused)
-            .environment(\.disableCanvasFocus, true)  // NEW: Disable canvas focus in this view and children
-            .onChange(of: dateValue) { _, _ in
-                dateChanged = true  // NEW: Set flag on any change (no add here)
+        }
+        .onChange(of: dateValue) { _, _ in
+            dateChanged = true
+        }
+        .onChange(of: selectedType) { oldValue, newValue in
+            print("📋 Type changed from \(String(describing: oldValue)) to \(String(describing: newValue))")
+            addPendingContent(for: oldValue)
+        }
+        .onAppear {
+            print("📋 EditContentSheet appeared for node: \(selectedID)")
+            if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
+                contents = node.contents
+                print("📋 Loaded \(contents.count) contents")
+                Task { await viewModel.model.snapshot() }
+            } else {
+                print("⚠️ Node not found!")
             }
-            .onChange(of: selectedType) { oldValue, _ in
-                addPendingContent(for: oldValue)  // NEW: Add pending for previous type on switch
-            }
-            .onChange(of: isSheetFocused) { _, newValue in
-                print("Sheet focus changed to: \(newValue)")
-            }
-            .onAppear {
-                isSheetFocused = true
-                if let node = viewModel.model.nodes.first(where: { $0.id == selectedID }) {
-                    contents = node.contents  // Load existing contents
-                    Task { await viewModel.model.snapshot() }  // Pre-edit snapshot for undo (async to match model API)
-                }
-            }
-            .onDisappear {
-                print("onDisappear triggered - saving contents: \(contents)")  // Debug log
-                addPendingContent(for: selectedType)  // Handle unsaved for current type
+        }
+        .onDisappear {
+            // Only save if we haven't navigated to a child view
+            if !hasNavigated {
+                print("📋 EditContentSheet disappearing - saving \(contents.count) contents")
+                addPendingContent(for: selectedType)
                 onSave(contents)
+            } else {
+                print("📋 EditContentSheet temporarily hidden (navigation)")
+                hasNavigated = false  // Reset for when we come back
             }
         }
     }
@@ -107,7 +113,6 @@ struct EditContentSheet: View {
         switch type {
         case .string:
             TextField("Enter text", text: $stringValue)
-                .focused($isSheetFocused)
                 .onSubmit { addStringContent() }
         case .date:
             GraphicalDatePicker(date: $dateValue)
@@ -119,9 +124,28 @@ struct EditContentSheet: View {
                 )
                 .fixedSize(horizontal: false, vertical: true)
         case .number:
-            NumericKeypadView(text: $numberString)
-                .focused($isSheetFocused)
-                .onSubmit { addNumberContent() }
+            NavigationLink {
+                SimpleCrownNumberInput(value: Binding(
+                    get: { Double(numberString) ?? 0.0 },
+                    set: { newValue in
+                        numberString = String(format: "%.2f", newValue)
+                        print("📋 Number updated to: \(numberString)")
+                    }
+                ))
+                .onAppear {
+                    hasNavigated = true
+                }
+            } label: {
+                HStack {
+                    Text("Enter number")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(numberString.isEmpty ? "0.00" : numberString)
+                        .font(.caption)
+                        .foregroundColor(.white)
+                }
+            }
         }
     }
     
@@ -177,17 +201,28 @@ struct EditContentSheet: View {
     @ViewBuilder
     private func numberEditView(for index: Int) -> some View {
         if case .number(var value) = contents[index] {
-            NumericKeypadView(text: Binding(
-                get: { String(format: "%.2f", value) },
-                set: { newValue in
-                    if let num = Double(newValue) {
-                        contents[index] = .number(num)
-                        value = num
+            NavigationLink {
+                SimpleCrownNumberInput(value: Binding(
+                    get: { value },
+                    set: { newValue in
+                        contents[index] = .number(newValue)
+                        value = newValue
+                        editingIndex = nil  // Exit edit when done
                     }
+                ))
+                .onAppear {
+                    hasNavigated = true
                 }
-            ))
-            .onSubmit {
-                editingIndex = nil  // Exit edit on submit
+            } label: {
+                HStack {
+                    Text("Edit number")
+                        .font(.caption)
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text(String(format: "%.2f", value))
+                        .font(.caption)
+                        .foregroundColor(.white)
+                }
             }
         }
     }

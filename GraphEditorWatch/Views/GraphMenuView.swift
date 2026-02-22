@@ -18,18 +18,21 @@ struct GraphMenuView: View {
     let onDismiss: () -> Void  // For consistency
     
     @FocusState private var isMenuFocused: Bool
-    @State private var showGraphsMenu: Bool = false  // Added this @State as per comment
+    @State private var showGraphsMenu: Bool = false
+    @State private var showTacoWizard: Bool = false
     
     private static let logger = Logger(subsystem: "io.handcart.GraphEditor", category: "graphmenuview")
     
     var body: some View {
         ScrollView {
             VStack(spacing: 8) {
-                // Add Section (from AddSection, no edge/child since no selection)
+                // Add Section - Icon-only buttons in HStack
                 Text("Add").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 8)
                 HStack(spacing: 8) {
                     addNodeButton
-                    addToggleNodeButton
+                    addPersonButton
+                    addTableButton
+                    addTacoButton
                 }
                 .padding(.horizontal, 8)
                 
@@ -38,6 +41,7 @@ struct GraphMenuView: View {
                 VStack(spacing: 8) {  // Changed to VStack for vertical stacking on small screen
                     overlaysToggle
                     simulationToggle
+                    layoutModeToggle
                 }
                 .padding(.horizontal, 8)
                 
@@ -58,6 +62,11 @@ struct GraphMenuView: View {
                     manageGraphsButton
                 }
                 .padding(.horizontal, 8)
+                
+                HStack(spacing: 8) {
+                    homeButton
+                }
+                .padding(.horizontal, 8)
             }
             .padding(4)
         }
@@ -66,7 +75,8 @@ struct GraphMenuView: View {
         .focused($isMenuFocused)
         .onAppear {
             isMenuFocused = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(100))
                 isMenuFocused = true
             }
             Self.logger.debug("Graph Menu appeared")
@@ -91,40 +101,112 @@ struct GraphMenuView: View {
             accessibilityIdentifier: "manageGraphsButton"
         )
         .sheet(isPresented: $showGraphsMenu) {
-            GraphsMenuView(
-                viewModel: viewModel,
-                onDismiss: {
-                    showGraphsMenu = false
-                    onDismiss()
-                }
-            )
+            NavigationStack {
+                GraphsMenuView(
+                    viewModel: viewModel,
+                    onDismiss: {
+                        showGraphsMenu = false
+                        onDismiss()
+                    }
+                )
+            }
         }
     }
     
     private var addNodeButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.model.addNode(at: CGPoint.zero) }
-                onDismiss()
-            },
-            label: {
-                Label("Node", systemImage: "plus.circle")
-            },
-            accessibilityIdentifier: "addNodeButton"
-        )
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task { await viewModel.model.addNode(at: position) }
+            onDismiss()
+        } label: {
+            Image(systemName: "plus.circle")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Node")
+        .accessibilityIdentifier("addNodeButton")
     }
     
-    private var addToggleNodeButton: some View {
-        MenuButton(
-            action: {
-                Task { await viewModel.model.addToggleNode(at: CGPoint.zero) }
-                onDismiss()
-            },
-            label: {
-                Label("Toggle", systemImage: "plus.circle.fill")
-            },
-            accessibilityIdentifier: "addToggleNodeButton"
-        )
+    private var addPersonButton: some View {
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task {
+                _ = await viewModel.model.addPerson(
+                    name: "New Person",
+                    defaultSpiceLevel: nil,
+                    dietaryRestrictions: [],
+                    at: position
+                )
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "person.circle.fill")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Person")
+        .accessibilityIdentifier("addPersonButton")
+    }
+    
+    private var addTableButton: some View {
+        Button {
+            let centroid = viewModel.effectiveCentroid
+            let offset = CGPoint(
+                x: CGFloat.random(in: -80...80),
+                y: CGFloat.random(in: -80...80)
+            )
+            let position = CGPoint(x: centroid.x + offset.x, y: centroid.y + offset.y)
+            Task {
+                _ = await viewModel.model.addTable(
+                    name: "Table",
+                    at: position
+                )
+            }
+            onDismiss()
+        } label: {
+            Image(systemName: "rectangle.fill")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Table")
+        .accessibilityIdentifier("addTableButton")
+    }
+
+    private var addTacoButton: some View {
+        Button {
+            showTacoWizard = true
+        } label: {
+            Image(systemName: "takeoutbag.and.cup.and.straw")
+                .font(.title2)
+                .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.bordered)
+        .accessibilityLabel("Add Taco Night")
+        .accessibilityIdentifier("addTacoButton")
+        .sheet(isPresented: $showTacoWizard) {
+            NavigationStack {
+                TacoNightWizard(
+                    viewModel: viewModel,
+                    onDismiss: {
+                        showTacoWizard = false
+                        onDismiss()
+                    }
+                )
+            }
+        }
     }
     
     private var overlaysToggle: some View {
@@ -154,6 +236,21 @@ struct GraphMenuView: View {
             }
         }
         .accessibilityIdentifier("simulationToggle")
+    }
+    
+    private var layoutModeToggle: some View {
+        Toggle(isOn: Binding(
+            get: { viewModel.model.layoutMode == .hierarchy },
+            set: { newValue in
+                let mode: LayoutMode = newValue ? .hierarchy : .network
+                viewModel.model.setLayoutMode(mode)
+            }
+        )) {
+            Label("Tree Layout", systemImage: "arrow.up.left")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+        }
+        .accessibilityIdentifier("layoutModeToggle")
     }
     
     private var resetGraphButton: some View {
@@ -195,6 +292,19 @@ struct GraphMenuView: View {
                 Label("Redo", systemImage: "arrow.uturn.right")
             },
             accessibilityIdentifier: "redoButton"
+        )
+    }
+    
+    private var homeButton: some View {
+        MenuButton(
+            action: {
+                viewModel.resetViewToRootNode(viewSize: viewModel.viewSize)
+                onDismiss()
+            },
+            label: {
+                Label("Home", systemImage: "house.fill")
+            },
+            accessibilityIdentifier: "homeButton"
         )
     }
 }

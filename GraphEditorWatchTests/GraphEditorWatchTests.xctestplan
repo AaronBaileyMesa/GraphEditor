@@ -9,7 +9,15 @@
     }
   ],
   "defaultOptions" : {
-
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:GraphEditor.xcodeproj",
+          "identifier" : "4EB112712E3EE09D001A8E1A",
+          "name" : "GraphEditorWatchTests"
+        }
+      ]
+    }
   },
   "testTargets" : [
     {

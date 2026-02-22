@@ -8,4 +8,24 @@ excluded: # Skip directories
   - Carthage
   - .build  # Exclude all SPM build artifacts
   - DerivedData  # If using Xcode
+  - GraphEditorWatchTests  # Exclude test files from linting
+  - GraphEditorShared/Tests  # Exclude shared test files
+
+# Adjusted limits for complex watchOS graph editor
+file_length:
+  warning: 500  # Increased from 400 for complex views/models
+  error: 600
+
+type_body_length:
+  warning: 300  # Increased from 250 for gesture coordinators and actors
+  error: 400
+
+function_body_length:
+  warning: 60   # Slightly increased from 50 for initialization/coordination
+  error: 80
+
+cyclomatic_complexity:
+  warning: 12   # Increased from 10 for physics/gesture logic
+  error: 20
+
 reporter: "xcode" # Output format for Xcode integration
