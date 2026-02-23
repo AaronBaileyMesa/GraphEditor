@@ -18,6 +18,7 @@ struct ContactPickerView: View {
     @State private var isLoading: Bool = true
     @State private var isSearching: Bool = false
     @State private var errorMessage: String?
+    @State private var showSearchField: Bool = false
     
     private var displayedContacts: [CNContact] {
         if searchQuery.isEmpty {
@@ -36,19 +37,20 @@ struct ContactPickerView: View {
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Optional search field at top
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.gray)
-                        .font(.caption)
+                // Collapsible search field - icon only when collapsed
+                if showSearchField {
+                    HStack {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundColor(.gray)
+                            .font(.caption)
 
-                    TextField("Search (optional)", text: $searchQuery)
-                        .textFieldStyle(.plain)
-                        .font(.caption)
+                        TextField("Search", text: $searchQuery)
+                            .textFieldStyle(.plain)
+                            .font(.caption)
 
-                    if !searchQuery.isEmpty {
                         Button(action: {
                             searchQuery = ""
+                            showSearchField = false
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.gray)
@@ -56,12 +58,34 @@ struct ContactPickerView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    .padding(8)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                } else {
+                    // Compact search icon button
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                showSearchField = true
+                            }
+                        }) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.caption)
+                                .foregroundColor(.blue)
+                                .padding(6)
+                                .background(Color.blue.opacity(0.15))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.top, 4)
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
-                .padding(8)
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-                .padding(.horizontal, 8)
-                .padding(.top, 8)
 
                 // Contact list
                 if isLoading {
