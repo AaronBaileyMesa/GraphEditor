@@ -14,31 +14,41 @@ struct ContactPickerView: View {
     let onContactSelected: (CNContact) -> Void
     
     @State private var searchQuery: String = ""
-    @State private var searchResults: [CNContact] = []
+    @State private var allContacts: [CNContact] = []
+    @State private var isLoading: Bool = true
     @State private var isSearching: Bool = false
+    @State private var errorMessage: String?
+    
+    private var displayedContacts: [CNContact] {
+        if searchQuery.isEmpty {
+            return allContacts
+        } else {
+            // Filter locally for fast response
+            return allContacts.filter { contact in
+                let fullName = "\(contact.givenName) \(contact.familyName)".lowercased()
+                let nickname = contact.nickname.lowercased()
+                let query = searchQuery.lowercased()
+                return fullName.contains(query) || nickname.contains(query)
+            }
+        }
+    }
     
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Search field
+                // Optional search field at top
                 HStack {
                     Image(systemName: "magnifyingglass")
                         .foregroundColor(.gray)
                         .font(.caption)
 
-                    TextField("Search contacts", text: $searchQuery)
+                    TextField("Search (optional)", text: $searchQuery)
                         .textFieldStyle(.plain)
                         .font(.caption)
-                        .onChange(of: searchQuery) { _, newValue in
-                            Task {
-                                await performSearch(query: newValue)
-                            }
-                        }
 
                     if !searchQuery.isEmpty {
                         Button(action: {
                             searchQuery = ""
-                            searchResults = []
                         }) {
                             Image(systemName: "xmark.circle.fill")
                                 .foregroundColor(.gray)
@@ -53,50 +63,67 @@ struct ContactPickerView: View {
                 .padding(.horizontal, 8)
                 .padding(.top, 8)
 
-                // Results
-                if isSearching {
-                    ProgressView()
-                        .padding()
-                } else if !searchQuery.isEmpty && !searchResults.isEmpty {
-                    ScrollView {
-                        VStack(spacing: 8) {
-                            ForEach(searchResults, id: \.identifier) { contact in
-                                Button(action: {
-                                    onContactSelected(contact)
-                                    dismiss()
-                                }) {
-                                    ContactRowView(contact: contact)
-                                        .padding(8)
-                                        .background(Color.gray.opacity(0.1))
-                                        .cornerRadius(8)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(8)
+                // Contact list
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("Loading Contacts...")
+                            .font(.caption)
+                            .foregroundColor(.gray)
                     }
-                } else if !searchQuery.isEmpty && searchResults.isEmpty {
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = errorMessage {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.title)
+                            .foregroundColor(.orange)
+                        Text(error)
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                            .multilineTextAlignment(.center)
+                        
+                        Button("Dismiss") {
+                            dismiss()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if allContacts.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.crop.circle.badge.xmark")
+                            .font(.title)
+                            .foregroundColor(.gray)
+                        Text("No Contacts Found")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if displayedContacts.isEmpty {
+                    // Filtered results empty
                     VStack(spacing: 12) {
                         Image(systemName: "person.slash")
                             .font(.title)
                             .foregroundColor(.gray)
 
-                        Text("No contacts found")
+                        Text("No matches for '\(searchQuery)'")
                             .font(.caption)
                             .foregroundColor(.gray)
                     }
                     .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    VStack(spacing: 12) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                        
-                        Text("Start typing to search contacts")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                    // Show contacts list
+                    List {
+                        ForEach(displayedContacts, id: \.identifier) { contact in
+                            Button(action: {
+                                onContactSelected(contact)
+                                dismiss()
+                            }) {
+                                ContactRowView(contact: contact)
+                            }
+                        }
                     }
-                    .padding()
                 }
             }
             .navigationTitle("Link Contact")
@@ -109,28 +136,34 @@ struct ContactPickerView: View {
                 }
             }
         }
-        .onAppear {
-            // Request contact access
-            Task {
-                _ = try? await ContactManager.shared.requestAccess()
-            }
+        .task {
+            await loadContacts()
         }
     }
     
-    private func performSearch(query: String) async {
-        guard !query.isEmpty else {
-            searchResults = []
-            return
-        }
-
-        isSearching = true
-        defer { isSearching = false }
-
+    private func loadContacts() async {
+        isLoading = true
+        defer { isLoading = false }
+        
         do {
-            searchResults = try await ContactManager.shared.searchContacts(query: query)
+            // Request access
+            let granted = try await ContactManager.shared.requestAccess()
+            
+            guard granted else {
+                errorMessage = "Contact access denied. Please enable in Settings."
+                return
+            }
+            
+            // Fetch all contacts
+            let contacts = try await ContactManager.shared.fetchAllContacts()
+            
+            await MainActor.run {
+                allContacts = contacts
+            }
         } catch {
-            print("⚠️ Contact search failed: \(error)")
-            searchResults = []
+            await MainActor.run {
+                errorMessage = "Failed to load contacts: \(error.localizedDescription)"
+            }
         }
     }
 }
