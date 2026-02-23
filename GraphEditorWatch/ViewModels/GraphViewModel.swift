@@ -39,7 +39,6 @@ import os
     @Published public var showDashboard: Bool = false  // True when dashboard should be shown
     @Published public var showContactPicker: Bool = false  // True when contact picker should be shown
     @Published public var contactPickerForNodeID: UUID?  // NodeID for which contact picker is shown
-    @Published public var showPersonCreation: Bool = false  // True when person creation sheet should be shown
 
     // MARK: Private Properties
     
@@ -516,10 +515,17 @@ extension ControlKind {
             return
         }
 
-        // Show the PersonCreationSheet for contact search or manual entry
-        viewModel.showPersonCreation = true
+        // Create person with default "New Person" name immediately
+        let person = await viewModel.model.addPersonToPeopleList()
+        
+        // Save
+        try? await viewModel.model.saveGraph()
+        
+        // Select and zoom to the new person
+        viewModel.setSelectedNode(person.id, zoomToFit: true)
+        
         WKInterfaceDevice.current().play(.click)
-        logger.debug("Showing PersonCreationSheet from \(type(of: ownerNode))")
+        logger.debug("Created new person from \(type(of: ownerNode))")
     }
     
     @MainActor
