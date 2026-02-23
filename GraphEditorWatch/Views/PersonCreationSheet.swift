@@ -275,6 +275,21 @@ struct PersonCreationSheet: View {
 
     private func createPersonFromContact(_ contact: CNContact) {
         Task {
+            // Check if this contact is already in the graph
+            if let existingPerson = PersonEditor.findPersonByContactIdentifier(
+                contact.identifier,
+                in: viewModel.model.nodes
+            ) {
+                print("⚠️ Contact already exists as PersonNode: \(existingPerson.name)")
+                
+                // Select the existing person instead
+                await MainActor.run {
+                    viewModel.setSelectedNode(existingPerson.id, zoomToFit: true)
+                    onDismiss()
+                }
+                return
+            }
+
             // Extract contact info
             let displayName = await ContactManager.shared.displayName(for: contact)
             let thumbnailData = await ContactManager.shared.thumbnailData(for: contact)

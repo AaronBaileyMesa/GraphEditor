@@ -64,7 +64,7 @@ struct PersonNodeMenuView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                     
-                    // Only show Link Contact if appropriate
+                    // Contact linking actions
                     if PersonEditor.shouldShowLinkContact(person) {
                         actionButton(
                             person.contactIdentifier != nil ? "Update Contact" : "Link Contact",
@@ -72,6 +72,15 @@ struct PersonNodeMenuView: View {
                             color: .purple
                         ) {
                             showContactPicker = true
+                        }
+                    } else if person.contactIdentifier != nil {
+                        // Has custom name AND linked - show unlink option
+                        actionButton(
+                            "Unlink Contact",
+                            icon: "person.crop.circle.badge.minus",
+                            color: .orange
+                        ) {
+                            unlinkContact()
                         }
                     }
                     
@@ -524,6 +533,25 @@ struct PersonNodeMenuView: View {
             // Reload
             await MainActor.run {
                 loadPerson()
+            }
+        }
+    }
+    
+    private func unlinkContact() {
+        guard let person = personNode else { return }
+        
+        Task {
+            // Unlink using GraphModel method
+            if let updatedPerson = await viewModel.model.unlinkPersonFromContact(personID: person.id) {
+                // Save to trigger persistence
+                try? await viewModel.model.saveGraph()
+                
+                // Reload local state on main thread
+                await MainActor.run {
+                    personNode = updatedPerson
+                }
+                
+                print("🔗 Unlinked contact from person: \(updatedPerson.name)")
             }
         }
     }

@@ -13,70 +13,93 @@ struct ContactPickerView: View {
     @Environment(\.dismiss) var dismiss
     let onContactSelected: (CNContact) -> Void
     
-    @State private var contacts: [CNContact] = []
-    @State private var isLoading = true
-    @State private var errorMessage: String?
-    @State private var searchText = ""
-    
-    var filteredContacts: [CNContact] {
-        if searchText.isEmpty {
-            return contacts
-        }
-        return contacts.filter { contact in
-            let name = "\(contact.givenName) \(contact.familyName) \(contact.nickname)"
-            return name.localizedCaseInsensitiveContains(searchText)
-        }
-    }
+    @State private var searchQuery: String = ""
+    @State private var searchResults: [CNContact] = []
+    @State private var isSearching: Bool = false
     
     var body: some View {
         NavigationView {
-            Group {
-                if isLoading {
-                    VStack(spacing: 12) {
-                        ProgressView()
-                        Text("Loading Contacts...")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                } else if let error = errorMessage {
-                    VStack(spacing: 12) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.title)
-                            .foregroundColor(.orange)
-                        Text(error)
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                        
-                        Button("Dismiss") {
-                            dismiss()
-                        }
-                        .buttonStyle(.bordered)
-                    }
-                    .padding()
-                } else if contacts.isEmpty {
-                    VStack(spacing: 12) {
-                        Image(systemName: "person.crop.circle.badge.xmark")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                        Text("No Contacts Found")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                } else {
-                    List {
-                        ForEach(filteredContacts, id: \.identifier) { contact in
-                            Button(action: {
-                                onContactSelected(contact)
-                                dismiss()
-                            }) {
-                                ContactRowView(contact: contact)
+            VStack(spacing: 0) {
+                // Search field
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.gray)
+                        .font(.caption)
+
+                    TextField("Search contacts", text: $searchQuery)
+                        .textFieldStyle(.plain)
+                        .font(.caption)
+                        .onChange(of: searchQuery) { _, newValue in
+                            Task {
+                                await performSearch(query: newValue)
                             }
                         }
+
+                    if !searchQuery.isEmpty {
+                        Button(action: {
+                            searchQuery = ""
+                            searchResults = []
+                        }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.gray)
+                                .font(.caption)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
+                .padding(8)
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(8)
+                .padding(.horizontal, 8)
+                .padding(.top, 8)
+
+                // Results
+                if isSearching {
+                    ProgressView()
+                        .padding()
+                } else if !searchQuery.isEmpty && !searchResults.isEmpty {
+                    ScrollView {
+                        VStack(spacing: 8) {
+                            ForEach(searchResults, id: \.identifier) { contact in
+                                Button(action: {
+                                    onContactSelected(contact)
+                                    dismiss()
+                                }) {
+                                    ContactRowView(contact: contact)
+                                        .padding(8)
+                                        .background(Color.gray.opacity(0.1))
+                                        .cornerRadius(8)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(8)
+                    }
+                } else if !searchQuery.isEmpty && searchResults.isEmpty {
+                    VStack(spacing: 12) {
+                        Image(systemName: "person.slash")
+                            .font(.title)
+                            .foregroundColor(.gray)
+
+                        Text("No contacts found")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding()
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "magnifyingglass")
+                            .font(.title)
+                            .foregroundColor(.gray)
+                        
+                        Text("Start typing to search contacts")
+                            .font(.caption)
+                            .foregroundColor(.gray)
+                    }
+                    .padding()
+                }
             }
-            .navigationTitle("Select Contact")
+            .navigationTitle("Link Contact")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -86,34 +109,28 @@ struct ContactPickerView: View {
                 }
             }
         }
-        .task {
-            await loadContacts()
+        .onAppear {
+            // Request contact access
+            Task {
+                _ = try? await ContactManager.shared.requestAccess()
+            }
         }
     }
     
-    private func loadContacts() async {
+    private func performSearch(query: String) async {
+        guard !query.isEmpty else {
+            searchResults = []
+            return
+        }
+
+        isSearching = true
+        defer { isSearching = false }
+
         do {
-            // Request access
-            let granted = try await ContactManager.shared.requestAccess()
-            
-            guard granted else {
-                errorMessage = "Contact access denied. Please enable in Settings."
-                isLoading = false
-                return
-            }
-            
-            // Fetch contacts
-            let fetchedContacts = try await ContactManager.shared.fetchAllContacts()
-            
-            await MainActor.run {
-                contacts = fetchedContacts
-                isLoading = false
-            }
+            searchResults = try await ContactManager.shared.searchContacts(query: query)
         } catch {
-            await MainActor.run {
-                errorMessage = "Failed to load contacts: \(error.localizedDescription)"
-                isLoading = false
-            }
+            print("⚠️ Contact search failed: \(error)")
+            searchResults = []
         }
     }
 }
