@@ -132,11 +132,11 @@ extension GraphViewModel {
     
     // MARK: Selection & Focus
     
-    /// Zooms to fit a PersonNode in a table, including its row, parent PeopleListNode, and control nodes
+    /// Zooms to fit a PersonNode in a table, including its row and control nodes
     @MainActor
     public func zoomToFitTableRow(_ nodeID: NodeID, viewSize: CGSize, animated: Bool = true) {
         guard let personNode = model.nodes.first(where: { $0.id == nodeID })?.unwrapped as? PersonNode else { return }
-        
+
         // Find the parent PeopleListNode
         guard let parentEdge = model.edges.first(where: { $0.target == nodeID && $0.type == .hierarchy }),
               let peopleList = model.nodes.first(where: { $0.id == parentEdge.from })?.unwrapped as? PeopleListNode,
@@ -145,59 +145,60 @@ extension GraphViewModel {
             centerNode(nodeID, viewSize: viewSize, animated: animated)
             return
         }
-        
-        // Get control nodes if they exist
-        let controlNodes = model.nodes.filter { $0.unwrapped is ControlNode }
-        
-        // Calculate bounding box for: PersonNode + PeopleListNode + control nodes
-        var nodesToFit: [any NodeProtocol] = [personNode, peopleList]
-        nodesToFit.append(contentsOf: controlNodes)
-        
-        // Add label width to the bounding box - improved estimate to match rendering
-        let labelWidth: CGFloat = CGFloat(personNode.contents.first?.displayText.count ?? 10) * 11.0 * 0.9
-        let labelOffset: CGFloat = personNode.radius + 10
-        
-        // Calculate bounding box manually to include label
+
+        // Get control nodes for the selected person
+        let controlNodes = model.ephemeralControlNodes.filter { control in
+            model.ephemeralControlEdges.contains { edge in
+                edge.from == nodeID && edge.target == control.id
+            }
+        }
+
+        // Calculate bounding box for the selected row (PersonNode + label + control nodes)
+        // Reduce label width estimation to make table narrower
+        let labelWidth: CGFloat = CGFloat(personNode.contents.first?.displayText.count ?? 10) * 9.0 * 0.75
+        let labelOffset: CGFloat = personNode.radius + 5
+
         var minX = personNode.position.x - personNode.radius
         var maxX = personNode.position.x + labelOffset + labelWidth
         var minY = personNode.position.y - personNode.radius
         var maxY = personNode.position.y + personNode.radius
-        
-        for node in nodesToFit {
-            minX = min(minX, node.position.x - node.radius)
-            maxX = max(maxX, node.position.x + node.radius)
-            minY = min(minY, node.position.y - node.radius)
-            maxY = max(maxY, node.position.y + node.radius)
+
+        // Include control nodes in the bounding box
+        for control in controlNodes {
+            minX = min(minX, control.position.x - control.radius)
+            maxX = max(maxX, control.position.x + control.radius)
+            minY = min(minY, control.position.y - control.radius)
+            maxY = max(maxY, control.position.y + control.radius)
         }
-        
-        // Add padding
-        let padding: CGFloat = 40.0
+
+        // Add moderate padding - reduced for tighter zoom
+        let padding: CGFloat = 30.0
         minX -= padding
         maxX += padding
         minY -= padding
         maxY += padding
-        
+
         let boundsWidth = maxX - minX
         let boundsHeight = maxY - minY
-        
+
         guard boundsWidth > 0, boundsHeight > 0 else { return }
-        
-        // Calculate zoom to fit
+
+        // Calculate zoom to fit the row and controls with tighter fit
         let scaleX = viewSize.width / boundsWidth
         let scaleY = viewSize.height / boundsHeight
-        let targetZoom = min(scaleX, scaleY) * 0.85  // 85% padding factor
-        
+        let targetZoom = min(scaleX, scaleY) * 0.95  // 95% padding factor for tighter zoom
+
         let newZoom = targetZoom.clamped(to: 0.2...5.0)
-        
-        // Calculate center of bounding box
+
+        // Center on the bounding box center (selected person + controls)
         let boundsCenter = CGPoint(x: (minX + maxX) / 2, y: (minY + maxY) / 2)
-        
-        // Calculate offset to center this bounding box
+
+        // Calculate offset to center the row
         let centroid = effectiveCentroid
         let relativePos = boundsCenter - centroid
         let scaledPos = relativePos * newZoom
         let newOffset = CGSize(width: -scaledPos.x, height: -scaledPos.y)
-        
+
         if animated {
             withAnimation(.easeInOut(duration: 0.5)) {
                 zoomScale = newZoom

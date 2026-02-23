@@ -525,14 +525,9 @@ extension ControlKind {
         // Give SwiftUI time to render the new node and PeopleListNode (if created)
         try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
 
-        // Select the new person node
-        viewModel.selectedNodeID = person.id
-        
-        // Center the view on the newly created PersonNode
-        viewModel.centerNode(person.id, viewSize: viewModel.viewSize)
-        
-        // Explicitly generate controls for the new PersonNode
-        await viewModel.generateControls(for: person.id)
+        // Select the new person node with zoom-to-fit
+        // This will trigger zoomToFitTableRow() which centers on the row + control nodes
+        viewModel.setSelectedNode(person.id, zoomToFit: true)
     }
     
     @MainActor

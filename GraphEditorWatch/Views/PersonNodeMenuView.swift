@@ -64,15 +64,18 @@ struct PersonNodeMenuView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                     
-                    actionButton(
-                        person.contactIdentifier != nil ? "Update Contact" : "Link Contact",
-                        icon: "person.crop.circle.badge.plus",
-                        color: .purple
-                    ) {
-                        showContactPicker = true
+                    // Only show Link Contact if appropriate
+                    if PersonEditor.shouldShowLinkContact(person) {
+                        actionButton(
+                            person.contactIdentifier != nil ? "Update Contact" : "Link Contact",
+                            icon: "person.crop.circle.badge.plus",
+                            color: .purple
+                        ) {
+                            showContactPicker = true
+                        }
                     }
                     
-                    actionButton("Edit Preferences", icon: "pencil.circle.fill", color: .blue) {
+                    actionButton("Edit Person", icon: "pencil.circle.fill", color: .blue) {
                         prepareEdit()
                         showEditSheet = true
                     }
@@ -353,8 +356,7 @@ struct PersonNodeMenuView: View {
     }
     
     private func savePerson() {
-        guard let person = personNode,
-              let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == person.id }) else {
+        guard let person = personNode else {
             return
         }
         
@@ -371,43 +373,39 @@ struct PersonNodeMenuView: View {
             print("📷 Generated monogram for '\(editedName)': \(thumbnailData?.count ?? 0) bytes")
         }
         
-        // Create updated person node, preserving contact data
-        let updatedPerson = PersonNode(
-            id: person.id,
-            label: person.label,
-            position: person.position,
-            velocity: person.velocity,
-            radius: person.radius,
-            name: editedName,
-            defaultSpiceLevel: editedSpiceLevel,
-            dietaryRestrictions: editedRestrictions,
-            contactIdentifier: person.contactIdentifier,
-            thumbnailImageData: thumbnailData,
-            proteinPreference: person.proteinPreference,
-            shellPreference: person.shellPreference,
-            toppingPreferences: person.toppingPreferences
-        )
+        // Create edit state
+        var editState = PersonEditState(from: person)
+        editState.name = editedName
+        editState.defaultSpiceLevel = editedSpiceLevel
+        editState.dietaryRestrictions = editedRestrictions
+        editState.thumbnailImageData = thumbnailData
         
-        // Update in model - wrap in Task to use async methods
+        // Validate name
+        let validation = PersonEditor.validateName(editedName)
+        guard validation.isValid else {
+            print("⚠️ Invalid name: \(validation.errorMessage ?? "unknown error")")
+            return
+        }
+        
+        // Update using GraphModel method (handles undo, notification, etc.)
         Task {
-            // Update the node by creating a new array (triggers @Published)
-            var updatedNodes = viewModel.model.nodes
-            updatedNodes[nodeIndex] = AnyNode(updatedPerson)
-            viewModel.model.nodes = updatedNodes
-            
-            // Save to trigger persistence and refresh
-            try? await viewModel.model.saveGraph()
-            
-            // Reload local state on main thread
-            await MainActor.run {
-                personNode = updatedPerson
+            if let updatedPerson = await viewModel.model.updatePerson(
+                personID: person.id,
+                with: editState
+            ) {
+                // Save to trigger persistence
+                try? await viewModel.model.saveGraph()
+                
+                // Reload local state on main thread
+                await MainActor.run {
+                    personNode = updatedPerson
+                }
             }
         }
     }
     
     private func linkContact(_ contact: CNContact) {
-        guard let person = personNode,
-              let nodeIndex = viewModel.model.nodes.firstIndex(where: { $0.id == person.id }) else {
+        guard let person = personNode else {
             return
         }
         
@@ -419,34 +417,20 @@ struct PersonNodeMenuView: View {
             print("📇 Linking contact: \(displayName)")
             print("📷 Thumbnail data size: \(thumbnailData?.count ?? 0) bytes")
             
-            // Create updated person node with contact data
-            let updatedPerson = PersonNode(
-                id: person.id,
-                label: person.label,
-                position: person.position,
-                velocity: person.velocity,
-                radius: person.radius,
-                name: displayName.isEmpty ? person.name : displayName,
-                defaultSpiceLevel: person.defaultSpiceLevel,
-                dietaryRestrictions: person.dietaryRestrictions,
+            // Update using GraphModel method
+            if let updatedPerson = await viewModel.model.linkPersonToContact(
+                personID: person.id,
                 contactIdentifier: contact.identifier,
-                thumbnailImageData: thumbnailData,
-                proteinPreference: person.proteinPreference,
-                shellPreference: person.shellPreference,
-                toppingPreferences: person.toppingPreferences
-            )
-            
-            // Update in model
-            var updatedNodes = viewModel.model.nodes
-            updatedNodes[nodeIndex] = AnyNode(updatedPerson)
-            viewModel.model.nodes = updatedNodes
-            
-            // Save to trigger persistence and refresh
-            try? await viewModel.model.saveGraph()
-            
-            // Reload local state on main thread
-            await MainActor.run {
-                personNode = updatedPerson
+                thumbnailData: thumbnailData,
+                displayName: displayName
+            ) {
+                // Save to trigger persistence
+                try? await viewModel.model.saveGraph()
+                
+                // Reload local state on main thread
+                await MainActor.run {
+                    personNode = updatedPerson
+                }
             }
         }
     }
