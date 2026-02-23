@@ -146,6 +146,11 @@ struct ContentView: View {
                     }
                 }
             }
+            .sheet(isPresented: $viewModel.showPersonCreation) {
+                PersonCreationSheet(viewModel: viewModel) {
+                    viewModel.showPersonCreation = false
+                }
+            }
         }
     }
 

@@ -48,6 +48,24 @@ actor ContactManager {
         }
     }
     
+    // Search contacts by name (supports partial matching)
+    func searchContacts(query: String) async throws -> [CNContact] {
+        guard !query.isEmpty else {
+            return try await fetchAllContacts()
+        }
+        
+        // Fetch all contacts and filter by name
+        let allContacts = try await fetchAllContacts()
+        let lowercasedQuery = query.lowercased()
+        
+        return allContacts.filter { contact in
+            let fullName = "\(contact.givenName) \(contact.familyName)".lowercased()
+            let nickname = contact.nickname.lowercased()
+            
+            return fullName.contains(lowercasedQuery) || nickname.contains(lowercasedQuery)
+        }
+    }
+    
     // Fetch a specific contact by identifier
     func fetchContact(identifier: String) async throws -> CNContact? {
         let predicate = CNContact.predicateForContacts(withIdentifiers: [identifier])

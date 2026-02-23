@@ -39,6 +39,7 @@ import os
     @Published public var showDashboard: Bool = false  // True when dashboard should be shown
     @Published public var showContactPicker: Bool = false  // True when contact picker should be shown
     @Published public var contactPickerForNodeID: UUID?  // NodeID for which contact picker is shown
+    @Published public var showPersonCreation: Bool = false  // True when person creation sheet should be shown
 
     // MARK: Private Properties
     
@@ -515,19 +516,10 @@ extension ControlKind {
             return
         }
 
-        // Both RootNode and PeopleListNode use the same method
-        // addPersonFromRoot() delegates to addPersonToPeopleList()
-        let person = await viewModel.model.addPersonFromRoot()
-
-        WKInterfaceDevice.current().play(.success)
-        logger.debug("Created PersonNode \(person.id.uuidString.prefix(8)) from \(type(of: ownerNode))")
-
-        // Give SwiftUI time to render the new node and PeopleListNode (if created)
-        try? await Task.sleep(nanoseconds: 50_000_000)  // 50ms for one frame at 60fps
-
-        // Select the new person node with zoom-to-fit
-        // This will trigger zoomToFitTableRow() which centers on the row + control nodes
-        viewModel.setSelectedNode(person.id, zoomToFit: true)
+        // Show the PersonCreationSheet for contact search or manual entry
+        viewModel.showPersonCreation = true
+        WKInterfaceDevice.current().play(.click)
+        logger.debug("Showing PersonCreationSheet from \(type(of: ownerNode))")
     }
     
     @MainActor
