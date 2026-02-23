@@ -256,12 +256,43 @@ extension GraphViewModel {
         let hitRadius: CGFloat = 25.0 / max(1.0, zoomScale)
         let nearbyNodes = model.physicsEngine.queryNearby(position: modelPos, radius: hitRadius, nodes: model.visibleNodes)
         
+        // Also check for taps on PersonNode labels when in a table
+        var extendedNearby = nearbyNodes
+        for node in model.visibleNodes {
+            guard let person = node as? PersonNode else { continue }
+            
+            // Check if this person is in an expanded PeopleListNode (table)
+            guard let parentEdge = model.edges.first(where: { $0.target == person.id && $0.type == .hierarchy }),
+                  let peopleList = model.nodes.first(where: { $0.id == parentEdge.from })?.unwrapped as? PeopleListNode,
+                  peopleList.isExpanded else {
+                continue
+            }
+            
+            // Calculate label bounds (label is positioned to the right of the person node in table)
+            let labelOffset = person.radius + 10
+            let labelWidth = CGFloat(person.contents.first?.displayText.count ?? 10) * 9.0
+            let labelHeight: CGFloat = 12.0
+            
+            let labelMinX = person.position.x + labelOffset
+            let labelMaxX = labelMinX + labelWidth
+            let labelMinY = person.position.y - labelHeight / 2
+            let labelMaxY = person.position.y + labelHeight / 2
+            
+            // Check if tap is within label bounds
+            if modelPos.x >= labelMinX && modelPos.x <= labelMaxX &&
+               modelPos.y >= labelMinY && modelPos.y <= labelMaxY {
+                if !extendedNearby.contains(where: { $0.id == person.id }) {
+                    extendedNearby.append(person)
+                }
+            }
+        }
+        
         #if DEBUG
         Logger(subsystem: "io.handcart.GraphEditor", category: "viewmodel")
-            .debug("Nearby nodes found: \(nearbyNodes.count)")
+            .debug("Nearby nodes found: \(extendedNearby.count)")
         #endif
         
-        let sortedNearby = nearbyNodes.sorted {
+        let sortedNearby = extendedNearby.sorted {
             hypot($0.position.x - modelPos.x, $0.position.y - modelPos.y) < hypot($1.position.x - modelPos.x, $1.position.y - modelPos.y)
         }
         
