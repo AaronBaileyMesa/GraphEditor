@@ -828,6 +828,431 @@ struct PerformanceTests {
         #expect(avgSpacing >= 3, "Average spacing should be at least 3px for very deep hierarchies")
     }
     
+    // MARK: - Phase 1 Optimization Validation Tests
+    
+    @MainActor @Test("Index Performance: Node lookup by ID", .timeLimit(.minutes(1)))
+    func testNodeLookupPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create 200 nodes to test lookup performance
+        var nodeIDs: [UUID] = []
+        for _ in 0..<200 {
+            let node = await viewModel.model.addNode(at: CGPoint(
+                x: CGFloat.random(in: 50...450),
+                y: CGFloat.random(in: 50...450)
+            ))
+            nodeIDs.append(node.id)
+        }
+        
+        // Test indexed lookup performance (should be O(1))
+        let iterations = 1000
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            for nodeID in nodeIDs {
+                _ = viewModel.model.node(withID: nodeID)
+            }
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerLookup = duration / Double(iterations * nodeIDs.count)
+        
+        // Indexed lookup should be extremely fast (< 1μs per lookup)
+        #expect(avgTimePerLookup < 0.000001, "Indexed node lookup should be < 1μs, got \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs")
+        
+        // print("✓ Node lookup: \(iterations * nodeIDs.count) lookups in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs per lookup")
+    }
+    
+    @MainActor @Test("Index Performance: Edge lookup from node", .timeLimit(.minutes(1)))
+    func testEdgeLookupFromPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create 50 nodes
+        var nodeIDs: [UUID] = []
+        for _ in 0..<50 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create dense edge network (each node connects to 10 others)
+        for fromID in nodeIDs {
+            for _ in 0..<10 {
+                if let toID = nodeIDs.randomElement() {
+                    await viewModel.model.addEdge(from: fromID, target: toID, type: .association)
+                }
+            }
+        }
+        
+        // Test indexed edge lookup performance
+        let iterations = 500
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            for nodeID in nodeIDs {
+                _ = viewModel.model.edgesFrom(nodeID)
+            }
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerLookup = duration / Double(iterations * nodeIDs.count)
+        
+        // Indexed lookup should be very fast (< 10μs per lookup)
+        #expect(avgTimePerLookup < 0.000010, "Indexed edge lookup should be < 10μs, got \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs")
+        
+        // print("✓ Edge lookup: \(iterations * nodeIDs.count) lookups in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs per lookup")
+    }
+    
+    @MainActor @Test("Index Performance: Edge lookup to node", .timeLimit(.minutes(1)))
+    func testEdgeLookupToPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create 50 nodes
+        var nodeIDs: [UUID] = []
+        for _ in 0..<50 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create edges targeting various nodes
+        for _ in 0..<500 {
+            if let fromID = nodeIDs.randomElement(), let toID = nodeIDs.randomElement() {
+                await viewModel.model.addEdge(from: fromID, target: toID, type: .association)
+            }
+        }
+        
+        // Test indexed edge lookup to target
+        let iterations = 500
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            for nodeID in nodeIDs {
+                _ = viewModel.model.edgesTo(nodeID)
+            }
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerLookup = duration / Double(iterations * nodeIDs.count)
+        
+        // Indexed lookup should be very fast (< 10μs per lookup)
+        #expect(avgTimePerLookup < 0.000010, "Indexed edgesTo lookup should be < 10μs, got \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs")
+        
+        // print("✓ EdgesTo lookup: \(iterations * nodeIDs.count) lookups in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs per lookup")
+    }
+    
+    @MainActor @Test("Index Performance: Filtered edge lookup by type", .timeLimit(.minutes(1)))
+    func testFilteredEdgeLookupPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create nodes in hierarchy
+        var nodeIDs: [UUID] = []
+        for _ in 0..<30 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create mixed edge types
+        for fromID in nodeIDs {
+            // Add hierarchy edges
+            for _ in 0..<3 {
+                if let toID = nodeIDs.randomElement() {
+                    await viewModel.model.addEdge(from: fromID, target: toID, type: .hierarchy)
+                }
+            }
+            // Add association edges
+            for _ in 0..<5 {
+                if let toID = nodeIDs.randomElement() {
+                    await viewModel.model.addEdge(from: fromID, target: toID, type: .association)
+                }
+            }
+        }
+        
+        // Test filtered edge lookup
+        let iterations = 1000
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            for nodeID in nodeIDs {
+                _ = viewModel.model.edgesFrom(nodeID, ofType: .hierarchy)
+            }
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerLookup = duration / Double(iterations * nodeIDs.count)
+        
+        // Filtered indexed lookup should be fast (< 20μs per lookup)
+        #expect(avgTimePerLookup < 0.000020, "Filtered edge lookup should be < 20μs, got \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs")
+        
+        // print("✓ Filtered edge lookup: \(iterations * nodeIDs.count) lookups in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerLookup * 1_000_000))μs per lookup")
+    }
+    
+    @MainActor @Test("Index Performance: Graph traversal improvement", .timeLimit(.minutes(1)))
+    func testIndexedGraphTraversalImprovement() async {
+        let viewModel = createTestViewModel()
+        
+        // Create moderate-sized dense graph
+        var nodeIDs: [UUID] = []
+        for _ in 0..<80 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create dense connections
+        for fromID in nodeIDs {
+            for _ in 0..<8 {
+                if let toID = nodeIDs.randomElement() {
+                    await viewModel.model.addEdge(from: fromID, target: toID, type: .association)
+                }
+            }
+        }
+        
+        // Test full graph traversal using indexed lookups
+        let startTime = Date()
+        
+        var totalConnections = 0
+        for nodeID in nodeIDs {
+            let outgoing = viewModel.model.edgesFrom(nodeID)
+            let incoming = viewModel.model.edgesTo(nodeID)
+            totalConnections += outgoing.count + incoming.count
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        
+        #expect(totalConnections > 0, "Should find connections")
+        
+        // With indexes, full traversal of 80 nodes should be very fast (< 50ms)
+        #expect(duration < 0.050, "Indexed graph traversal should be < 50ms, got \(String(format: "%.2f", duration * 1000))ms")
+        
+        // print("✓ Graph traversal (80 nodes, ~640 edges): \(String(format: "%.2f", duration * 1000))ms")
+        // print("  Total connections found: \(totalConnections)")
+    }
+    
+    @MainActor @Test("Index Performance: Rebuild indexes speed", .timeLimit(.minutes(1)))
+    func testRebuildIndexesPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create large graph
+        for _ in 0..<200 {
+            _ = await viewModel.model.addNode(at: CGPoint(
+                x: CGFloat.random(in: 50...450),
+                y: CGFloat.random(in: 50...450)
+            ))
+        }
+        
+        let nodeIDs = viewModel.model.nodes.map { $0.id }
+        for _ in 0..<500 {
+            if let from = nodeIDs.randomElement(), let to = nodeIDs.randomElement() {
+                await viewModel.model.addEdge(from: from, target: to, type: .association)
+            }
+        }
+        
+        // Test rebuild performance
+        let iterations = 50
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            viewModel.model.rebuildIndexes()
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerRebuild = duration / Double(iterations)
+        
+        // Rebuilding indexes for 200 nodes + 500 edges should be fast (< 10ms)
+        #expect(avgTimePerRebuild < 0.010, "Index rebuild should be < 10ms, got \(String(format: "%.2f", avgTimePerRebuild * 1000))ms")
+        
+        // print("✓ Index rebuild (200 nodes, 500 edges): \(iterations) times in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.2f", avgTimePerRebuild * 1000))ms per rebuild")
+    }
+    
+    // MARK: - Phase 2 Optimization Validation Tests
+    
+    @MainActor @Test("Adjacency Cache: Cache hit performance", .timeLimit(.minutes(1)))
+    func testAdjacencyCacheHitPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create hierarchy with 50 nodes
+        var nodeIDs: [UUID] = []
+        for _ in 0..<50 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create hierarchy edges
+        for i in 0..<nodeIDs.count - 1 {
+            await viewModel.model.addEdge(from: nodeIDs[i], target: nodeIDs[i + 1], type: .hierarchy)
+        }
+        
+        // First call - cache miss (warmup)
+        _ = viewModel.model.getAdjacencyList(for: .hierarchy)
+        
+        // Test cache hit performance
+        let iterations = 1000
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            _ = viewModel.model.getAdjacencyList(for: .hierarchy)
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTimePerAccess = duration / Double(iterations)
+        
+        // Cache hits should be extremely fast (< 1μs)
+        #expect(avgTimePerAccess < 0.000001, "Adjacency cache hit should be < 1μs, got \(String(format: "%.6f", avgTimePerAccess * 1_000_000))μs")
+        
+        // print("✓ Adjacency cache hits: \(iterations) accesses in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.6f", avgTimePerAccess * 1_000_000))μs per access")
+    }
+    
+    @MainActor @Test("Adjacency Cache: Cache invalidation on edge add", .timeLimit(.minutes(1)))
+    func testAdjacencyCacheInvalidationOnEdgeAdd() async {
+        let viewModel = createTestViewModel()
+        
+        // Create nodes
+        var nodeIDs: [UUID] = []
+        for _ in 0..<20 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Build initial adjacency list
+        let adj1 = viewModel.model.getAdjacencyList(for: .hierarchy)
+        let initialCount = adj1.values.flatMap { $0 }.count
+        
+        // Add an edge - should invalidate cache
+        await viewModel.model.addEdge(from: nodeIDs[0], target: nodeIDs[1], type: .hierarchy)
+        
+        // Get adjacency list again - should rebuild and reflect new edge
+        let adj2 = viewModel.model.getAdjacencyList(for: .hierarchy)
+        let newCount = adj2.values.flatMap { $0 }.count
+        
+        #expect(newCount == initialCount + 1, "Adjacency list should reflect new edge after invalidation")
+        #expect(adj2[nodeIDs[0]]?.contains(nodeIDs[1]) == true, "New edge should be in adjacency list")
+    }
+    
+    @MainActor @Test("Adjacency Cache: Cache invalidation on edge delete", .timeLimit(.minutes(1)))
+    func testAdjacencyCacheInvalidationOnEdgeDelete() async {
+        let viewModel = createTestViewModel()
+        
+        // Create nodes with edges
+        let node1 = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        let node2 = await viewModel.model.addNode(at: CGPoint(x: 200, y: 200))
+        await viewModel.model.addEdge(from: node1.id, target: node2.id, type: .hierarchy)
+        
+        // Build adjacency list
+        let adj1 = viewModel.model.getAdjacencyList(for: .hierarchy)
+        #expect(adj1[node1.id]?.contains(node2.id) == true, "Edge should exist in adjacency list")
+        
+        // Delete the edge
+        if let edge = viewModel.model.edges.first(where: { $0.from == node1.id && $0.target == node2.id }) {
+            await viewModel.model.deleteEdge(withID: edge.id)
+        }
+        
+        // Get adjacency list again - should reflect deletion
+        let adj2 = viewModel.model.getAdjacencyList(for: .hierarchy)
+        #expect(adj2[node1.id]?.contains(node2.id) != true, "Deleted edge should not be in adjacency list")
+    }
+    
+    @MainActor @Test("Adjacency Cache: Multiple edge types cached separately", .timeLimit(.minutes(1)))
+    func testAdjacencyCacheMultipleTypes() async {
+        let viewModel = createTestViewModel()
+        
+        // Create nodes
+        let node1 = await viewModel.model.addNode(at: CGPoint(x: 100, y: 100))
+        let node2 = await viewModel.model.addNode(at: CGPoint(x: 200, y: 200))
+        let node3 = await viewModel.model.addNode(at: CGPoint(x: 300, y: 300))
+        
+        // Add different edge types
+        await viewModel.model.addEdge(from: node1.id, target: node2.id, type: .hierarchy)
+        await viewModel.model.addEdge(from: node1.id, target: node3.id, type: .association)
+        
+        // Get adjacency lists for different types
+        let hierarchyAdj = viewModel.model.getAdjacencyList(for: .hierarchy)
+        let associationAdj = viewModel.model.getAdjacencyList(for: .association)
+        let allAdj = viewModel.model.getAdjacencyList(for: nil)
+        
+        // Verify each type is cached correctly
+        #expect(hierarchyAdj[node1.id]?.contains(node2.id) == true, "Hierarchy adjacency should contain hierarchy edge")
+        #expect(hierarchyAdj[node1.id]?.contains(node3.id) != true, "Hierarchy adjacency should not contain association edge")
+        
+        #expect(associationAdj[node1.id]?.contains(node3.id) == true, "Association adjacency should contain association edge")
+        #expect(associationAdj[node1.id]?.contains(node2.id) != true, "Association adjacency should not contain hierarchy edge")
+        
+        #expect(allAdj[node1.id]?.count == 2, "All adjacency should contain both edges")
+    }
+    
+    @MainActor @Test("Adjacency Cache: computeHiddenNodeIDs cache benefit", .timeLimit(.minutes(1)))
+    func testComputeHiddenNodeIDsWithCache() async {
+        let viewModel = createTestViewModel()
+        
+        // Create a hierarchy: parent with 20 children
+        let parent = await viewModel.model.addNode(at: CGPoint(x: 250, y: 100))
+        await viewModel.model.addToggleNode(at: CGPoint(x: 250, y: 100))
+        
+        guard let toggleNode = viewModel.model.nodes.last else {
+            Issue.record("Failed to create toggle node")
+            return
+        }
+        
+        for _ in 0..<20 {
+            let child = await viewModel.model.addNode(at: CGPoint(x: 250, y: 200))
+            await viewModel.model.addEdge(from: toggleNode.id, target: child.id, type: .hierarchy)
+        }
+        
+        // Test repeated access to hiddenNodeIDs (which calls computeHiddenNodeIDs)
+        let iterations = 100
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            _ = viewModel.model.hiddenNodeIDs
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTime = duration / Double(iterations)
+        
+        // With adjacency cache, repeated hiddenNodeIDs access should be very fast
+        // First access builds both hiddenNodeIDs cache and adjacency cache
+        // Subsequent accesses use hiddenNodeIDs cache (O(1))
+        #expect(avgTime < 0.001, "Cached hiddenNodeIDs access should be < 1ms, got \(String(format: "%.2f", avgTime * 1000))ms")
+    }
+    
+    @MainActor @Test("Adjacency Cache: Cache rebuild performance", .timeLimit(.minutes(1)))
+    func testAdjacencyCacheRebuildPerformance() async {
+        let viewModel = createTestViewModel()
+        
+        // Create large graph
+        var nodeIDs: [UUID] = []
+        for _ in 0..<100 {
+            let node = await viewModel.model.addNode(at: CGPoint(x: 250, y: 250))
+            nodeIDs.append(node.id)
+        }
+        
+        // Create hierarchy edges
+        for i in 0..<nodeIDs.count - 1 {
+            await viewModel.model.addEdge(from: nodeIDs[i], target: nodeIDs[i + 1], type: .hierarchy)
+        }
+        
+        // Test cache rebuild (after invalidation)
+        let iterations = 50
+        let startTime = Date()
+        
+        for _ in 0..<iterations {
+            viewModel.model.invalidateAdjacencyCache()
+            _ = viewModel.model.getAdjacencyList(for: .hierarchy)
+        }
+        
+        let duration = Date().timeIntervalSince(startTime)
+        let avgTime = duration / Double(iterations)
+        
+        // Building adjacency list for 100 nodes with 99 edges should be fast (< 5ms)
+        #expect(avgTime < 0.005, "Adjacency cache rebuild should be < 5ms, got \(String(format: "%.2f", avgTime * 1000))ms")
+        
+        // print("✓ Adjacency cache rebuild (100 nodes, 99 edges): \(iterations) times in \(String(format: "%.3f", duration))s")
+        // print("  Average: \(String(format: "%.2f", avgTime * 1000))ms per rebuild")
+    }
+    
     // Helper function to run simulation until stable
     @MainActor
     private func runSimulationUntilStable(viewModel: GraphViewModel, maxIterations: Int) async {
