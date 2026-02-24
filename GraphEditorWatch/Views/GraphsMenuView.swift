@@ -24,12 +24,26 @@ struct GraphsMenuView: View {
         ScrollView {  // Scrollable for long lists
             VStack(spacing: 8) {
                 Text("Graphs").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading)
-                
+
+                // Back to Home button (only visible when in sub-graph)
+                if viewModel.isInSubGraph {
+                    MenuButton(
+                        action: {
+                            viewModel.returnToUserGraph()
+                            onDismiss()
+                        },
+                        label: {
+                            Label("Back to Home", systemImage: "house")
+                        },
+                        accessibilityIdentifier: "backToHomeButton"
+                    )
+                }
+
                 // Current graph name editing (from GraphSection)
                 TextField("Current Name", text: $graphName)
                     .font(.caption)
                     .accessibilityIdentifier("graphNameTextField")
-                
+
                 // Buttons arranged in 2x2 grid
                 VStack(spacing: 4) {
                     HStack(spacing: 8) {

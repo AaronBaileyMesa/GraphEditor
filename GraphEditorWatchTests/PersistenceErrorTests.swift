@@ -20,10 +20,12 @@ class FailingMockGraphStorage: GraphStorage {
     
     private var graphs: [String: GraphState] = [:]
     private var viewStates: [String: ViewState] = [:]
+    private var userGraphState: UserGraphState?
     
     func clear() async throws {
         graphs.removeAll()
         viewStates.removeAll()
+        userGraphState = nil
     }
     
     func listGraphNames() async throws -> [String] {
@@ -73,6 +75,20 @@ class FailingMockGraphStorage: GraphStorage {
             throw GraphStorageError.graphNotFound(name)
         }
         return state
+    }
+    
+    func saveUserGraphState(_ state: UserGraphState) async throws {
+        if shouldFailSave {
+            throw GraphStorageError.writingFailed(NSError(domain: "test", code: 5))
+        }
+        userGraphState = state
+    }
+    
+    func loadUserGraphState() async throws -> UserGraphState? {
+        if shouldFailLoad {
+            throw GraphStorageError.loadingFailed(NSError(domain: "test", code: 6))
+        }
+        return userGraphState
     }
 }
 

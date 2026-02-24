@@ -17,6 +17,7 @@ class MockGraphStorage: GraphStorage {
     // In-memory multi-graph storage using full GraphState (includes colors)
     private var graphs: [String: GraphState] = [:]
     private var viewStates: [String: ViewState] = [:]
+    private var userGraphState: UserGraphState?
     private let defaultName = "default"
     
     // Derived single-graph properties for convenience in tests (syncs with default graph)
@@ -66,6 +67,7 @@ class MockGraphStorage: GraphStorage {
     func clear() async throws {  // Clear all for full reset in tests
         graphs.removeAll()
         viewStates.removeAll()
+        userGraphState = nil
     }
     
     func saveViewState(_ viewState: ViewState) throws {  // Changed to sync (remove async)
@@ -117,6 +119,15 @@ class MockGraphStorage: GraphStorage {
             throw GraphStorageError.graphNotFound(name)
         }
         return state
+    }
+    
+    // MARK: - User Graph State
+    public func saveUserGraphState(_ state: UserGraphState) async throws {
+        userGraphState = state
+    }
+    
+    public func loadUserGraphState() async throws -> UserGraphState? {
+        return userGraphState
     }
 }
 

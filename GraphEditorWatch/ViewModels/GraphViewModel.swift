@@ -39,6 +39,7 @@ import os
     @Published public var showDashboard: Bool = false  // True when dashboard should be shown
     @Published public var showContactPicker: Bool = false  // True when contact picker should be shown
     @Published public var contactPickerForNodeID: UUID?  // NodeID for which contact picker is shown
+    @Published public var isInSubGraph: Bool = false  // True when viewing a sub-graph (not user graph)
 
     // MARK: Private Properties
     

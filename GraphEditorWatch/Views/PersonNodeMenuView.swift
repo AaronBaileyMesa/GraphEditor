@@ -64,6 +64,13 @@ struct PersonNodeMenuView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.top, 8)
                     
+                    // Pin to Home (only show in sub-graph context)
+                    if viewModel.isInSubGraph {
+                        actionButton("Pin to Home", icon: "pin.circle.fill", color: .yellow) {
+                            pinToUserGraph(person: person)
+                        }
+                    }
+                    
                     // Contact linking actions
                     if PersonEditor.shouldShowLinkContact(person) {
                         actionButton(
@@ -553,6 +560,13 @@ struct PersonNodeMenuView: View {
                 
                 print("🔗 Unlinked contact from person: \(updatedPerson.name)")
             }
+        }
+    }
+    
+    private func pinToUserGraph(person: PersonNode) {
+        Task {
+            await viewModel.pinNodeToUserGraph(nodeID: person.id)
+            onDismiss()
         }
     }
 }

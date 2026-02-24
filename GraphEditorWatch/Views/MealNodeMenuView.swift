@@ -138,6 +138,15 @@ struct MealNodeMenuView: View {
                             taskRow(task)
                         }
                     }
+                    
+                    // Pin to Home (only show in sub-graph context)
+                    if viewModel.isInSubGraph {
+                        Text("Actions").font(.subheadline.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.top, 8)
+                        
+                        actionButton("Pin to Home", icon: "pin.circle.fill", color: .yellow) {
+                            pinToUserGraph(meal: meal)
+                        }
+                    }
                 } else {
                     Text("Meal not found")
                         .foregroundColor(.red)
@@ -384,6 +393,13 @@ struct MealNodeMenuView: View {
             await MainActor.run {
                 selectedNodeID = table.id
             }
+        }
+    }
+    
+    private func pinToUserGraph(meal: MealNode) {
+        Task {
+            await viewModel.pinNodeToUserGraph(nodeID: meal.id)
+            onDismiss()
         }
     }
 }

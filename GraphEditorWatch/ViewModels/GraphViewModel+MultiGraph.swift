@@ -36,7 +36,10 @@ extension GraphViewModel {
         try saveViewState()
         try await model.switchToGraph(named: name)
         currentGraphName = model.currentGraphName
-        
+
+        // Mark as in sub-graph
+        isInSubGraph = true
+
         // Load view state for the new graph
         if let viewState = try? model.storage.loadViewState(for: currentGraphName) {
             offset = viewState.offset
@@ -50,10 +53,17 @@ extension GraphViewModel {
             selectedNodeID = nil
             selectedEdgeID = nil
         }
-        
+
         focusState = .graph
         await resumeSimulation()
         Task { await startLayoutAnimation() }
+    }
+
+    /// Returns to the user graph from a sub-graph
+    @MainActor
+    public func returnToUserGraph() {
+        isInSubGraph = false
+        // Navigation handled in view layer
     }
     
     /// Deletes a graph by name.
