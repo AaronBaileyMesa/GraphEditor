@@ -217,7 +217,7 @@ extension GraphViewModel {
         focusState = id.map { .node($0) } ?? .graph
         
         Task { @MainActor in
-            model.updateControlNodes(for: id)
+            await model.updateEphemerals(selectedNodeID: id)
             
             // If zoomToFit requested and node is a PersonNode in a table, zoom to fit
             if zoomToFit, let nodeID = id, viewSize != .zero {
