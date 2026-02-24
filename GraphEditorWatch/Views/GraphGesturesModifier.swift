@@ -369,10 +369,11 @@ struct GraphGesturesModifier: ViewModifier {
     func handleTap(at location: CGPoint, visibleNodes: [any NodeProtocol], visibleEdges: [GraphEdge]) -> Bool {
         Self.logger.debug("handleTap: location=\(location.x, format: .fixed(precision: 1)),\(location.y, format: .fixed(precision: 1)) visibleNodes=\(visibleNodes.count)")
         
+        let modelPos = CoordinateTransformer.screenToModel(location, renderContext)
+        
         #if DEBUG
         print("🎯 Tap Debug:")
         print("  Screen tap location: (\(location.x), \(location.y))")
-        let modelPos = CoordinateTransformer.screenToModel(location, renderContext)
         print("  Converted to model: (\(modelPos.x), \(modelPos.y))")
         print("  RenderContext:")
         print("    Centroid: (\(renderContext.effectiveCentroid.x), \(renderContext.effectiveCentroid.y))")
@@ -381,6 +382,7 @@ struct GraphGesturesModifier: ViewModifier {
         print("    ViewSize: (\(renderContext.viewSize.width), \(renderContext.viewSize.height))")
         #endif
         
+        // First check for node circle hits
         if let node = HitTestHelper.closestNode(at: location, visibleNodes: visibleNodes, renderContext: renderContext) {
             #if DEBUG
             print("  Hit node at model position: (\(node.position.x), \(node.position.y))")
@@ -389,6 +391,38 @@ struct GraphGesturesModifier: ViewModifier {
             }
             #endif
             return handleNodeTap(node: node)
+        }
+        
+        // Check for taps on PersonNode labels when in a table
+        for anyNode in visibleNodes {
+            guard let person = anyNode as? PersonNode else { continue }
+            
+            // Check if this person is in an expanded PeopleListNode (table)
+            guard let parentEdge = viewModel.model.edges.first(where: { $0.target == person.id && $0.type == .hierarchy }),
+                  let peopleList = viewModel.model.nodes.first(where: { $0.id == parentEdge.from })?.unwrapped as? PeopleListNode,
+                  peopleList.isExpanded else {
+                continue
+            }
+            
+            // Calculate label bounds (label is positioned to the right of the person node in table)
+            // Make the hit area match the full row height (PersonNode diameter)
+            let labelOffset = person.radius + 10
+            let labelWidth = CGFloat(person.contents.first?.displayText.count ?? 10) * 9.0
+            let rowHeight = person.radius * 2  // Full diameter of PersonNode for row height
+            
+            let labelMinX = person.position.x + labelOffset
+            let labelMaxX = labelMinX + labelWidth
+            let labelMinY = person.position.y - rowHeight / 2
+            let labelMaxY = person.position.y + rowHeight / 2
+            
+            // Check if tap is within label bounds
+            if modelPos.x >= labelMinX && modelPos.x <= labelMaxX &&
+               modelPos.y >= labelMinY && modelPos.y <= labelMaxY {
+                #if DEBUG
+                print("  ✅ Hit PersonNode label: \(person.contents.first?.displayText ?? "")")
+                #endif
+                return handleNodeTap(node: person)
+            }
         }
         
         if let edge = HitTestHelper.closestEdge(at: location, visibleEdges: visibleEdges, visibleNodes: visibleNodes, renderContext: renderContext) {

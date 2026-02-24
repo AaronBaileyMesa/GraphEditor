@@ -258,15 +258,36 @@ extension GraphViewModel {
         
         // Also check for taps on PersonNode labels when in a table
         var extendedNearby = nearbyNodes
-        for node in model.visibleNodes {
-            guard let person = node as? PersonNode else { continue }
+        
+        #if DEBUG
+        print("🔍 Checking \(model.visibleNodes.count) visible nodes for label hits")
+        #endif
+        
+        for anyNode in model.visibleNodes {
+            #if DEBUG
+            print("   Node type: \(type(of: anyNode))")
+            #endif
+            
+            // Unwrap the AnyNode to get the actual PersonNode
+            guard let person = anyNode as? PersonNode else { continue }
+            
+            #if DEBUG
+            print("   Found PersonNode: \(person.contents.first?.displayText ?? "")")
+            #endif
             
             // Check if this person is in an expanded PeopleListNode (table)
             guard let parentEdge = model.edges.first(where: { $0.target == person.id && $0.type == .hierarchy }),
                   let peopleList = model.nodes.first(where: { $0.id == parentEdge.from })?.unwrapped as? PeopleListNode,
                   peopleList.isExpanded else {
+                #if DEBUG
+                print("   PersonNode not in expanded table, skipping")
+                #endif
                 continue
             }
+            
+            #if DEBUG
+            print("   PersonNode IS in expanded table!")
+            #endif
             
             // Calculate label bounds (label is positioned to the right of the person node in table)
             let labelOffset = person.radius + 10
@@ -278,9 +299,18 @@ extension GraphViewModel {
             let labelMinY = person.position.y - labelHeight / 2
             let labelMaxY = person.position.y + labelHeight / 2
             
+            #if DEBUG
+            print("👤 Person '\(person.contents.first?.displayText ?? "")' at (\(person.position.x), \(person.position.y))")
+            print("   Label bounds: x=[\(labelMinX), \(labelMaxX)], y=[\(labelMinY), \(labelMaxY)]")
+            print("   Tap at: (\(modelPos.x), \(modelPos.y))")
+            #endif
+            
             // Check if tap is within label bounds
             if modelPos.x >= labelMinX && modelPos.x <= labelMaxX &&
                modelPos.y >= labelMinY && modelPos.y <= labelMaxY {
+                #if DEBUG
+                print("   ✅ Hit label!")
+                #endif
                 if !extendedNearby.contains(where: { $0.id == person.id }) {
                     extendedNearby.append(person)
                 }
