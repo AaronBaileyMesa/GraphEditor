@@ -129,6 +129,8 @@ struct PlanOverviewScreen: View {
                 if meal?.planStatus == .active {
                     Button {
                         viewModel.model.updatePlanStatus(planID, to: .completed)
+                        // Record achievement attempt and unlock milestones
+                        viewModel.recordTacoNightCompletion(mealID: planID)
                     } label: {
                         Label("Mark Complete", systemImage: "checkmark.seal.fill")
                             .frame(maxWidth: .infinity)

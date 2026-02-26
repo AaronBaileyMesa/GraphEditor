@@ -55,6 +55,10 @@ extension GraphViewModel {
         }
 
         focusState = .graph
+
+        // Initialize achievements if needed for this graph
+        initializeAchievementsIfNeeded()
+
         await resumeSimulation()
         Task { await startLayoutAnimation() }
     }

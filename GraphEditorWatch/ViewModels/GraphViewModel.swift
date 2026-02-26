@@ -141,6 +141,9 @@ import os
             model.setupControlSubscriptions(
                 selectedNodePublisher: $selectedNodeID.eraseToAnyPublisher()
             )
+
+            // Initialize achievements if needed for the default graph
+            initializeAchievementsIfNeeded()
         }
     
     /// Centers and fits the graph to the view — intended for initial load or explicit user action only
